@@ -18,10 +18,10 @@ const openSIPSJS = new OpenSIPSJS({
 
 openSIPSJS
     .on('newRTCSession', ({ session }: RTCSessionEvent) => {
-        console.log('e', session)
+        console.warn('e', session)
     })
     .on('callAddingInProgressChanged', (value) => {
-        console.log('callAddingInProgressChanged', value)
+        //console.log('callAddingInProgressChanged', value)
         if (!callAddingIndicatorEl) {
             return
         }
