@@ -5,16 +5,15 @@ import {
     IncomingAckEvent,
     IncomingEvent,
     OutgoingAckEvent,
-    OutgoingEvent,
-    SessionDirection
+    OutgoingEvent
 } from 'jssip/lib/RTCSession'
 import { RTCSessionEvent, UAConfiguration, UAEventMap } from 'jssip/lib/UA'
-import { TempTimeData, ITimeData, setupTime } from '@/helpers/time.helper'
-import { filterObjectKeys } from '@/helpers/filter.helper'
-import WebRTCMetrics from '@/helpers/webrtcmetrics/metrics'
-import { WebrtcMetricsConfigType, Probe, ProbeMetricInType, MetricAudioData } from '@/types/webrtcmetrics'
-import { RTCConfiguration, RTCSessionExtended } from '@/types/rtc'
-import { METRIC_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
+import { TempTimeData, ITimeData, setupTime } from '~/src/helpers/time.helper'
+import { filterObjectKeys } from '~/src/helpers/filter.helper'
+import WebRTCMetrics from '~/src/helpers/webrtcmetrics/metrics'
+import { WebrtcMetricsConfigType, Probe, ProbeMetricInType, MetricAudioData } from '~/src/types/webrtcmetrics'
+import { RTCConfiguration, RTCSessionExtended } from '~/src/types/rtc'
+import { METRIC_KEYS_TO_INCLUDE } from '~/src/enum/metric.keys.to.include'
 
 export interface IOpenSIPSJSOptions {
     configuration: Omit<UAConfiguration, 'sockets'>,
@@ -26,15 +25,31 @@ export interface IOpenSIPSJSOptions {
         pcConfig: RTCConfiguration
     }
 }
+export type readyListener = (value: boolean) => void
+export type changeActiveCallsListener = (event: { [key: string]: ICall }) => void
 export type TestEventListener = (event: { test: string }) => void
 export type ActiveRoomListener = (event: number | undefined) => void
 export type CallAddingProgressListener = (callId: string | undefined) => void
 export type RoomDeletedListener = (roomId: number) => void
+export type changeActiveInputMediaDeviceListener = (event: string) => void
+export type changeActiveOutputMediaDeviceListener = (event: string) => void
+export type changeAvailableDeviceListListener = (event: Array<MediaDeviceInfo>) => void
+export type changeMuteWhenJoinListener = (value: boolean) => void
+export type changeIsDNDListener = (value: boolean) => void
+export type changeIsMutedListener = (value: boolean) => void
 export interface OpenSIPSEventMap extends UAEventMap {
+    ready: readyListener
+    changeActiveCalls: changeActiveCallsListener
     callConfirmed: TestEventListener
     currentActiveRoomChanged: ActiveRoomListener
     callAddingInProgressChanged: CallAddingProgressListener
     roomDeleted: RoomDeletedListener
+    changeActiveInputMediaDevice: changeActiveInputMediaDeviceListener
+    changeActiveOutputMediaDevice: changeActiveOutputMediaDeviceListener
+    changeAvailableDeviceList: changeAvailableDeviceListListener
+    changeMuteWhenJoin: changeMuteWhenJoinListener
+    changeIsDND: changeIsDNDListener
+    changeIsMuted: changeIsMutedListener
 }
 
 export type ListenersKeyType = keyof OpenSIPSEventMap
@@ -185,41 +200,6 @@ const STORAGE_KEYS = {
     SELECTED_OUTPUT_DEVICE: 'selectedOutputDevice'
 }
 
-export const STORE_MUTATION_TYPES = {
-    SET_MEDIA_DEVICES: 'SET_MEDIA_DEVICES',
-    SET_UA_INIT: 'SET_UA_INIT',
-    SET_SELECTED_INPUT_DEVICE: 'SET_SELECTED_INPUT_DEVICE',
-    SET_SPEAKER_VOLUME: 'SET_SPEAKER_VOLUME',
-    ADD_CALL: 'ADD_CALL',
-    SET_CALL_TIME: 'SET_CALL_TIME',
-    REMOVE_CALL_TIME: 'REMOVE_CALL_TIME',
-    SET_TIME_INTERVAL: 'SET_TIME_INTERVAL',
-    REMOVE_TIME_INTERVAL: 'REMOVE_TIME_INTERVAL',
-    ADD_CALL_STATUS: 'ADD_CALL_STATUS',
-    UPDATE_CALL_STATUS: 'UPDATE_CALL_STATUS',
-    REMOVE_CALL_STATUS: 'REMOVE_CALL_STATUS',
-    ADD_ROOM: 'ADD_ROOM',
-    UPDATE_ROOM: 'UPDATE_ROOM',
-    SET_CURRENT_ACTIVE_ROOM_ID: 'SET_CURRENT_ACTIVE_ROOM_ID',
-    REMOVE_ROOM: 'REMOVE_ROOM',
-    REMOVE_CALL: 'REMOVE_CALL',
-    SET_SIP_DOMAIN: 'SET_SIP_DOMAIN',
-    SET_SIP_OPTIONS: 'SET_SIP_OPTIONS',
-    SET_SELECTED_OUTPUT_DEVICE: 'SET_SELECTED_OUTPUT_DEVICE',
-    SET_MICROPHONE_INPUT_LEVEL: 'SET_MICROPHONE_INPUT_LEVEL',
-    UPDATE_CALL: 'UPDATE_CALL',
-    ADD_LISTENER: 'ADD_LISTENER',
-    REMOVE_LISTENER: 'REMOVE_LISTENER',
-    CALL_ADDING_IN_PROGRESS: 'CALL_ADDING_IN_PROGRESS',
-    SET_DND: 'SET_DND',
-    SET_MUTED: 'SET_MUTED',
-    SET_MUTED_WHEN_JOIN: 'SET_MUTED_WHEN_JOIN',
-    SET_METRIC_CONFIG: 'SET_METRIC_CONFIG',
-    SET_CALL_METRICS: 'SET_CALL_METRICS',
-    REMOVE_CALL_METRICS: 'REMOVE_CALL_METRICS',
-    SET_ORIGINAL_STREAM: 'SET_ORIGINAL_STREAM'
-}
-
 export const CALL_EVENT_LISTENER_TYPE = {
     NEW_CALL: 'new_call',
     CALL_CONFIRMED: 'confirmed',
@@ -240,7 +220,7 @@ export interface InnerState {
     callStatus: { [key: string]: ICallStatus }
     timeIntervals: { [key: string]: IntervalType }
     callMetrics: { [key: string]: any }
-    availableMediaDevices: any[]
+    availableMediaDevices: Array<MediaDeviceInfo>
     selectedMediaDevices: { [key: string]: string }
     microphoneInputLevel: number
     speakerVolume: number
@@ -263,8 +243,8 @@ class OpenSIPSJS extends UA {
         activeCalls: {},
         availableMediaDevices: [],
         selectedMediaDevices: {
-            input: localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE) || 'default',
-            output: localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
+            input: 'default', //localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE) || 'default',
+            output: 'default' //localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
         },
         microphoneInputLevel: 2, // from 0 to 2
         speakerVolume: 1, // from 0 to 1
@@ -326,12 +306,13 @@ class OpenSIPSJS extends UA {
         this.emit('callAddingInProgressChanged', value)
     }
 
-    private get muteWhenJoin () {
+    public get muteWhenJoin () {
         return this.state.muteWhenJoin
     }
 
-    private set muteWhenJoin (value: boolean) {
+    public set muteWhenJoin (value: boolean) {
         this.state.muteWhenJoin = value
+        this.emit('changeMuteWhenJoin', value)
     }
 
     public get isDND () {
@@ -340,6 +321,7 @@ class OpenSIPSJS extends UA {
 
     public set isDND (value: boolean) {
         this.state.isDND = value
+        this.emit('changeIsDND', value)
     }
 
     private get speakerVolume () {
@@ -370,6 +352,7 @@ class OpenSIPSJS extends UA {
 
     public set isMuted (value: boolean) {
         this.state.isMuted = value
+        this.emit('changeIsMuted', value)
     }
 
 
@@ -401,11 +384,11 @@ class OpenSIPSJS extends UA {
 
 
     public get getInputDefaultDevice () {
-        return this.getInputDeviceList.find(device => device.id === 'default')
+        return this.getInputDeviceList.find(device => device.deviceId === 'default')
     }
 
     public get getOutputDefaultDevice () {
-        return this.getOutputDeviceList.find(device => device.id === 'default')
+        return this.getOutputDeviceList.find(device => device.deviceId === 'default')
     }
 
     public get selectedInputDevice () {
@@ -416,6 +399,7 @@ class OpenSIPSJS extends UA {
         localStorage.setItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE, deviceId)
 
         this.state.selectedMediaDevices.input = deviceId
+        this.emit('changeActiveInputMediaDevice', deviceId)
     }
 
     public get selectedOutputDevice () {
@@ -426,6 +410,7 @@ class OpenSIPSJS extends UA {
         localStorage.setItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE, deviceId)
 
         this.state.selectedMediaDevices.output = deviceId
+        this.emit('changeActiveOutputMediaDevice', deviceId)
     }
 
     /*getSelectedInputDevice: state => state.selectedMediaDevices.input,
@@ -436,6 +421,52 @@ class OpenSIPSJS extends UA {
         return getters.getOutputDeviceList.find(device => device.id === 'default')
     },
     getSelectedOutputDevice: state => state.selectedMediaDevices.output,*/
+
+    /*private setDefaultMediaDevices () {
+        this.state.selectedMediaDevices.input = localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE) || 'default'
+        this.state.selectedMediaDevices.output = localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
+        console.log('emit', this.state.selectedMediaDevices)
+        //this.emit('changeActiveMediaDevice', this.state.selectedMediaDevices)
+    }*/
+
+    private setAvailableMediaDevices (devices: Array<MediaDeviceInfo>) {
+        this.state.availableMediaDevices = devices
+        this.emit('changeAvailableDeviceList', devices)
+    }
+
+    public async updateDeviceList () {
+        await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
+        const devices = await navigator.mediaDevices.enumerateDevices()
+
+        //commit(STORE_MUTATION_TYPES.SET_MEDIA_DEVICES, devices)
+        //this.state.availableMediaDevices = devices
+        this.setAvailableMediaDevices(devices)
+    }
+
+    public async setMediaDevices (setDefaults = false) {
+        //this.state.selectedMediaDevices.input = localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE) || 'default'
+        //this.state.selectedMediaDevices.output = localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
+
+        await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
+        const devices = await navigator.mediaDevices.enumerateDevices()
+
+        //commit(STORE_MUTATION_TYPES.SET_MEDIA_DEVICES, devices)
+        //this.state.availableMediaDevices = devices
+        this.setAvailableMediaDevices(devices)
+
+        const defaultMicrophone = setDefaults
+            ? this.getInputDefaultDevice?.deviceId || ''
+            : ''
+        const defaultSpeaker = setDefaults
+            ? this.getOutputDefaultDevice?.deviceId || ''
+            : ''
+
+        //dispatch('setMicrophone', defaultMicrophone)
+        await this.setMicrophone(defaultMicrophone)
+        //dispatch('setSpeaker', defaultSpeaker)
+        await this.setSpeaker(defaultSpeaker)
+        //this.emit('changeActiveMediaDevice', this.state.selectedMediaDevices)
+    }
 
     public setCallTime (value: ITimeData) {
         const time: TempTimeData = { ...value }
@@ -485,6 +516,14 @@ class OpenSIPSJS extends UA {
         this.state.metricConfig = { ...this.state.metricConfig, ...config }
     }
 
+    public doMute (value: boolean) {
+        const activeRoomId = this.currentActiveRoomId
+        //commit(STORE_MUTATION_TYPES.SET_MUTED, muted)
+        this.isMuted = value
+        //dispatch('_roomReconfigure', activeRoomId)
+        this.roomReconfigure(activeRoomId)
+    }
+
     public doCallHold ({ callId, toHold, automatic }: { callId: string, toHold: boolean, automatic?: boolean }) {
         const call = activeCalls[callId]
         call._automaticHold = automatic ?? false
@@ -503,6 +542,7 @@ class OpenSIPSJS extends UA {
         }*/
 
         this.state.activeCalls[value._id] = simplifyCallObject(value) as ICall
+        this.emit('changeActiveCalls', this.state.activeCalls)
     }
 
     public updateRoom (value: IRoomUpdate) {
@@ -523,6 +563,7 @@ class OpenSIPSJS extends UA {
         }
 
         activeCalls[value._id] = value
+        this.emit('changeActiveCalls', this.state.activeCalls)
     }
 
     private _addCallStatus (callId: string) {
@@ -961,6 +1002,7 @@ class OpenSIPSJS extends UA {
         this.state.activeCalls = {
             ...stateActiveCallsCopy,
         }
+        this.emit('changeActiveCalls', this.state.activeCalls)
     }
 
     private _activeCallListRemove (call: ICall) {
@@ -1046,12 +1088,17 @@ class OpenSIPSJS extends UA {
         //dispatch('_addCall', session)
         this.addCall(session)
 
-        if (session.direction === SessionDirection.OUTGOING) {
+        if (session.direction === 'outgoing') {
             //console.log('Is outgoing')
             //dispatch('setCurrentActiveRoom', session.roomId)
             const roomId = this.getActiveCalls[session.id].roomId
             this.setCurrentActiveRoomId(roomId)
         }
+    }
+
+    private setInitialized () {
+        this.initialized = true
+        this.emit('ready', true)
     }
 
     public start () {
@@ -1062,7 +1109,9 @@ class OpenSIPSJS extends UA {
 
         super.start()
 
-        this.initialized = true
+        this.setInitialized()
+        //this.setDefaultMediaDevices()
+        this.setMediaDevices(true)
 
         return this
     }
