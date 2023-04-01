@@ -18,6 +18,11 @@ export interface RTCConfiguration {
     rtcpMuxPolicy?: RTCRtcpMuxPolicy;
 }
 
+export interface StreamMediaType extends HTMLAudioElement {
+    class: string
+    setSinkId (id: string): Promise<void>
+}
+
 export interface RTCSessionExtended extends RTCSession {
     _automaticHold: boolean
     _id: string
@@ -38,4 +43,11 @@ export interface RTCSessionExtended extends RTCSession {
     start_time: Date
     _remote_identity: string
     isOnHold: () => OnHoldResult
+}
+
+export interface ICall extends RTCSessionExtended {
+    id: string
+    roomId?: number
+    localMuted?: boolean
+    audioTag?: StreamMediaType
 }

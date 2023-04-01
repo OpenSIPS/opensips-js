@@ -1,5 +1,6 @@
 import OpenSIPSJS from '../src'
 import { RTCSessionEvent } from 'jssip/lib/UA'
+import { ICall } from '../src/types/rtc'
 
 const openSIPSJS = new OpenSIPSJS({
     configuration: {
@@ -18,6 +19,11 @@ const openSIPSJS = new OpenSIPSJS({
 
 let addCallToCurrentRoom = false
 
+/* DOM Elements */
+
+const makeCallFormEl = document.getElementById('makeCallForm')
+const callAddingIndicatorEl = document.getElementById('callAddingIndicator')
+
 const microphoneEl = document.getElementById('microphoneEl') as HTMLSelectElement
 const speakerEl = document.getElementById('speakerEl') as HTMLSelectElement
 
@@ -27,10 +33,46 @@ const muteContainerEl = document.getElementById('muteContainerEl') as HTMLElemen
 
 const addToCurrentRoomInputEl = document.getElementById('addToCurrentRoomInputEl') as HTMLInputElement
 
+const inputLevelApplyButtonEl = document.getElementById('inputLevelApplyButton') as HTMLButtonElement
+const outputLevelApplyButtonEl = document.getElementById('outputLevelApplyButton') as HTMLButtonElement
+const inputLevelEl = document.getElementById('inputLevel') as HTMLInputElement
+const outputLevelEl = document.getElementById('outputLevel') as HTMLInputElement
+
+const dtmfForm = document.getElementById('dtmfForm') as HTMLFormElement
+const dtmfInputEl = document.getElementById('dtmfInput') as HTMLInputElement
+const dtmfSendButtonEl = document.getElementById('dtmfSendButton') as HTMLButtonElement
+
+/* Helpers */
+
 const muteButtonEventListener = (event: MouseEvent) => {
     event.preventDefault()
     openSIPSJS.doMute(!openSIPSJS.isMuted)
 }
+
+const calculateDtmfButtonDisability = (sessions: { [key: string]: ICall }) => {
+    const callsInActiveRoom = Object.values(sessions).filter((call) => call.roomId === openSIPSJS.currentActiveRoomId)
+    const dtmfTarget = dtmfInputEl.value
+
+    if (callsInActiveRoom.length !== 1 || !dtmfTarget) {
+        dtmfSendButtonEl.setAttribute('disabled', 'true')
+    } else {
+        dtmfSendButtonEl.removeAttribute('disabled')
+    }
+}
+
+const calculateMuteButtonDisability = (sessions: { [key: string]: ICall }) => {
+    if (!muteContainerEl) {
+        return
+    }
+
+    if (!Object.keys(sessions).length) {
+        muteContainerEl.querySelector('button').setAttribute('disabled', 'true')
+    } else {
+        muteContainerEl.querySelector('button').removeAttribute('disabled')
+    }
+}
+
+/* openSIPSJS Listeners */
 
 openSIPSJS
     .on('ready', () => {
@@ -42,15 +84,8 @@ openSIPSJS
         addToCurrentRoomInputEl.checked = false
     })
     .on('changeActiveCalls', (sessions) => {
-        if (!muteContainerEl) {
-            return
-        }
-
-        if (!Object.keys(sessions).length) {
-            muteContainerEl.querySelector('button').setAttribute('disabled', 'true')
-        } else {
-            muteContainerEl.querySelector('button').removeAttribute('disabled')
-        }
+        calculateDtmfButtonDisability(sessions)
+        calculateMuteButtonDisability(sessions)
     })
     .on('newRTCSession', ({ session }: RTCSessionEvent) => {
         console.warn('e', session)
@@ -138,6 +173,8 @@ openSIPSJS
     })
     .start()
 
+/* DOMContentLoaded Listener */
+
 window.addEventListener('DOMContentLoaded', () => {
     if (muteContainerEl) {
         muteContainerEl.querySelector('button').addEventListener('click', muteButtonEventListener)
@@ -155,8 +192,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 })
 
-const makeCallFormEl = document.getElementById('makeCallForm')
-const callAddingIndicatorEl = document.getElementById('callAddingIndicator')
+/* DOM Elements Listeners */
 
 makeCallFormEl?.addEventListener(
     'submit',
@@ -223,4 +259,47 @@ DNDInputEl?.addEventListener(
         const target = event.target as HTMLInputElement
         openSIPSJS.isDND = target.checked
 
+    })
+
+inputLevelApplyButtonEl?.addEventListener(
+    'click',
+    async (event) => {
+        event.preventDefault()
+
+        const value = Number(inputLevelEl.value)
+        openSIPSJS.microphoneInputLevel = value
+    })
+
+outputLevelApplyButtonEl?.addEventListener(
+    'click',
+    async (event) => {
+        event.preventDefault()
+
+        const value = Number(outputLevelEl.value)
+        openSIPSJS.speakerVolume = value
+    })
+
+
+dtmfInputEl?.addEventListener(
+    'input',
+    async (event) => {
+        event.preventDefault()
+
+        calculateDtmfButtonDisability(openSIPSJS.getActiveCalls)
+    })
+
+dtmfForm?.addEventListener(
+    'submit',
+    (event) => {
+        event.preventDefault()
+        const form = event.target
+
+        if (!(form instanceof HTMLFormElement)) {
+            return
+        }
+
+        const callsInActiveRoom = Object.values(openSIPSJS.getActiveCalls).filter((call) => call.roomId === openSIPSJS.currentActiveRoomId)
+        const dtmfTarget = dtmfInputEl.value
+
+        openSIPSJS.sendDTMF(callsInActiveRoom[0].id, dtmfTarget)
     })

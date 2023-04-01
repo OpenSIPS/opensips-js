@@ -88,31 +88,44 @@
         <br/>
 
         <div>
-            <label for="inputLevel">Sensitivity (between 0 and 2):</label>
+            <label for="inputLevel">Microphone sensitivity (between 0 and 2):</label>
             <input type="number"
                    id="inputLevel"
                    name="inputLevel"
-                   v-model="microphoneSensitivity"
+                   value="2"
                    min="0"
                    max="2"
                    step="0.1"
             >
-            <button @click="setMicrophoneSensitivity">Apply</button>
+            <button id="inputLevelApplyButton">Apply</button>
         </div>
         <div>
-            getter {{speakerVolume}}
-            value {{speakerVolumeLevel}}
             <label for="outputLevel">Speaker volume (between 0 and 1):</label>
             <input type="number"
                    id="outputLevel"
                    name="outputLevel"
-                   v-model="speakerVolumeLevel"
+                   value="1"
                    min="0"
                    max="1"
                    step="0.1"
             >
-            <button @click="setSpeakerVolumeLevel">Apply</button>
+            <button id="outputLevelApplyButton">Apply</button>
         </div>
+
+        <br/>
+
+        <div>
+            <form id="dtmfForm">
+                <label>
+                    DTMF input:
+                    <input id="dtmfInput" type="text">
+                </label>
+                <button id="dtmfSendButton" type="submit" disabled>
+                    Send
+                </button>
+            </form>
+        </div>
+
     </div>
 <script src="./index.ts" type="module"></script>
 </body>

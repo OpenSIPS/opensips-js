@@ -12,7 +12,7 @@ import { TempTimeData, ITimeData, setupTime } from '~/src/helpers/time.helper'
 import { filterObjectKeys } from '~/src/helpers/filter.helper'
 import WebRTCMetrics from '~/src/helpers/webrtcmetrics/metrics'
 import { WebrtcMetricsConfigType, Probe, ProbeMetricInType, MetricAudioData } from '~/src/types/webrtcmetrics'
-import { RTCConfiguration, RTCSessionExtended } from '~/src/types/rtc'
+import { RTCConfiguration, RTCSessionExtended, ICall, StreamMediaType } from '~/src/types/rtc'
 import { METRIC_KEYS_TO_INCLUDE } from '~/src/enum/metric.keys.to.include'
 
 export interface IOpenSIPSJSOptions {
@@ -69,11 +69,7 @@ export interface IDoCallParam {
     setSinkId(id: string)
 }*/
 
-export interface ICall extends RTCSessionExtended {
-    roomId?: number
-    localMuted?: boolean
-    audioTag?: StreamMediaType
-}
+
 
 type ICallKey = keyof ICall
 
@@ -150,10 +146,7 @@ export interface TriggerListenerOptions {
     event?:  ListenerEventType
 }
 
-interface StreamMediaType extends HTMLAudioElement {
-    class: string
-    setSinkId (id: string): Promise<void>
-}
+
 
 type IntervalType = ReturnType<typeof setTimeout>
 
@@ -324,12 +317,18 @@ class OpenSIPSJS extends UA {
         this.emit('changeIsDND', value)
     }
 
-    private get speakerVolume () {
+    public get speakerVolume () {
         return this.state.speakerVolume
     }
 
-    private set speakerVolume (value) {
+    public set speakerVolume (value) {
         this.state.speakerVolume = value
+
+        Object.values(activeCalls).forEach((call) => {
+            if (call.audioTag) {
+                call.audioTag.volume = value
+            }
+        })
     }
 
     public get microphoneInputLevel () {
@@ -338,6 +337,7 @@ class OpenSIPSJS extends UA {
 
     public set microphoneInputLevel (value: number) {
         this.state.microphoneInputLevel = value
+        this.roomReconfigure(this.currentActiveRoomId)
     }
 
 
@@ -514,6 +514,15 @@ class OpenSIPSJS extends UA {
 
     public setMetricsConfig (config: WebrtcMetricsConfigType)  {
         this.state.metricConfig = { ...this.state.metricConfig, ...config }
+    }
+
+    public sendDTMF (callId: string, value: string) {
+        const validation_regex = /^[A-D0-9]+$/g
+        if (!validation_regex.test(value)) {
+            throw new Error('Not allowed character in DTMF input')
+        }
+        const call = activeCalls[callId]
+        call.sendDTMF(value)
     }
 
     public doMute (value: boolean) {
@@ -1120,7 +1129,7 @@ class OpenSIPSJS extends UA {
         this.muteWhenJoin = value
     }
 
-    public setSpeakerVolume (value: number) {
+    /*public setSpeakerVolume (value: number) {
         //commit(STORE_MUTATION_TYPES.SET_SPEAKER_VOLUME, value);
         this.speakerVolume = value
 
@@ -1129,7 +1138,7 @@ class OpenSIPSJS extends UA {
                 call.audioTag.volume = this.speakerVolume
             }
         })
-    }
+    }*/
 
     private _setCallMetrics (value: any) {
         const metrics = { ...value }
