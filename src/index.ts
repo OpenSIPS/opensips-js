@@ -12,7 +12,14 @@ import { TempTimeData, ITimeData, setupTime } from '~/src/helpers/time.helper'
 import { filterObjectKeys } from '~/src/helpers/filter.helper'
 import WebRTCMetrics from '~/src/helpers/webrtcmetrics/metrics'
 import { WebrtcMetricsConfigType, Probe, ProbeMetricInType, MetricAudioData } from '~/src/types/webrtcmetrics'
-import { RTCConfiguration, RTCSessionExtended, ICall, StreamMediaType } from '~/src/types/rtc'
+import {
+    RTCConfiguration,
+    RTCSessionExtended,
+    ICall,
+    StreamMediaType,
+    IntervalType,
+    RoomChangeEmitType
+} from '~/src/types/rtc'
 import { METRIC_KEYS_TO_INCLUDE } from '~/src/enum/metric.keys.to.include'
 
 export interface IOpenSIPSJSOptions {
@@ -25,6 +32,9 @@ export interface IOpenSIPSJSOptions {
         pcConfig: RTCConfiguration
     }
 }
+
+
+
 export type readyListener = (value: boolean) => void
 export type changeActiveCallsListener = (event: { [key: string]: ICall }) => void
 export type TestEventListener = (event: { test: string }) => void
@@ -37,6 +47,10 @@ export type changeAvailableDeviceListListener = (event: Array<MediaDeviceInfo>) 
 export type changeMuteWhenJoinListener = (value: boolean) => void
 export type changeIsDNDListener = (value: boolean) => void
 export type changeIsMutedListener = (value: boolean) => void
+export type changeOriginalStreamListener = (value: MediaStream) => void
+export type addRoomListener = (value: RoomChangeEmitType) => void
+export type updateRoomListener = (value: RoomChangeEmitType) => void
+export type removeRoomListener = (value: RoomChangeEmitType) => void
 export interface OpenSIPSEventMap extends UAEventMap {
     ready: readyListener
     changeActiveCalls: changeActiveCallsListener
@@ -50,6 +64,10 @@ export interface OpenSIPSEventMap extends UAEventMap {
     changeMuteWhenJoin: changeMuteWhenJoinListener
     changeIsDND: changeIsDNDListener
     changeIsMuted: changeIsMutedListener
+    changeOriginalStream: changeOriginalStreamListener
+    addRoom: addRoomListener
+    updateRoom: updateRoomListener
+    removeRoom: removeRoomListener
 }
 
 export type ListenersKeyType = keyof OpenSIPSEventMap
@@ -146,10 +164,6 @@ export interface TriggerListenerOptions {
     event?:  ListenerEventType
 }
 
-
-
-type IntervalType = ReturnType<typeof setTimeout>
-
 /* Helpers */
 function simplifyCallObject (call: ICall): { [key: string]: any } {
     //const simplified: { [key: string]: ICall[ICallKey] } = {}
@@ -228,7 +242,7 @@ class OpenSIPSJS extends UA {
     private readonly options: IOpenSIPSJSOptions
     private readonly newRTCSessionEventName: ListenersKeyType = 'newRTCSession'
     private readonly activeCalls: { [key: string]: ICall } = {}
-    private readonly activeRooms: { [key: number]: IRoom } = {}
+    //private readonly activeRooms: { [key: number]: IRoom } = {}
     private _currentActiveRoomId: number | undefined
     private _callAddingInProgress: string | undefined
     private state: InnerState = {
@@ -345,6 +359,10 @@ class OpenSIPSJS extends UA {
         return this.state.activeCalls
     }
 
+    public get getActiveRooms () {
+        return this.state.activeRooms
+    }
+
 
     public get isMuted () {
         return this.state.isMuted
@@ -411,6 +429,10 @@ class OpenSIPSJS extends UA {
 
         this.state.selectedMediaDevices.output = deviceId
         this.emit('changeActiveOutputMediaDevice', deviceId)
+    }
+
+    public get originalStream () {
+        return this.state.originalStream
     }
 
     /*getSelectedInputDevice: state => state.selectedMediaDevices.input,
@@ -556,13 +578,20 @@ class OpenSIPSJS extends UA {
 
     public updateRoom (value: IRoomUpdate) {
         const room = this.state.activeRooms[value.roomId]
+
+        const newRoomData: IRoom = {
+            ...room,
+            ...value
+        }
+
         this.state.activeRooms = {
             ...this.state.activeRooms,
             [value.roomId]: {
-                ...room,
-                ...value
+                ...newRoomData
             }
         }
+
+        this.emit('updateRoom', { room: newRoomData, roomList: this.state.activeRooms })
     }
 
     private _addCall (value: ICall) {
@@ -600,6 +629,8 @@ class OpenSIPSJS extends UA {
             ...this.state.activeRooms,
             [value.roomId]: value
         }
+
+        this.emit('addRoom', { room: value, roomList: this.state.activeRooms })
     }
 
     public async setMicrophone (dId: string) {
@@ -637,8 +668,9 @@ class OpenSIPSJS extends UA {
         }
     }
 
-    public _setOriginalStream (value: MediaStream) {
+    private _setOriginalStream (value: MediaStream) {
         this.state.originalStream = value
+        this.emit('changeOriginalStream', value)
     }
 
     public async setSpeaker (dId: string) {
@@ -674,11 +706,16 @@ class OpenSIPSJS extends UA {
 
     private removeRoom (roomId: number) {
         const activeRoomsCopy = { ...this.state.activeRooms }
+
+        const roomToRemove = { ...activeRoomsCopy[roomId] }
+
         delete activeRoomsCopy[roomId]
 
         this.state.activeRooms = {
             ...activeRoomsCopy,
         }
+
+        this.emit('removeRoom', { room: roomToRemove, roomList: this.state.activeRooms })
     }
 
     private deleteRoomIfEmpty (roomId: number | undefined) {
@@ -865,7 +902,7 @@ class OpenSIPSJS extends UA {
         this.setTimeInterval(callId, interval)
     }
 
-    private async setCurrentActiveRoomId (roomId: number | undefined) {
+    public async setCurrentActiveRoomId (roomId: number | undefined) {
         const oldRoomId = this.currentActiveRoomId
 
         if (roomId === oldRoomId) {
@@ -881,7 +918,7 @@ class OpenSIPSJS extends UA {
     }
 
     private getNewRoomId () {
-        const roomIdList = Object.keys(this.activeRooms)
+        const roomIdList = Object.keys(this.state.activeRooms)
 
         if (roomIdList.length === 0) {
             return 1

@@ -1,6 +1,7 @@
-import OpenSIPSJS from '../src'
+import OpenSIPSJS, { IRoom } from '../src'
 import { RTCSessionEvent } from 'jssip/lib/UA'
-import { ICall } from '../src/types/rtc'
+import { ICall, RoomChangeEmitType } from '../src/types/rtc'
+import { runIndicator } from '../src/helpers/volume.helper'
 
 const openSIPSJS = new OpenSIPSJS({
     configuration: {
@@ -42,6 +43,11 @@ const dtmfForm = document.getElementById('dtmfForm') as HTMLFormElement
 const dtmfInputEl = document.getElementById('dtmfInput') as HTMLInputElement
 const dtmfSendButtonEl = document.getElementById('dtmfSendButton') as HTMLButtonElement
 
+const agentVoiceLevelContainerEl = document.getElementById('agentVoiceLevelContainer')
+
+const activeCallsCounterEl = document.getElementById('activeCallsCounter')
+const roomSelectEl = document.getElementById('roomSelect') as HTMLSelectElement
+
 /* Helpers */
 
 const muteButtonEventListener = (event: MouseEvent) => {
@@ -72,6 +78,52 @@ const calculateMuteButtonDisability = (sessions: { [key: string]: ICall }) => {
     }
 }
 
+const calculateVolumeLevel = (sessions: { [key: string]: ICall }) => {
+    if (!Object.keys(sessions).length) {
+        const volumeContainer = document.getElementById('volumeLevelAgentVoiceLevel')
+
+        if (volumeContainer) {
+            volumeContainer.remove()
+        }
+    }
+
+    const spanEl = document.createElement('span')
+    spanEl.setAttribute('id', 'volume-level-agent-voice-level')
+    spanEl.classList.add('volume-wrapper')
+    agentVoiceLevelContainerEl.appendChild(spanEl)
+
+    //const imgEl = document.createElement('img')
+
+    const canvasEl = document.createElement('canvas')
+    canvasEl.setAttribute('id', 'canvas-agent-voice-level')
+    agentVoiceLevelContainerEl.appendChild(canvasEl)
+
+    //runIndicator()
+}
+
+const calculateActiveCallsNumber = (sessions: { [key: string]: ICall }) => {
+    const counter = Object.keys(sessions).length
+    activeCallsCounterEl.innerText = `${counter}`
+}
+
+const updateRoomListOptions = (roomList: { [key: number]: IRoom }) => {
+    const currentSelectedRoom = openSIPSJS.currentActiveRoomId
+
+    roomSelectEl.querySelectorAll('option:not(.noData)').forEach(el => el.remove())
+    Object.values(roomList).forEach((room) => {
+        const newOption = document.createElement('option') as HTMLOptionElement
+        newOption.value = `${room.roomId}`
+        newOption.text = `Room ${room.roomId}`
+        newOption.setAttribute('key', `${room.roomId}`)
+
+        if (room.roomId === currentSelectedRoom) {
+            newOption.setAttribute('selected', '')
+        }
+
+        roomSelectEl.appendChild(newOption)
+    })
+}
+
 /* openSIPSJS Listeners */
 
 openSIPSJS
@@ -86,6 +138,8 @@ openSIPSJS
     .on('changeActiveCalls', (sessions) => {
         calculateDtmfButtonDisability(sessions)
         calculateMuteButtonDisability(sessions)
+        calculateVolumeLevel(sessions)
+        calculateActiveCallsNumber(sessions)
     })
     .on('newRTCSession', ({ session }: RTCSessionEvent) => {
         console.warn('e', session)
@@ -170,6 +224,34 @@ openSIPSJS
         buttonEl.innerText = buttonText
         buttonEl.addEventListener('click', muteButtonEventListener)
         muteContainerEl.appendChild(buttonEl)
+    })
+    .on('changeOriginalStream', (value: MediaStream) => {
+        runIndicator(value, 'agent-voice-level')
+    })
+    .on('currentActiveRoomChanged', (id: number | undefined) => {
+        const options = roomSelectEl.querySelectorAll('option')
+        options.forEach(option => option.removeAttribute('selected'))
+
+        if (!id) {
+            const noDataOption = roomSelectEl.querySelector('option.noData')
+            noDataOption.setAttribute('selected', '')
+            return
+        }
+
+        options.forEach(option => {
+            if (option.value === `${id}`) {
+                option.setAttribute('selected', '')
+            }
+        })
+    })
+    .on('addRoom', ({ roomList }: RoomChangeEmitType) => {
+        updateRoomListOptions(roomList)
+    })
+    .on('updateRoom', ({ roomList }: RoomChangeEmitType) => {
+        updateRoomListOptions(roomList)
+    })
+    .on('removeRoom', ({ roomList }: RoomChangeEmitType) => {
+        updateRoomListOptions(roomList)
     })
     .start()
 
@@ -302,4 +384,14 @@ dtmfForm?.addEventListener(
         const dtmfTarget = dtmfInputEl.value
 
         openSIPSJS.sendDTMF(callsInActiveRoom[0].id, dtmfTarget)
+    })
+
+roomSelectEl?.addEventListener(
+    'change',
+    async (event) => {
+        event.preventDefault()
+
+        const target = event.target as HTMLSelectElement
+        const roomId = parseInt(target.value)
+        await openSIPSJS.setCurrentActiveRoomId(roomId)
     })

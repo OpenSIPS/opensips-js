@@ -1,4 +1,7 @@
 import { OnHoldResult, RTCSession, SessionDirection } from 'jssip/lib/RTCSession'
+import { IRoom } from '~/src'
+
+export type IntervalType = ReturnType<typeof setInterval>
 
 export type RTCBundlePolicy = 'balanced' | 'max-bundle' | 'max-compat'
 export type RTCIceTransportPolicy = 'all' | 'relay'
@@ -50,4 +53,9 @@ export interface ICall extends RTCSessionExtended {
     roomId?: number
     localMuted?: boolean
     audioTag?: StreamMediaType
+}
+
+export type RoomChangeEmitType = {
+    room: IRoom
+    roomList: { [key: number]: IRoom }
 }
