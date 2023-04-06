@@ -48,6 +48,8 @@ const agentVoiceLevelContainerEl = document.getElementById('agentVoiceLevelConta
 const activeCallsCounterEl = document.getElementById('activeCallsCounter')
 const roomSelectEl = document.getElementById('roomSelect') as HTMLSelectElement
 
+const roomsContainerEl = document.getElementById('roomsContainer')
+
 /* Helpers */
 
 const muteButtonEventListener = (event: MouseEvent) => {
@@ -79,26 +81,30 @@ const calculateMuteButtonDisability = (sessions: { [key: string]: ICall }) => {
 }
 
 const calculateVolumeLevel = (sessions: { [key: string]: ICall }) => {
-    if (!Object.keys(sessions).length) {
-        const volumeContainer = document.getElementById('volumeLevelAgentVoiceLevel')
+    const volumeContainer = document.getElementById('volume-level-agent-voice-level')
 
+    if (!Object.keys(sessions).length && volumeContainer) {
         if (volumeContainer) {
             volumeContainer.remove()
         }
     }
 
-    const spanEl = document.createElement('span')
-    spanEl.setAttribute('id', 'volume-level-agent-voice-level')
-    spanEl.classList.add('volume-wrapper')
-    agentVoiceLevelContainerEl.appendChild(spanEl)
+    if (!volumeContainer) {
+        const spanEl = document.createElement('span')
+        spanEl.setAttribute('id', 'volume-level-agent-voice-level')
+        spanEl.classList.add('volume-wrapper')
 
-    //const imgEl = document.createElement('img')
+        //const imgEl = document.createElement('img')
 
-    const canvasEl = document.createElement('canvas')
-    canvasEl.setAttribute('id', 'canvas-agent-voice-level')
-    agentVoiceLevelContainerEl.appendChild(canvasEl)
+        const canvasEl = document.createElement('canvas')
+        canvasEl.setAttribute('id', 'canvas-agent-voice-level')
+        canvasEl.width = 20
+        canvasEl.height = 20
+        spanEl.appendChild(canvasEl)
 
-    //runIndicator()
+        agentVoiceLevelContainerEl.appendChild(spanEl)
+        //runIndicator()
+    }
 }
 
 const calculateActiveCallsNumber = (sessions: { [key: string]: ICall }) => {
@@ -110,7 +116,11 @@ const updateRoomListOptions = (roomList: { [key: number]: IRoom }) => {
     const currentSelectedRoom = openSIPSJS.currentActiveRoomId
 
     roomSelectEl.querySelectorAll('option:not(.noData)').forEach(el => el.remove())
+
+    roomsContainerEl.querySelectorAll('.roomWrapper').forEach(el => el.remove())
+
     Object.values(roomList).forEach((room) => {
+        // Update room Select options
         const newOption = document.createElement('option') as HTMLOptionElement
         newOption.value = `${room.roomId}`
         newOption.text = `Room ${room.roomId}`
@@ -121,8 +131,150 @@ const updateRoomListOptions = (roomList: { [key: number]: IRoom }) => {
         }
 
         roomSelectEl.appendChild(newOption)
+
+        // Update all call move to room select options
+
+        //const f
+
+        // Update rooms list data
+        const roomEl = document.createElement('div')
+        roomEl.setAttribute('id', `room-${room.roomId}`)
+        roomEl.setAttribute('key', `${room.roomId}`)
+        roomEl.classList.add('roomWrapper')
+
+        const roomInfoEl = document.createElement('div')
+        const roomNameEl = document.createElement('b')
+        const roomDateEl = document.createElement('span')
+        roomNameEl.innerText = `Room ${room.roomId}`
+        roomDateEl.innerText = `${room.started}`
+        roomInfoEl.appendChild(roomNameEl)
+        roomInfoEl.appendChild(roomDateEl)
+        roomEl.appendChild(roomInfoEl)
+
+        const breakEl = document.createElement('br')
+        roomEl.appendChild(breakEl)
+
+        const unorderedListEl = document.createElement('ul')
+        roomEl.appendChild(unorderedListEl)
+
+        roomsContainerEl.appendChild(roomEl)
+        //const activeCallsInRoom = Object.values(this.getActiveCalls).filter((call) => call.roomId === roomId)
+
+        upsertRoomData(room, openSIPSJS.getActiveCalls)
     })
 }
+
+const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
+    const ulListEl = roomsContainerEl.querySelector(`#room-${room.roomId} ul`)
+    ulListEl.querySelectorAll('li').forEach(el => el.remove())
+
+    const activeCallsInRoom = Object.values(sessions).filter((call) => call.roomId === room.roomId)
+    activeCallsInRoom.forEach((call, index) => {
+        const listItemEl = document.createElement('li')
+        listItemEl.setAttribute('key', `${index}`)
+
+
+        const muteAgentButtonEl = document.createElement('button') as HTMLButtonElement
+        muteAgentButtonEl.innerText = call.localMuted ? 'Unmute' : 'Mute'
+        muteAgentButtonEl.addEventListener('click', (event) => {
+            event.preventDefault()
+            const isMuted = call.localMuted
+            openSIPSJS.muteCaller(call.id, !isMuted)
+            muteAgentButtonEl.innerText = !isMuted ? 'Unmute' : 'Mute'
+        })
+        listItemEl.appendChild(muteAgentButtonEl)
+
+
+        const terminateButtonEl = document.createElement('button') as HTMLButtonElement
+        terminateButtonEl.innerText = 'Hangup'
+        terminateButtonEl.addEventListener('click', (event) => {
+            event.preventDefault()
+            openSIPSJS.callTerminate(call.id)
+        })
+        listItemEl.appendChild(terminateButtonEl)
+
+
+        const transferButtonEl = document.createElement('button') as HTMLButtonElement
+        transferButtonEl.innerText = 'Transfer'
+        transferButtonEl.addEventListener('click', (event) => {
+            event.preventDefault()
+
+            const target = prompt('Please enter target:')
+
+            if (target !== null || target !== '') {
+                openSIPSJS.callTransfer(call.id, target)
+            }
+        })
+        listItemEl.appendChild(transferButtonEl)
+
+
+        if (activeCallsInRoom.length === 2) {
+            const mergeButtonEl = document.createElement('button') as HTMLButtonElement
+            mergeButtonEl.innerText = `Merge ${room.roomId}`
+            mergeButtonEl.addEventListener('click', (event) => {
+                event.preventDefault()
+                openSIPSJS.callMerge(room.roomId)
+            })
+            listItemEl.appendChild(mergeButtonEl)
+        }
+
+
+        const holdAgentButtonEl = document.createElement('button') as HTMLButtonElement
+        holdAgentButtonEl.innerText = call._localHold ? 'UnHold' : 'Hold'
+        holdAgentButtonEl.classList.add('holdAgent')
+        holdAgentButtonEl.addEventListener('click', (event) => {
+            event.preventDefault()
+            const isOnHold = call._localHold
+            openSIPSJS.doCallHold({ callId: call.id, toHold: !isOnHold })
+            holdAgentButtonEl.innerText = !isOnHold ? 'UnHold' : 'Hold'
+        })
+        listItemEl.appendChild(holdAgentButtonEl)
+
+        if (call.direction !== 'outgoing' && !call._is_confirmed) {
+            const answerButtonEl = document.createElement('button') as HTMLButtonElement
+            answerButtonEl.innerText = 'Answer'
+            answerButtonEl.addEventListener('click', (event) => {
+                event.preventDefault()
+                openSIPSJS.callAnswer(call.id)
+            })
+            listItemEl.appendChild(answerButtonEl)
+        }
+
+        /*const callMoveSelectEl = document.createElement('select') as HTMLSelectElement
+        //callMoveSelectEl.setAttribute('id', )
+        callMoveSelectEl.addEventListener('change', (event) => {
+            event.preventDefault()
+
+            const target = event.target as HTMLSelectElement
+            openSIPSJS.callMove(call._id, parseInt(target.value))
+        })
+        listItemEl.appendChild(callMoveSelectEl)
+        const d*/
+
+        /*if (call.localMuted) {
+            muteAgentButtonEl.innerText = 'Unmute'
+            muteAgentButtonEl.addEventListener('click', (event) => {
+                event.preventDefault()
+                openSIPSJS.muteCaller(call.id, false)
+            })
+        } else {
+            muteAgentButtonEl.innerText = 'Mute'
+            muteAgentButtonEl.addEventListener('click', (event) => {
+                event.preventDefault()
+                openSIPSJS.muteCaller(call.id, true)
+            })
+        }*/
+
+    })
+}
+
+/*const transferCall = (callId) => {
+    const target = prompt('Please enter target:')
+
+    if (target !== null || target !== '') {
+        openSIPSJS.callTransfer(callId, target)
+    }
+}*/
 
 /* openSIPSJS Listeners */
 
@@ -140,6 +292,12 @@ openSIPSJS
         calculateMuteButtonDisability(sessions)
         calculateVolumeLevel(sessions)
         calculateActiveCallsNumber(sessions)
+
+        Object.values(openSIPSJS.getActiveRooms).forEach((room) => {
+            upsertRoomData(room, sessions)
+        })
+        // Object.values(sessions).filter((call) => call.roomId === roomId)
+        // roomsContainerEl.querySelector('ul')
     })
     .on('newRTCSession', ({ session }: RTCSessionEvent) => {
         console.warn('e', session)
@@ -229,6 +387,19 @@ openSIPSJS
         runIndicator(value, 'agent-voice-level')
     })
     .on('currentActiveRoomChanged', (id: number | undefined) => {
+        // Update calls in room hold button disability
+        roomsContainerEl.querySelectorAll('.roomWrapper').forEach((el) => {
+            const elRoomId = +el.id.split('-')[1]
+            el.querySelectorAll('.holdAgent').forEach((btnEl) => {
+                if (elRoomId === id) {
+                    btnEl.removeAttribute('disabled')
+                } else {
+                    btnEl.setAttribute('disabled', '')
+                }
+            })
+        })
+
+        // Update select options and value
         const options = roomSelectEl.querySelectorAll('option')
         options.forEach(option => option.removeAttribute('selected'))
 

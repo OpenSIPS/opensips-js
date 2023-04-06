@@ -43,6 +43,7 @@ export interface RTCSessionExtended extends RTCSession {
     _late_sdp: string
     _videoMuted: boolean
     status: number
+    _status: number
     start_time: Date
     _remote_identity: string
     isOnHold: () => OnHoldResult
@@ -52,6 +53,7 @@ export interface ICall extends RTCSessionExtended {
     id: string
     roomId?: number
     localMuted?: boolean
+    localHold?: boolean
     audioTag?: StreamMediaType
 }
 

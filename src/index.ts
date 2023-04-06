@@ -33,7 +33,7 @@ export interface IOpenSIPSJSOptions {
     }
 }
 
-
+const CALL_STATUS_UNANSWERED = 0
 
 export type readyListener = (value: boolean) => void
 export type changeActiveCallsListener = (event: { [key: string]: ICall }) => void
@@ -153,6 +153,13 @@ export interface ICallStatus {
     isMerging: boolean
 }
 
+export interface ICallStatusUpdate {
+    callId: string
+    isMoving?: boolean
+    isTransferring?: boolean
+    isMerging?: boolean
+}
+
 export type IRoomUpdate = Omit<IRoom, 'started'> & {
     started?: Date
 }
@@ -174,6 +181,8 @@ function simplifyCallObject (call: ICall): { [key: string]: any } {
             simplified[key] = call[key]
         }
     })
+
+    simplified.localHold = call._localHold
 
     return simplified
 }
@@ -566,6 +575,39 @@ class OpenSIPSJS extends UA {
         }
     }
 
+    private _cancelAllOutgoingUnanswered () {
+        Object.values(this.getActiveCalls).filter(call => {
+            return call.direction === 'outgoing'
+                && call.status === CALL_STATUS_UNANSWERED
+        }).forEach(call => this.callTerminate(call._id))
+    }
+
+    public callAnswer (callId: string) {
+        const call = activeCalls[callId]
+
+        //dispatch('_cancelAllOutgoingUnanswered')
+        this._cancelAllOutgoingUnanswered()
+        call.answer(this.sipOptions)
+        //commit(STORE_MUTATION_TYPES.UPDATE_CALL, call)
+        this.updateCall(call)
+        //dispatch('setCurrentActiveRoom', call.roomId) //TODO: move to top
+        this.setCurrentActiveRoomId(call.roomId)
+
+        call.connection.addEventListener('addstream', async event => {
+            //dispatch('_triggerAddStream', {event, call})
+            this._triggerAddStream(event as MediaEvent, call)
+        })
+    }
+
+    public async callMove (callId: string, roomId: number) {
+        // commit(STORE_MUTATION_TYPES.UPDATE_CALL_STATUS, { callId, isMoving: true });
+        this._updateCallStatus({ callId, isMoving: true })
+        //await dispatch('callChangeRoom', {callId, roomId})
+        await this.callChangeRoom({ callId, roomId })
+        // commit(STORE_MUTATION_TYPES.UPDATE_CALL_STATUS, { callId, isMoving: false });
+        this._updateCallStatus({ callId, isMoving: false })
+    }
+
     public updateCall (value: ICall) {
         /*this.state.activeCalls = {
             ...this.state.activeCalls,
@@ -611,6 +653,41 @@ class OpenSIPSJS extends UA {
                 isMoving: false,
                 isTransferring: false,
                 isMerging: false
+            }
+        }
+    }
+
+    private _updateCallStatus (value: ICallStatusUpdate) {
+        const prevStatus = { ...this.state.callStatus[value.callId] }
+        //const newStatus = { ...value }
+        /*const newStatus: ICallStatus = {
+            isMoving: value.isMoving,
+            isTransferring: value.isTransferring,
+            isMerging: value.isMerging
+        }*/
+
+        const newStatus: ICallStatus = {
+            ...prevStatus
+        }
+
+        if (value.isMoving !== undefined) {
+            newStatus.isMoving = value.isMoving
+        }
+
+        if (value.isTransferring !== undefined) {
+            newStatus.isTransferring = value.isTransferring
+        }
+
+        if (value.isMerging !== undefined) {
+            newStatus.isMerging = value.isMerging
+        }
+
+        //delete newStatus['callId']
+
+        this.state.callStatus = {
+            ...this.state.callStatus,
+            [value.callId]: {
+                ...newStatus
             }
         }
     }
@@ -878,6 +955,67 @@ class OpenSIPSJS extends UA {
         } else {
             call.unmute({ audio: true })
         }
+    }
+
+    public muteCaller (callId: string, value: boolean) {
+        const call = activeCalls[callId]
+
+        if (call && call.connection.getReceivers().length) {
+            call.localMuted = value
+            call.connection.getReceivers().forEach(receiver => {
+                receiver.track.enabled = !value
+            })
+            //commit(STORE_MUTATION_TYPES.UPDATE_CALL, call)
+            this.updateCall(call)
+            //dispatch('_roomReconfigure', call.roomId)
+            this.roomReconfigure(call.roomId)
+        }
+    }
+
+    public callTerminate (callId: string) {
+        const call = activeCalls[callId]
+
+        if (call._status !== 8) {
+            call.terminate()
+        }
+    }
+
+    public callTransfer (callId: string, target: string) {
+        if (target.toString().length === 0) {
+            return console.error('Target must be passed')
+        }
+
+        //commit(STORE_MUTATION_TYPES.UPDATE_CALL_STATUS, { callId, isTransferring: true })
+        this._updateCallStatus({ callId, isTransferring: true })
+
+        const call = activeCalls[callId]
+
+        call.refer(`sip:${target}@${this.sipDomain}`)
+        //commit(STORE_MUTATION_TYPES.UPDATE_CALL, call)
+        this.updateCall(call)
+    }
+
+    public callMerge (roomId: number) {
+        const callsInRoom = Object.values(activeCalls).filter((call) => call.roomId === roomId)
+        if (callsInRoom.length !== 2) return
+
+        const firstCall = callsInRoom[0]
+        const secondCall = callsInRoom[1]
+
+        if (!firstCall || !secondCall) {
+            return
+        }
+
+        // TODO: Check all call.id for working in the same way as call._id
+        //commit(STORE_MUTATION_TYPES.UPDATE_CALL_STATUS, { callId: firstCall._id, isMerging: true });
+        this._updateCallStatus({ callId: firstCall._id, isMerging: true })
+        //commit(STORE_MUTATION_TYPES.UPDATE_CALL_STATUS, { callId: secondCall._id, isMerging: true });
+        this._updateCallStatus({ callId: secondCall._id, isMerging: true })
+
+        //firstCall.refer(secondCall.remote_identity._uri.toString(), {'replaces': secondCall});
+        firstCall.refer(secondCall.remote_identity.uri.toString(), { 'replaces': secondCall })
+        //commit(STORE_MUTATION_TYPES.UPDATE_CALL, firstCall)
+        this.updateCall(firstCall)
     }
 
     private _startCallTimer (callId: string) {
