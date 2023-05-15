@@ -6,11 +6,11 @@ import { runIndicator } from '../src/helpers/volume.helper'
 const openSIPSJS = new OpenSIPSJS({
     configuration: {
         session_timers: false,
-        uri: 'sip:hot9LF30@sip06.voicenter.co:8888',
+        uri: 'sip:hot9LF30@sip05.voicenter.co',
         password: 'FPQV3alO1eattCmH',
     },
-    socketInterfaces: [ 'wss://sip05.voicenter.co:8888' ],
-    sipDomain: 'sip06.voicenter.co',
+    socketInterfaces: [ 'wss://sip05.voicenter.co' ],
+    sipDomain: 'sip05.voicenter.co',
     sipOptions: {
         session_timers: false,
         extraHeaders: [ 'X-Bar: bar' ],
