@@ -5,6 +5,7 @@ module.exports = {
         'plugin:@typescript-eslint/recommended',
         'eslint:recommended'
     ],
+    ignorePatterns: [ 'src/helpers/webrtcmetrics/' ],
     rules: {
         '@typescript-eslint/ban-ts-comment': [ 'error' ],
         '@typescript-eslint/no-unused-vars': 'error',

@@ -40,10 +40,27 @@
     "src/**/*.ts",
     "src/**/*.tsx",
   ],
-  "exclude": ["demo/**/*", "node_modules"],
+  "exclude": ["demo/**/*", "node_modules", "./src/helpers/webrtcmetrics"],
   "references": [
     {
       "path": "./tsconfig.node.json"
     }
-  ]
+  ],
+  "rules": {
+    "@typescript-eslint/naming-convention": [
+      "warn",
+      {
+        "selector": "memberLike",
+        "modifiers": ["private"],
+        "format": ["camelCase"],
+        "leadingUnderscore": "require"
+      },
+      {
+        "selector": "variable",
+        "modifiers": ["private"],
+        "format": ["camelCase"],
+        "leadingUnderscore": "require"
+      }
+    ]
+  }
 }

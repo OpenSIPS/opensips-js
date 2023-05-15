@@ -1,14 +1,16 @@
-import OpenSIPSJS from '../src'
+import OpenSIPSJS, { IRoom } from '../src'
 import { RTCSessionEvent } from 'jssip/lib/UA'
+import { ICall, RoomChangeEmitType } from '../src/types/rtc'
+import { runIndicator } from '../src/helpers/volume.helper'
 
 const openSIPSJS = new OpenSIPSJS({
     configuration: {
         session_timers: false,
-        uri: 'sip:hot9LF30@sip06.voicenter.co:8888',
+        uri: 'sip:hot9LF30@sip05.voicenter.co',
         password: 'FPQV3alO1eattCmH',
     },
-    socketInterfaces: [ 'wss://sip06.voicenter.co:8888' ],
-    sipDomain: 'sip06.voicenter.co',
+    socketInterfaces: [ 'wss://sip05.voicenter.co' ],
+    sipDomain: 'sip05.voicenter.co',
     sipOptions: {
         session_timers: false,
         extraHeaders: [ 'X-Bar: bar' ],
@@ -16,26 +18,434 @@ const openSIPSJS = new OpenSIPSJS({
     },
 })
 
+let addCallToCurrentRoom = false
+
+/* DOM Elements */
+
+const makeCallFormEl = document.getElementById('makeCallForm')
+const callAddingIndicatorEl = document.getElementById('callAddingIndicator')
+
+const microphoneEl = document.getElementById('microphoneEl') as HTMLSelectElement
+const speakerEl = document.getElementById('speakerEl') as HTMLSelectElement
+
+const muteWhenJoinInputEl = document.getElementById('muteWhenJoinInputEl') as HTMLInputElement
+const DNDInputEl = document.getElementById('DNDInputEl') as HTMLInputElement
+const muteContainerEl = document.getElementById('muteContainerEl') as HTMLElement
+
+const addToCurrentRoomInputEl = document.getElementById('addToCurrentRoomInputEl') as HTMLInputElement
+
+const inputLevelApplyButtonEl = document.getElementById('inputLevelApplyButton') as HTMLButtonElement
+const outputLevelApplyButtonEl = document.getElementById('outputLevelApplyButton') as HTMLButtonElement
+const inputLevelEl = document.getElementById('inputLevel') as HTMLInputElement
+const outputLevelEl = document.getElementById('outputLevel') as HTMLInputElement
+
+const dtmfForm = document.getElementById('dtmfForm') as HTMLFormElement
+const dtmfInputEl = document.getElementById('dtmfInput') as HTMLInputElement
+const dtmfSendButtonEl = document.getElementById('dtmfSendButton') as HTMLButtonElement
+
+const agentVoiceLevelContainerEl = document.getElementById('agentVoiceLevelContainer')
+
+const activeCallsCounterEl = document.getElementById('activeCallsCounter')
+const roomSelectEl = document.getElementById('roomSelect') as HTMLSelectElement
+
+const roomsContainerEl = document.getElementById('roomsContainer')
+
+/* Helpers */
+
+const muteButtonEventListener = (event: MouseEvent) => {
+    event.preventDefault()
+    openSIPSJS.doMute(!openSIPSJS.isMuted)
+}
+
+const calculateDtmfButtonDisability = (sessions: { [key: string]: ICall }) => {
+    const callsInActiveRoom = Object.values(sessions).filter((call) => call.roomId === openSIPSJS.currentActiveRoomId)
+    const dtmfTarget = dtmfInputEl.value
+
+    if (callsInActiveRoom.length !== 1 || !dtmfTarget) {
+        dtmfSendButtonEl.setAttribute('disabled', 'true')
+    } else {
+        dtmfSendButtonEl.removeAttribute('disabled')
+    }
+}
+
+const calculateMuteButtonDisability = (sessions: { [key: string]: ICall }) => {
+    if (!muteContainerEl) {
+        return
+    }
+
+    if (!Object.keys(sessions).length) {
+        muteContainerEl.querySelector('button').setAttribute('disabled', 'true')
+    } else {
+        muteContainerEl.querySelector('button').removeAttribute('disabled')
+    }
+}
+
+const calculateVolumeLevel = (sessions: { [key: string]: ICall }) => {
+    const volumeContainer = document.getElementById('volume-level-agent-voice-level')
+
+    if (!Object.keys(sessions).length && volumeContainer) {
+        if (volumeContainer) {
+            volumeContainer.remove()
+        }
+    }
+
+    if (!volumeContainer) {
+        const spanEl = document.createElement('span')
+        spanEl.setAttribute('id', 'volume-level-agent-voice-level')
+        spanEl.classList.add('volume-wrapper')
+
+        //const imgEl = document.createElement('img')
+
+        const canvasEl = document.createElement('canvas')
+        canvasEl.setAttribute('id', 'canvas-agent-voice-level')
+        canvasEl.width = 20
+        canvasEl.height = 20
+        spanEl.appendChild(canvasEl)
+
+        agentVoiceLevelContainerEl.appendChild(spanEl)
+        //runIndicator()
+    }
+}
+
+const calculateActiveCallsNumber = (sessions: { [key: string]: ICall }) => {
+    const counter = Object.keys(sessions).length
+    activeCallsCounterEl.innerText = `${counter}`
+}
+
+const updateRoomListOptions = (roomList: { [key: number]: IRoom }) => {
+    const currentSelectedRoom = openSIPSJS.currentActiveRoomId
+
+    roomSelectEl.querySelectorAll('option:not(.noData)').forEach(el => el.remove())
+
+    roomsContainerEl.querySelectorAll('.roomWrapper').forEach(el => el.remove())
+
+    Object.values(roomList).forEach((room) => {
+        // Update room Select options
+        const newOption = document.createElement('option') as HTMLOptionElement
+        newOption.value = `${room.roomId}`
+        newOption.text = `Room ${room.roomId}`
+        newOption.setAttribute('key', `${room.roomId}`)
+
+        if (room.roomId === currentSelectedRoom) {
+            newOption.setAttribute('selected', '')
+        }
+
+        roomSelectEl.appendChild(newOption)
+
+        // Update all call move to room select options
+
+        //const f
+
+        // Update rooms list data
+        const roomEl = document.createElement('div')
+        roomEl.setAttribute('id', `room-${room.roomId}`)
+        roomEl.setAttribute('key', `${room.roomId}`)
+        roomEl.classList.add('roomWrapper')
+
+        const roomInfoEl = document.createElement('div')
+        const roomNameEl = document.createElement('b')
+        const roomDateEl = document.createElement('span')
+        roomNameEl.innerText = `Room ${room.roomId}`
+        roomDateEl.innerText = `${room.started}`
+        roomInfoEl.appendChild(roomNameEl)
+        roomInfoEl.appendChild(roomDateEl)
+        roomEl.appendChild(roomInfoEl)
+
+        const breakEl = document.createElement('br')
+        roomEl.appendChild(breakEl)
+
+        const unorderedListEl = document.createElement('ul')
+        roomEl.appendChild(unorderedListEl)
+
+        roomsContainerEl.appendChild(roomEl)
+        //const activeCallsInRoom = Object.values(this.getActiveCalls).filter((call) => call.roomId === roomId)
+
+        upsertRoomData(room, openSIPSJS.getActiveCalls)
+    })
+}
+
+const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
+    const ulListEl = roomsContainerEl.querySelector(`#room-${room.roomId} ul`)
+    ulListEl.querySelectorAll('li').forEach(el => el.remove())
+
+    const activeCallsInRoom = Object.values(sessions).filter((call) => call.roomId === room.roomId)
+    activeCallsInRoom.forEach((call, index) => {
+        const listItemEl = document.createElement('li')
+        listItemEl.setAttribute('key', `${index}`)
+
+
+        const muteAgentButtonEl = document.createElement('button') as HTMLButtonElement
+        muteAgentButtonEl.innerText = call.localMuted ? 'Unmute' : 'Mute'
+        muteAgentButtonEl.addEventListener('click', (event) => {
+            event.preventDefault()
+            const isMuted = call.localMuted
+            openSIPSJS.muteCaller(call.id, !isMuted)
+            muteAgentButtonEl.innerText = !isMuted ? 'Unmute' : 'Mute'
+        })
+        listItemEl.appendChild(muteAgentButtonEl)
+
+
+        const terminateButtonEl = document.createElement('button') as HTMLButtonElement
+        terminateButtonEl.innerText = 'Hangup'
+        terminateButtonEl.addEventListener('click', (event) => {
+            event.preventDefault()
+            openSIPSJS.callTerminate(call.id)
+        })
+        listItemEl.appendChild(terminateButtonEl)
+
+
+        const transferButtonEl = document.createElement('button') as HTMLButtonElement
+        transferButtonEl.innerText = 'Transfer'
+        transferButtonEl.addEventListener('click', (event) => {
+            event.preventDefault()
+
+            const target = prompt('Please enter target:')
+
+            if (target !== null || target !== '') {
+                openSIPSJS.callTransfer(call.id, target)
+            }
+        })
+        listItemEl.appendChild(transferButtonEl)
+
+
+        if (activeCallsInRoom.length === 2) {
+            const mergeButtonEl = document.createElement('button') as HTMLButtonElement
+            mergeButtonEl.innerText = `Merge ${room.roomId}`
+            mergeButtonEl.addEventListener('click', (event) => {
+                event.preventDefault()
+                openSIPSJS.callMerge(room.roomId)
+            })
+            listItemEl.appendChild(mergeButtonEl)
+        }
+
+
+        const holdAgentButtonEl = document.createElement('button') as HTMLButtonElement
+        holdAgentButtonEl.innerText = call._localHold ? 'UnHold' : 'Hold'
+        holdAgentButtonEl.classList.add('holdAgent')
+        holdAgentButtonEl.addEventListener('click', (event) => {
+            event.preventDefault()
+            const isOnHold = call._localHold
+            openSIPSJS.doCallHold({ callId: call.id, toHold: !isOnHold })
+            holdAgentButtonEl.innerText = !isOnHold ? 'UnHold' : 'Hold'
+        })
+        listItemEl.appendChild(holdAgentButtonEl)
+
+        if (call.direction !== 'outgoing' && !call._is_confirmed) {
+            const answerButtonEl = document.createElement('button') as HTMLButtonElement
+            answerButtonEl.innerText = 'Answer'
+            answerButtonEl.addEventListener('click', (event) => {
+                event.preventDefault()
+                openSIPSJS.callAnswer(call.id)
+            })
+            listItemEl.appendChild(answerButtonEl)
+        }
+
+        /*const callMoveSelectEl = document.createElement('select') as HTMLSelectElement
+        //callMoveSelectEl.setAttribute('id', )
+        callMoveSelectEl.addEventListener('change', (event) => {
+            event.preventDefault()
+
+            const target = event.target as HTMLSelectElement
+            openSIPSJS.callMove(call._id, parseInt(target.value))
+        })
+        listItemEl.appendChild(callMoveSelectEl)
+        const d*/
+
+        /*if (call.localMuted) {
+            muteAgentButtonEl.innerText = 'Unmute'
+            muteAgentButtonEl.addEventListener('click', (event) => {
+                event.preventDefault()
+                openSIPSJS.muteCaller(call.id, false)
+            })
+        } else {
+            muteAgentButtonEl.innerText = 'Mute'
+            muteAgentButtonEl.addEventListener('click', (event) => {
+                event.preventDefault()
+                openSIPSJS.muteCaller(call.id, true)
+            })
+        }*/
+
+    })
+}
+
+/*const transferCall = (callId) => {
+    const target = prompt('Please enter target:')
+
+    if (target !== null || target !== '') {
+        openSIPSJS.callTransfer(callId, target)
+    }
+}*/
+
+/* openSIPSJS Listeners */
+
 openSIPSJS
+    .on('ready', () => {
+        if (!muteContainerEl) {
+            return
+        }
+
+        muteContainerEl.querySelector('button').setAttribute('disabled', 'true')
+        addToCurrentRoomInputEl.checked = false
+    })
+    .on('changeActiveCalls', (sessions) => {
+        calculateDtmfButtonDisability(sessions)
+        calculateMuteButtonDisability(sessions)
+        calculateVolumeLevel(sessions)
+        calculateActiveCallsNumber(sessions)
+
+        Object.values(openSIPSJS.getActiveRooms).forEach((room) => {
+            upsertRoomData(room, sessions)
+        })
+        // Object.values(sessions).filter((call) => call.roomId === roomId)
+        // roomsContainerEl.querySelector('ul')
+    })
     .on('newRTCSession', ({ session }: RTCSessionEvent) => {
-        console.log('e', session)
+        console.warn('e', session)
     })
     .on('callAddingInProgressChanged', (value) => {
-        console.log('callAddingInProgressChanged', value)
+        //console.log('callAddingInProgressChanged', value)
         if (!callAddingIndicatorEl) {
             return
         }
 
         if (value === undefined) {
             callAddingIndicatorEl.classList.add('hidden')
+            makeCallFormEl?.querySelector('button[type="submit"]').removeAttribute('disabled')
         } else {
             callAddingIndicatorEl.classList.remove('hidden')
+            makeCallFormEl?.querySelector('button[type="submit"]').setAttribute('disabled', 'true')
         }
+    })
+    .on('changeAvailableDeviceList', (devices: Array<MediaDeviceInfo>) => {
+        const inputDevices = devices.filter(d => d.kind === 'audioinput')
+        const outputDevices = devices.filter(d => d.kind === 'audiooutput')
+
+        // Update microphone device options list
+        if (microphoneEl) {
+            while ( microphoneEl.childNodes.length >= 1 )
+            {
+                microphoneEl.removeChild(microphoneEl.firstChild)
+            }
+
+            inputDevices.forEach((d) => {
+                const newOption = document.createElement('option')
+                newOption.value = d.deviceId
+                newOption.text = d.label
+                microphoneEl.appendChild(newOption)
+            })
+        }
+
+        // Update speaker device options list
+        if (speakerEl) {
+            while ( speakerEl.childNodes.length >= 1 )
+            {
+                speakerEl.removeChild(speakerEl.firstChild)
+            }
+
+            outputDevices.forEach((d) => {
+                const newOption = document.createElement('option')
+                newOption.value = d.deviceId
+                newOption.text = d.label
+                speakerEl.appendChild(newOption)
+            })
+        }
+    })
+    .on('changeActiveInputMediaDevice', (data: string) => {
+        if (microphoneEl) {
+            microphoneEl.value = data
+        }
+    })
+    .on('changeActiveOutputMediaDevice', (data: string) => {
+        if (speakerEl) {
+            speakerEl.value = data
+        }
+    })
+    .on('changeMuteWhenJoin', (value: boolean) => {
+        if (muteWhenJoinInputEl) {
+            muteWhenJoinInputEl.checked = value
+        }
+    })
+    .on('changeIsDND', (value: boolean) => {
+        if (DNDInputEl) {
+            DNDInputEl.checked = value
+        }
+    })
+    .on('changeIsMuted', (value: boolean) => {
+        if (!muteContainerEl) {
+            return
+        }
+
+        muteContainerEl.removeChild(muteContainerEl.querySelector('button'))
+        const buttonEl = document.createElement('button') as HTMLButtonElement
+        const buttonText = value ? 'Unmute' : 'Mute'
+        buttonEl.classList.add('muteButtonEl')
+        buttonEl.innerText = buttonText
+        buttonEl.addEventListener('click', muteButtonEventListener)
+        muteContainerEl.appendChild(buttonEl)
+    })
+    .on('changeOriginalStream', (value: MediaStream) => {
+        runIndicator(value, 'agent-voice-level')
+    })
+    .on('currentActiveRoomChanged', (id: number | undefined) => {
+        // Update calls in room hold button disability
+        roomsContainerEl.querySelectorAll('.roomWrapper').forEach((el) => {
+            const elRoomId = +el.id.split('-')[1]
+            el.querySelectorAll('.holdAgent').forEach((btnEl) => {
+                if (elRoomId === id) {
+                    btnEl.removeAttribute('disabled')
+                } else {
+                    btnEl.setAttribute('disabled', '')
+                }
+            })
+        })
+
+        // Update select options and value
+        const options = roomSelectEl.querySelectorAll('option')
+        options.forEach(option => option.removeAttribute('selected'))
+
+        if (!id) {
+            const noDataOption = roomSelectEl.querySelector('option.noData')
+            noDataOption.setAttribute('selected', '')
+            return
+        }
+
+        options.forEach(option => {
+            if (option.value === `${id}`) {
+                option.setAttribute('selected', '')
+            }
+        })
+    })
+    .on('addRoom', ({ roomList }: RoomChangeEmitType) => {
+        updateRoomListOptions(roomList)
+    })
+    .on('updateRoom', ({ roomList }: RoomChangeEmitType) => {
+        updateRoomListOptions(roomList)
+    })
+    .on('removeRoom', ({ roomList }: RoomChangeEmitType) => {
+        updateRoomListOptions(roomList)
     })
     .start()
 
-const makeCallFormEl = document.getElementById('makeCallForm')
-const callAddingIndicatorEl = document.getElementById('callAddingIndicator')
+/* DOMContentLoaded Listener */
+
+window.addEventListener('DOMContentLoaded', () => {
+    if (muteContainerEl) {
+        muteContainerEl.querySelector('button').addEventListener('click', muteButtonEventListener)
+    }
+
+    if (addToCurrentRoomInputEl) {
+        addToCurrentRoomInputEl.addEventListener(
+            'change',
+            async (event) => {
+                event.preventDefault()
+
+                const target = event.target as HTMLInputElement
+                addCallToCurrentRoom = target.checked
+            })
+    }
+})
+
+/* DOM Elements Listeners */
 
 makeCallFormEl?.addEventListener(
     'submit',
@@ -59,7 +469,100 @@ makeCallFormEl?.addEventListener(
 
         openSIPSJS.doCall({
             target,
-            addToCurrentRoom: false
+            addToCurrentRoom: addCallToCurrentRoom
         })
     }
 )
+
+microphoneEl?.addEventListener(
+    'change',
+    async (event) => {
+        event.preventDefault()
+
+        const target = event.target as HTMLSelectElement
+        await openSIPSJS.setMicrophone(target.value)
+        //console.log('event', target.value)
+    })
+
+speakerEl?.addEventListener(
+    'change',
+    async (event) => {
+        event.preventDefault()
+
+        const target = event.target as HTMLSelectElement
+        await openSIPSJS.setSpeaker(target.value)
+        //console.log('event', target.value)
+    })
+
+muteWhenJoinInputEl?.addEventListener(
+    'change',
+    async (event) => {
+        event.preventDefault()
+
+        const target = event.target as HTMLInputElement
+        openSIPSJS.muteWhenJoin = target.checked
+
+    })
+
+DNDInputEl?.addEventListener(
+    'change',
+    async (event) => {
+        event.preventDefault()
+
+        const target = event.target as HTMLInputElement
+        openSIPSJS.isDND = target.checked
+
+    })
+
+inputLevelApplyButtonEl?.addEventListener(
+    'click',
+    async (event) => {
+        event.preventDefault()
+
+        const value = Number(inputLevelEl.value)
+        openSIPSJS.microphoneInputLevel = value
+    })
+
+outputLevelApplyButtonEl?.addEventListener(
+    'click',
+    async (event) => {
+        event.preventDefault()
+
+        const value = Number(outputLevelEl.value)
+        openSIPSJS.speakerVolume = value
+    })
+
+
+dtmfInputEl?.addEventListener(
+    'input',
+    async (event) => {
+        event.preventDefault()
+
+        calculateDtmfButtonDisability(openSIPSJS.getActiveCalls)
+    })
+
+dtmfForm?.addEventListener(
+    'submit',
+    (event) => {
+        event.preventDefault()
+        const form = event.target
+
+        if (!(form instanceof HTMLFormElement)) {
+            return
+        }
+
+        const callsInActiveRoom = Object.values(openSIPSJS.getActiveCalls).filter((call) => call.roomId === openSIPSJS.currentActiveRoomId)
+        const dtmfTarget = dtmfInputEl.value
+
+        openSIPSJS.sendDTMF(callsInActiveRoom[0].id, dtmfTarget)
+    })
+
+roomSelectEl?.addEventListener(
+    'change',
+    async (event) => {
+        event.preventDefault()
+
+        const target = event.target as HTMLSelectElement
+        const roomId = parseInt(target.value)
+        await openSIPSJS.setCurrentActiveRoomId(roomId)
+    })

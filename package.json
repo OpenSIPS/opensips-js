@@ -40,6 +40,9 @@
     "typescript": "^4.9.5"
   },
   "dependencies": {
-    "jssip": "^3.10.0"
+    "generate-unique-id": "^2.0.1",
+    "jssip": "^3.10.0",
+    "loglevel": "^1.8.1",
+    "p-iteration": "^1.1.8"
   }
 }
