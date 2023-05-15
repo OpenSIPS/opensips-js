@@ -1018,6 +1018,11 @@ class OpenSIPSJS extends UA {
         this.updateCall(firstCall)
     }
 
+    // TODO: Use this method in demo
+    public setDND (value: boolean) {
+        this.isDND = value
+    }
+
     private _startCallTimer (callId: string) {
         const timeData = {
             callId,
