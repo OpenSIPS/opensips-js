@@ -1,13 +1,13 @@
 {
   "name": "opensips-js",
-  "version": "1.0.0",
+  "version": "1.0.7",
   "description": "The JS package for opensips",
   "default": "src/index.ts",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
   "scripts": {
-    "build": "tsc",
-    "dev": "parcel demo/index.html",
+    "build": "tsc --project tsconfig.json && tsc-alias -p tsconfig.json",
+    "dev": "parcel demo/index.html --https",
     "test": "echo \"Error: no test specified\" && exit 1",
     "ts-check": "tsc --noEmit",
     "lint": "eslint . --ext .js,.jsx,.cjs,.mjs,.ts --fix --ignore-path .gitignore"
@@ -29,6 +29,7 @@
   },
   "homepage": "https://github.com/VoicenterTeam/opensips-js#readme",
   "devDependencies": {
+    "@rollup/plugin-node-resolve": "^15.0.2",
     "@types/node": "^18.14.2",
     "@typescript-eslint/eslint-plugin": "^5.53.0",
     "@typescript-eslint/parser": "^5.53.0",
@@ -37,11 +38,14 @@
     "parcel": "^2.8.3",
     "pre-commit": "^1.2.2",
     "process": "^0.11.10",
+    "rollup": "^3.22.0",
+    "rollup-plugin-typescript2": "^0.34.1",
+    "tsc-alias": "^1.8.6",
     "typescript": "^4.9.5"
   },
   "dependencies": {
     "generate-unique-id": "^2.0.1",
-    "jssip": "^3.10.0",
+    "jssip": "3.4.0",
     "loglevel": "^1.8.1",
     "p-iteration": "^1.1.8"
   }

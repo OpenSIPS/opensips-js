@@ -1,4 +1,5 @@
-import OpenSIPSJS, { IRoom } from '../src'
+//import OpenSIPSJS, { IRoom, CALL_EVENT_LISTENER_TYPE } from '../src'
+import OpenSIPSJS, { IRoom, CALL_EVENT_LISTENER_TYPE } from '../build/index'
 import { RTCSessionEvent } from 'jssip/lib/UA'
 import { ICall, RoomChangeEmitType } from '../src/types/rtc'
 import { runIndicator } from '../src/helpers/volume.helper'
@@ -17,6 +18,18 @@ const openSIPSJS = new OpenSIPSJS({
         pcConfig: {},
     },
 })
+
+/*openSIPSJS.subscribe(CALL_EVENT_LISTENER_TYPE.CALL_FAILED, () => {
+    console.log('failed')
+})
+
+openSIPSJS.subscribe(CALL_EVENT_LISTENER_TYPE.NEW_CALL, () => {
+    console.log('new call')
+})
+
+openSIPSJS.subscribe(CALL_EVENT_LISTENER_TYPE.CALL_ENDED, () => {
+    console.log('ended')
+})*/
 
 let addCallToCurrentRoom = false
 
@@ -145,7 +158,7 @@ const updateRoomListOptions = (roomList: { [key: number]: IRoom }) => {
         const roomInfoEl = document.createElement('div')
         const roomNameEl = document.createElement('b')
         const roomDateEl = document.createElement('span')
-        roomNameEl.innerText = `Room ${room.roomId}`
+        roomNameEl.innerText = `Room ${room.roomId} - `
         roomDateEl.innerText = `${room.started}`
         roomInfoEl.appendChild(roomNameEl)
         roomInfoEl.appendChild(roomDateEl)
@@ -173,13 +186,17 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
         const listItemEl = document.createElement('li')
         listItemEl.setAttribute('key', `${index}`)
 
+        const callIdListItem = document.createElement('div')
+        callIdListItem.innerText = call._id
+        listItemEl.appendChild(callIdListItem)
+
 
         const muteAgentButtonEl = document.createElement('button') as HTMLButtonElement
         muteAgentButtonEl.innerText = call.localMuted ? 'Unmute' : 'Mute'
         muteAgentButtonEl.addEventListener('click', (event) => {
             event.preventDefault()
             const isMuted = call.localMuted
-            openSIPSJS.muteCaller(call.id, !isMuted)
+            openSIPSJS.muteCaller(call._id, !isMuted)
             muteAgentButtonEl.innerText = !isMuted ? 'Unmute' : 'Mute'
         })
         listItemEl.appendChild(muteAgentButtonEl)
@@ -189,7 +206,7 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
         terminateButtonEl.innerText = 'Hangup'
         terminateButtonEl.addEventListener('click', (event) => {
             event.preventDefault()
-            openSIPSJS.callTerminate(call.id)
+            openSIPSJS.callTerminate(call._id)
         })
         listItemEl.appendChild(terminateButtonEl)
 
@@ -202,7 +219,7 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
             const target = prompt('Please enter target:')
 
             if (target !== null || target !== '') {
-                openSIPSJS.callTransfer(call.id, target)
+                openSIPSJS.callTransfer(call._id, target)
             }
         })
         listItemEl.appendChild(transferButtonEl)
@@ -222,11 +239,15 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
         const holdAgentButtonEl = document.createElement('button') as HTMLButtonElement
         holdAgentButtonEl.innerText = call._localHold ? 'UnHold' : 'Hold'
         holdAgentButtonEl.classList.add('holdAgent')
+        let isOnHold = call._localHold
         holdAgentButtonEl.addEventListener('click', (event) => {
             event.preventDefault()
-            const isOnHold = call._localHold
-            openSIPSJS.doCallHold({ callId: call.id, toHold: !isOnHold })
+            //const isOnHold = call._localHold
+            //console.log('doCallHold callId', call._id)
+            //console.log('doCallHold toHold', !isOnHold)
+            openSIPSJS.doCallHold({ callId: call._id, toHold: !isOnHold })
             holdAgentButtonEl.innerText = !isOnHold ? 'UnHold' : 'Hold'
+            isOnHold = !isOnHold
         })
         listItemEl.appendChild(holdAgentButtonEl)
 
@@ -235,10 +256,39 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
             answerButtonEl.innerText = 'Answer'
             answerButtonEl.addEventListener('click', (event) => {
                 event.preventDefault()
-                openSIPSJS.callAnswer(call.id)
+                openSIPSJS.callAnswer(call._id)
             })
             listItemEl.appendChild(answerButtonEl)
         }
+
+
+        /* New functional */
+        const callMoveSelectEl = document.createElement('select') as HTMLSelectElement
+
+        const currentRoomMoveOption = document.createElement('option')
+        currentRoomMoveOption.value = String(call.roomId)
+        currentRoomMoveOption.text = `Room ${call.roomId}`
+        callMoveSelectEl.appendChild(currentRoomMoveOption)
+
+        Object.values(openSIPSJS.getActiveRooms).forEach((room) => {
+            if (call.roomId === room.roomId) {
+                return
+            }
+
+            const roomMoveOption = document.createElement('option')
+            roomMoveOption.value = String(room.roomId)
+            roomMoveOption.text = `Room ${room.roomId}`
+            callMoveSelectEl.appendChild(roomMoveOption)
+        })
+
+        callMoveSelectEl.addEventListener('change', (event) => {
+            event.preventDefault()
+
+            const target = event.target as HTMLSelectElement
+            console.log('CALL MOVE To ANOTHER ROOM', 'room', target.value, 'callId', call._id)
+            openSIPSJS.callMove(call._id, parseInt(target.value))
+        })
+        listItemEl.appendChild(callMoveSelectEl)
 
         /*const callMoveSelectEl = document.createElement('select') as HTMLSelectElement
         //callMoveSelectEl.setAttribute('id', )
@@ -265,6 +315,7 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
             })
         }*/
 
+        ulListEl.appendChild(listItemEl)
     })
 }
 

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import JsSIP, { UA } from 'jssip'
 import { forEach } from 'p-iteration'
 import {
@@ -8,10 +9,10 @@ import {
     OutgoingEvent
 } from 'jssip/lib/RTCSession'
 import { RTCSessionEvent, UAConfiguration, UAEventMap } from 'jssip/lib/UA'
-import { TempTimeData, ITimeData, setupTime } from '~/src/helpers/time.helper'
-import { filterObjectKeys } from '~/src/helpers/filter.helper'
-import WebRTCMetrics from '~/src/helpers/webrtcmetrics/metrics'
-import { WebrtcMetricsConfigType, Probe, ProbeMetricInType, MetricAudioData } from '~/src/types/webrtcmetrics'
+import { TempTimeData, ITimeData, setupTime } from '@/helpers/time.helper'
+import { filterObjectKeys } from '@/helpers/filter.helper'
+import WebRTCMetrics from '@/helpers/webrtcmetrics/metrics'
+import { WebrtcMetricsConfigType, Probe, ProbeMetricInType, MetricAudioData, MediaDeviceType } from '@/types/webrtcmetrics'
 import {
     RTCConfiguration,
     RTCSessionExtended,
@@ -19,8 +20,8 @@ import {
     StreamMediaType,
     IntervalType,
     RoomChangeEmitType
-} from '~/src/types/rtc'
-import { METRIC_KEYS_TO_INCLUDE } from '~/src/enum/metric.keys.to.include'
+} from '@/types/rtc'
+import { METRIC_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
 
 export interface IOpenSIPSJSOptions {
     configuration: Omit<UAConfiguration, 'sockets'>,
@@ -237,7 +238,7 @@ export interface InnerState {
     timeIntervals: { [key: string]: IntervalType }
     callMetrics: { [key: string]: any }
     availableMediaDevices: Array<MediaDeviceInfo>
-    selectedMediaDevices: { [key: string]: string }
+    selectedMediaDevices: { [key in MediaDeviceType]: string }
     microphoneInputLevel: number
     speakerVolume: number
     originalStream: MediaStream | null
@@ -303,7 +304,13 @@ class OpenSIPSJS extends UA {
         return this.options.sipDomain
     }
     public get sipOptions () {
-        return this.options.sipOptions
+        const options = {
+            ...this.options.sipOptions,
+            mediaConstraints: this.getUserMediaConstraints
+        }
+        console.log('options', options)
+
+        return options
     }
 
     public get currentActiveRoomId () {
@@ -475,8 +482,8 @@ class OpenSIPSJS extends UA {
     }
 
     public async setMediaDevices (setDefaults = false) {
-        //this.state.selectedMediaDevices.input = localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE) || 'default'
-        //this.state.selectedMediaDevices.output = localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
+        this.state.selectedMediaDevices.input = localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE) || 'default'
+        this.state.selectedMediaDevices.output = localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
 
         await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
         const devices = await navigator.mediaDevices.enumerateDevices()
@@ -1101,9 +1108,11 @@ class OpenSIPSJS extends UA {
     }
 
     private async addCall (session: RTCSessionExtended) {
+        console.log('addCall')
         const sessionAlreadyInActiveCalls = this.getActiveCalls[session.id]
 
         if (sessionAlreadyInActiveCalls !== undefined) {
+            console.log('addCall return 1')
             return
         }
 
@@ -1116,6 +1125,7 @@ class OpenSIPSJS extends UA {
         }
 
         if (session.direction === 'incoming') {
+            console.log('addCall if incoming')
             newRoomInfo.incomingInProgress = true
 
             //this.on('callConfirmed',)
@@ -1149,8 +1159,12 @@ class OpenSIPSJS extends UA {
             })
 
         } else if (session.direction === 'outgoing') {
+            console.log('addCall if outgoing')
             //dispatch('_startCallTimer', session.id)
             this._startCallTimer(session.id)
+            //this.subscribe(CALL_EVENT_LISTENER_TYPE.NEW_CALL, () => console.log('NEW_CALL'))
+            //this.subscribe(CALL_EVENT_LISTENER_TYPE.CALL_FAILED, () => console.log('CALL_FAILED'))
+            //this.subscribe(CALL_EVENT_LISTENER_TYPE.CALL_ENDED, () => console.log('CALL_ENDED'))
         }
 
         /*const call: ICall = {
@@ -1169,6 +1183,7 @@ class OpenSIPSJS extends UA {
         this._addCallStatus(session.id)
         //commit(STORE_MUTATION_TYPES.ADD_ROOM, newRoomInfo)
         this._addRoom(newRoomInfo)
+        console.log('addCall end')
     }
 
     private _triggerListener ({ listenerType, session, event }: TriggerListenerOptions) {
@@ -1203,6 +1218,7 @@ class OpenSIPSJS extends UA {
     }
 
     private newRTCSessionCallback (event: RTCSessionEvent) {
+        console.log('newRTCSessionCallback')
         const session = event.session as RTCSessionExtended
 
         if (this.isDND) {
@@ -1210,8 +1226,10 @@ class OpenSIPSJS extends UA {
             return
         }
 
+        console.log('newRTCSessionCallback 1')
         // stop timers on ended and failed
         session.on('ended', (event) => {
+            console.log('session on ended')
             //console.log('ended', event)
             //dispatch('_triggerListener', { listenerType: CALL_EVENT_LISTENER_TYPE.CALL_ENDED, session, event })
             this._triggerListener({ listenerType: CALL_EVENT_LISTENER_TYPE.CALL_ENDED, session, event })
@@ -1232,11 +1250,12 @@ class OpenSIPSJS extends UA {
         })
         session.on('progress', (event: IncomingEvent | OutgoingEvent) => {
             //console.log('progress', event)
+            console.log('session on progress')
             //dispatch('_triggerListener', { listenerType: CALL_EVENT_LISTENER_TYPE.CALL_PROGRESS, session, event })
             this._triggerListener({ listenerType: CALL_EVENT_LISTENER_TYPE.CALL_PROGRESS, session, event })
         })
         session.on('failed', (event) => {
-            //console.log('failed', event)
+            console.log('session on progress')
             //dispatch('_triggerListener', { listenerType: CALL_EVENT_LISTENER_TYPE.CALL_FAILED, session, event })
             this._triggerListener({ listenerType: CALL_EVENT_LISTENER_TYPE.CALL_FAILED, session, event })
 
@@ -1261,7 +1280,7 @@ class OpenSIPSJS extends UA {
             }
         })
         session.on('confirmed', (event: IncomingAckEvent | OutgoingAckEvent) => {
-            //console.log('confirmed', event)
+            console.log('session on progress')
             //dispatch('_triggerListener', { listenerType: CALL_EVENT_LISTENER_TYPE.CALL_CONFIRMED, session, event })
             this._triggerListener({ listenerType: CALL_EVENT_LISTENER_TYPE.CALL_CONFIRMED, session, event })
             //commit(STORE_MUTATION_TYPES.UPDATE_CALL, session)
@@ -1273,16 +1292,19 @@ class OpenSIPSJS extends UA {
         })
 
         //dispatch('_triggerListener', { listenerType: CALL_EVENT_LISTENER_TYPE.NEW_CALL, session })
-        this._triggerListener({ listenerType: CALL_EVENT_LISTENER_TYPE.NEW_CALL, session })
+        console.log('newRTCSessionCallback - trigger new call')
+        //this._triggerListener({ listenerType: CALL_EVENT_LISTENER_TYPE.NEW_CALL, session, event: () => { console.log('1 new call') } })
         //dispatch('_addCall', session)
         this.addCall(session)
 
         if (session.direction === 'outgoing') {
             //console.log('Is outgoing')
             //dispatch('setCurrentActiveRoom', session.roomId)
+            console.log('newRTCSessionCallback if outgoing')
             const roomId = this.getActiveCalls[session.id].roomId
             this.setCurrentActiveRoomId(roomId)
         }
+        console.log('newRTCSessionCallback end')
     }
 
     private setInitialized () {

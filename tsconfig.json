@@ -1,66 +1,25 @@
 {
   "compilerOptions": {
-    "skipLibCheck": true,
-    "target": "ESNext",
-    "useDefineForClassFields": true,
-    "allowSyntheticDefaultImports": true,
+    "baseUrl": ".",
+    "target": "es2016",
+    "module": "commonjs",
+    "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "declaration": true,
-    "module": "ESNext",
-    "moduleResolution": "Node",
     "strict": true,
-    "jsx": "preserve",
-    "sourceMap": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "esModuleInterop": true,
-    "outDir": "dist",
-    "lib": [
-      "ESNext",
-      "DOM",
-      "DOM.Iterable",
-      "ScriptHost"
-    ],
-    "baseUrl": ".",
-    "types": [
-      "node",
-      "./src/types/declarations"
-    ],
-    "typeRoots": ["./src/types/declarations"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "outDir": "./build",
     "paths": {
       "~/*": [
-        "./*"
+        "*"
       ],
       "@/*": [
-        "./src/*"
+        "src/*"
       ]
     }
   },
   "include": [
-    "src/**/*.ts",
-    "src/**/*.tsx",
-  ],
-  "exclude": ["demo/**/*", "node_modules", "./src/helpers/webrtcmetrics"],
-  "references": [
-    {
-      "path": "./tsconfig.node.json"
-    }
-  ],
-  "rules": {
-    "@typescript-eslint/naming-convention": [
-      "warn",
-      {
-        "selector": "memberLike",
-        "modifiers": ["private"],
-        "format": ["camelCase"],
-        "leadingUnderscore": "require"
-      },
-      {
-        "selector": "variable",
-        "modifiers": ["private"],
-        "format": ["camelCase"],
-        "leadingUnderscore": "require"
-      }
-    ]
-  }
+    "./src"
+  ]
 }

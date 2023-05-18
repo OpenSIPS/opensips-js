@@ -1,5 +1,5 @@
 import { OnHoldResult, RTCSession, SessionDirection } from 'jssip/lib/RTCSession'
-import { IRoom } from '~/src'
+import { IRoom } from '@'
 
 export type IntervalType = ReturnType<typeof setInterval>
 

@@ -1,0 +1,13 @@
+export function average(nums: any): number;
+export function createProbeId(): string;
+export function createCollectorId(): string;
+export function timeout(ms: any): Promise<any>;
+export function call(fct: any, context: any, value: any): void;
+export function volatilityValuesOfReports(reports: any, key: any, subKey: any, ssrc: any): number | null;
+export function averageValuesOfReports(reports: any, key: any, subKey: any, avoidZeroValue: boolean | undefined, ssrc: any): number | null;
+export function sumValuesOfReports(reports: any, key: any, subKey: any): any;
+export function minValueOfReports(reports: any, key: any, subKey: any, ssrc: any): number | null;
+export function maxValueOfReports(reports: any, key: any, subKey: any, ssrc: any): number | null;
+export function lastOfReports(reports: any, key: any, subKey: any, ssrc: any): any;
+export function getLastReport(reports: any): any;
+export function getSSRCDataFromBunch(ssrc: any, bunch: any, direction: any): {} | null;
