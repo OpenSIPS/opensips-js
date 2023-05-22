@@ -1,0 +1,65 @@
+.hidden {
+    display: none;
+}
+.volume-wrapper {
+    margin: 0 10px;
+}
+
+select::-ms-expand {
+    display: none;
+}
+select {
+    display: inline-block;
+    box-sizing: border-box;
+    padding: 0.5em 2em 0.5em 0.5em;
+    border: 1px solid #eee;
+    font: inherit;
+    line-height: inherit;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    -ms-appearance: none;
+    appearance: none;
+    background-repeat: no-repeat;
+    background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+    background-position: right 15px top 1em, right 10px top 1em;
+    background-size: 5px 5px, 5px 5px;
+}
+
+div {
+    font-size: 18px;
+    font-family: Calibri;
+}
+
+button {
+    background-color: #0085b9;
+    border: none;
+    color: white;
+    padding: 10px 25px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 16px;
+    margin: 4px 2px;
+    cursor: pointer;
+}
+
+button:disabled,
+button[disabled]{
+    background-color: #cccccc;
+}
+
+input[type=text], input[type=number] {
+    padding: 10px 20px;
+    margin: 8px 0;
+    display: inline-block;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+.call-quick-actions {
+    width: 300px;
+    display: flex;
+    justify-content: space-between;
+    margin: 20px 0;
+}
