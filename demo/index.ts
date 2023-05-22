@@ -1,23 +1,15 @@
 //import OpenSIPSJS, { IRoom, CALL_EVENT_LISTENER_TYPE } from '../src'
-import OpenSIPSJS, { IRoom, CALL_EVENT_LISTENER_TYPE } from '../build/index'
+import OpenSIPSJS, { IRoom, CALL_EVENT_LISTENER_TYPE } from '../build/index'//'../build/index'
 import { RTCSessionEvent } from 'jssip/lib/UA'
 import { ICall, RoomChangeEmitType } from '../src/types/rtc'
 import { runIndicator } from '../src/helpers/volume.helper'
 
-const openSIPSJS = new OpenSIPSJS({
-    configuration: {
-        session_timers: false,
-        uri: 'sip:hot9LF30@sip05.voicenter.co',
-        password: 'FPQV3alO1eattCmH',
-    },
-    socketInterfaces: [ 'wss://sip05.voicenter.co' ],
-    sipDomain: 'sip05.voicenter.co',
-    sipOptions: {
-        session_timers: false,
-        extraHeaders: [ 'X-Bar: bar' ],
-        pcConfig: {},
-    },
-})
+let openSIPSJS = null
+
+/*
+uri: 'sip:ayS0TRxe@sip05.voicenter.co', //hot9LF30
+password: 'F1yGhDJuH0EFTfmM' //'FPQV3alO1eattCmH',
+*/
 
 /*openSIPSJS.subscribe(CALL_EVENT_LISTENER_TYPE.CALL_FAILED, () => {
     console.log('failed')
@@ -31,9 +23,14 @@ openSIPSJS.subscribe(CALL_EVENT_LISTENER_TYPE.CALL_ENDED, () => {
     console.log('ended')
 })*/
 
+let isLoggedIn = false
 let addCallToCurrentRoom = false
 
 /* DOM Elements */
+
+const loginToAppFormEl = document.getElementById('loginToAppForm')
+const loginPageEl = document.getElementById('loginPage')
+const webRTCPageEl = document.getElementById('webRTCPage')
 
 const makeCallFormEl = document.getElementById('makeCallForm')
 const callAddingIndicatorEl = document.getElementById('callAddingIndicator')
@@ -329,7 +326,7 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
 
 /* openSIPSJS Listeners */
 
-openSIPSJS
+/*openSIPSJS
     .on('ready', () => {
         if (!muteContainerEl) {
             return
@@ -475,7 +472,7 @@ openSIPSJS
     .on('removeRoom', ({ roomList }: RoomChangeEmitType) => {
         updateRoomListOptions(roomList)
     })
-    .start()
+    .start()*/
 
 /* DOMContentLoaded Listener */
 
@@ -497,6 +494,213 @@ window.addEventListener('DOMContentLoaded', () => {
 })
 
 /* DOM Elements Listeners */
+
+//loginToApp
+
+loginToAppFormEl?.addEventListener('submit', (event) => {
+    event.preventDefault()
+
+    const form = event.target
+    if (!(form instanceof HTMLFormElement)) {
+        return
+    }
+
+    const formData = new FormData(form)
+
+    const username = formData.get('username')
+    const password = formData.get('password')
+    const domain = formData.get('domain')
+
+    if (!username || !password || !domain) {
+        alert('Fill up all required fields')
+        return
+    }
+
+    try {
+        openSIPSJS = new OpenSIPSJS({
+            configuration: {
+                session_timers: false,
+                uri: `sip:${username}@${domain}`, //hot9LF30
+                password: password //'FPQV3alO1eattCmH',
+            },
+            socketInterfaces: [ `wss://${domain}` ],
+            sipDomain: `${domain}`,
+            sipOptions: {
+                session_timers: false,
+                extraHeaders: [ 'X-Bar: bar' ],
+                pcConfig: {},
+            },
+        })
+
+        openSIPSJS
+            .on('ready', () => {
+                if (!muteContainerEl) {
+                    return
+                }
+
+                muteContainerEl.querySelector('button').setAttribute('disabled', 'true')
+                addToCurrentRoomInputEl.checked = false
+            })
+            .on('changeActiveCalls', (sessions) => {
+                calculateDtmfButtonDisability(sessions)
+                calculateMuteButtonDisability(sessions)
+                calculateVolumeLevel(sessions)
+                calculateActiveCallsNumber(sessions)
+
+                Object.values(openSIPSJS.getActiveRooms).forEach((room) => {
+                    upsertRoomData(room, sessions)
+                })
+                // Object.values(sessions).filter((call) => call.roomId === roomId)
+                // roomsContainerEl.querySelector('ul')
+            })
+            .on('newRTCSession', ({ session }: RTCSessionEvent) => {
+                console.warn('e', session)
+            })
+            .on('callAddingInProgressChanged', (value) => {
+                //console.log('callAddingInProgressChanged', value)
+                if (!callAddingIndicatorEl) {
+                    return
+                }
+
+                if (value === undefined) {
+                    callAddingIndicatorEl.classList.add('hidden')
+                    makeCallFormEl?.querySelector('button[type="submit"]').removeAttribute('disabled')
+                } else {
+                    callAddingIndicatorEl.classList.remove('hidden')
+                    makeCallFormEl?.querySelector('button[type="submit"]').setAttribute('disabled', 'true')
+                }
+            })
+            .on('changeAvailableDeviceList', (devices: Array<MediaDeviceInfo>) => {
+                const inputDevices = devices.filter(d => d.kind === 'audioinput')
+                const outputDevices = devices.filter(d => d.kind === 'audiooutput')
+
+                // Update microphone device options list
+                if (microphoneEl) {
+                    while (microphoneEl.childNodes.length >= 1) {
+                        microphoneEl.removeChild(microphoneEl.firstChild)
+                    }
+
+                    inputDevices.forEach((d) => {
+                        const newOption = document.createElement('option')
+                        newOption.value = d.deviceId
+                        newOption.text = d.label
+                        microphoneEl.appendChild(newOption)
+                    })
+                }
+
+                // Update speaker device options list
+                if (speakerEl) {
+                    while (speakerEl.childNodes.length >= 1) {
+                        speakerEl.removeChild(speakerEl.firstChild)
+                    }
+
+                    outputDevices.forEach((d) => {
+                        const newOption = document.createElement('option')
+                        newOption.value = d.deviceId
+                        newOption.text = d.label
+                        speakerEl.appendChild(newOption)
+                    })
+                }
+            })
+            .on('changeActiveInputMediaDevice', (data: string) => {
+                if (microphoneEl) {
+                    microphoneEl.value = data
+                }
+            })
+            .on('changeActiveOutputMediaDevice', (data: string) => {
+                if (speakerEl) {
+                    speakerEl.value = data
+                }
+            })
+            .on('changeMuteWhenJoin', (value: boolean) => {
+                if (muteWhenJoinInputEl) {
+                    muteWhenJoinInputEl.checked = value
+                }
+            })
+            .on('changeIsDND', (value: boolean) => {
+                if (DNDInputEl) {
+                    DNDInputEl.checked = value
+                }
+            })
+            .on('changeIsMuted', (value: boolean) => {
+                if (!muteContainerEl) {
+                    return
+                }
+
+                muteContainerEl.removeChild(muteContainerEl.querySelector('button'))
+                const buttonEl = document.createElement('button') as HTMLButtonElement
+                const buttonText = value ? 'Unmute' : 'Mute'
+                buttonEl.classList.add('muteButtonEl')
+                buttonEl.innerText = buttonText
+                buttonEl.addEventListener('click', muteButtonEventListener)
+                muteContainerEl.appendChild(buttonEl)
+            })
+            .on('changeOriginalStream', (value: MediaStream) => {
+                runIndicator(value, 'agent-voice-level')
+            })
+            .on('currentActiveRoomChanged', (id: number | undefined) => {
+                // Update calls in room hold button disability
+                roomsContainerEl.querySelectorAll('.roomWrapper').forEach((el) => {
+                    const elRoomId = +el.id.split('-')[1]
+                    el.querySelectorAll('.holdAgent').forEach((btnEl) => {
+                        if (elRoomId === id) {
+                            btnEl.removeAttribute('disabled')
+                        } else {
+                            btnEl.setAttribute('disabled', '')
+                        }
+                    })
+                })
+
+                // Update select options and value
+                const options = roomSelectEl.querySelectorAll('option')
+                options.forEach(option => option.removeAttribute('selected'))
+
+                if (!id) {
+                    const noDataOption = roomSelectEl.querySelector('option.noData')
+                    noDataOption.setAttribute('selected', '')
+                    return
+                }
+
+                options.forEach(option => {
+                    if (option.value === `${id}`) {
+                        option.setAttribute('selected', '')
+                    }
+                })
+            })
+            .on('addRoom', ({ roomList }: RoomChangeEmitType) => {
+                updateRoomListOptions(roomList)
+            })
+            .on('updateRoom', ({ roomList }: RoomChangeEmitType) => {
+                updateRoomListOptions(roomList)
+            })
+            .on('removeRoom', ({ roomList }: RoomChangeEmitType) => {
+                updateRoomListOptions(roomList)
+            })
+            .start()
+        isLoggedIn = true
+
+        loginPageEl.style.display = 'none'
+        webRTCPageEl.style.display = 'block'
+    } catch (e) {
+        console.error(e)
+    }
+    /*const url = 'https://loginapi.voicenter.co.il/Auth/Login/Voicenter/Chrome'
+    const response = fetch(url, {
+        method: 'POST', // *GET, POST, PUT, DELETE, etc.
+        //mode: "cors", // no-cors, *cors, same-origin
+        //cache: "no-cache", // *default, no-cache, reload, force-cache, only-if-cached
+        //credentials: "same-origin", // include, *same-origin, omit
+        headers: {
+            'Content-Type': 'application/json',
+            // 'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        //redirect: "follow", // manual, *follow, error
+        //referrerPolicy: "no-referrer", // no-referrer, *no-referrer-when-downgrade, origin, origin-when-cross-origin, same-origin, strict-origin, strict-origin-when-cross-origin, unsafe-url
+        body: JSON.stringify(loginData), // body data type must match "Content-Type" header
+    })
+    const jsonData = await response.json()
+    console.log(jsonData)*/
+})
 
 makeCallFormEl?.addEventListener(
     'submit',

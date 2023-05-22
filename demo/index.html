@@ -70,25 +70,27 @@
     </style>
 </head>
 <body>
-    <div>
-        <!--<select @n-change="onChangeMicrophone" :value="getSelectedInputDevice">
-            <option v-for="mic in getInputDeviceList"
-                    :value="mic.deviceId"
-                    :key="mic.deviceId"
-                    :selected="getSelectedInputDevice === mic.deviceId">
-                {{ mic.label }}
-            </option>
-        </select>
-        <br/>
-        <select @change="onChangeSpeakers" :value="getSelectedOutputDevice">
-            <option v-for="device in getOutputDeviceList"
-                    :value="device.deviceId"
-                    :key="device.deviceId"
-                    :selected="getSelectedOutputDevice === device.deviceId">
-                {{ device.label }}
-            </option>
-        </select>-->
-
+    <div id="loginPage">
+        <form id="loginToAppForm">
+            <label>
+                Username:
+                <input type="text" name="username">
+            </label>
+            <label>
+                Password:
+                <input type="text" name="password">
+            </label>
+            <label>
+                Domain:
+                <input type="text" name="domain">
+            </label>
+            <button type="submit">
+                Login
+            </button>
+        </form>
+        <button>Register</button>
+    </div>
+    <div id="webRTCPage" style="display: none">
         <div>
             <select id="microphoneEl"></select>
             <select id="speakerEl"></select>
