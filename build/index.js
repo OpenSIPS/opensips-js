@@ -182,7 +182,6 @@ class OpenSIPSJS extends jssip_1.UA {
     }
     get sipOptions() {
         const options = Object.assign(Object.assign({}, this.options.sipOptions), { mediaConstraints: this.getUserMediaConstraints });
-        console.log('options', options);
         return options;
     }
     get currentActiveRoomId() {
@@ -811,10 +810,8 @@ class OpenSIPSJS extends jssip_1.UA {
     }
     addCall(session) {
         return __awaiter(this, void 0, void 0, function* () {
-            console.log('addCall');
             const sessionAlreadyInActiveCalls = this.getActiveCalls[session.id];
             if (sessionAlreadyInActiveCalls !== undefined) {
-                console.log('addCall return 1');
                 return;
             }
             const roomId = this.getNewRoomId();
@@ -824,7 +821,6 @@ class OpenSIPSJS extends jssip_1.UA {
                 roomId
             };
             if (session.direction === 'incoming') {
-                console.log('addCall if incoming');
                 newRoomInfo.incomingInProgress = true;
                 //this.on('callConfirmed',)
                 this.subscribe(exports.CALL_EVENT_LISTENER_TYPE.CALL_CONFIRMED, (call) => {
@@ -855,7 +851,6 @@ class OpenSIPSJS extends jssip_1.UA {
                 });
             }
             else if (session.direction === 'outgoing') {
-                console.log('addCall if outgoing');
                 //dispatch('_startCallTimer', session.id)
                 this._startCallTimer(session.id);
                 //this.subscribe(CALL_EVENT_LISTENER_TYPE.NEW_CALL, () => console.log('NEW_CALL'))
@@ -876,7 +871,6 @@ class OpenSIPSJS extends jssip_1.UA {
             this._addCallStatus(session.id);
             //commit(STORE_MUTATION_TYPES.ADD_ROOM, newRoomInfo)
             this._addRoom(newRoomInfo);
-            console.log('addCall end');
         });
     }
     _triggerListener({ listenerType, session, event }) {
@@ -903,16 +897,13 @@ class OpenSIPSJS extends jssip_1.UA {
         this.roomReconfigure(callRoomIdToConfigure);
     }
     newRTCSessionCallback(event) {
-        console.log('newRTCSessionCallback');
         const session = event.session;
         if (this.isDND) {
             session.terminate({ status_code: 486, reason_phrase: 'Do Not Disturb' });
             return;
         }
-        console.log('newRTCSessionCallback 1');
         // stop timers on ended and failed
         session.on('ended', (event) => {
-            console.log('session on ended');
             //console.log('ended', event)
             //dispatch('_triggerListener', { listenerType: CALL_EVENT_LISTENER_TYPE.CALL_ENDED, session, event })
             this._triggerListener({ listenerType: exports.CALL_EVENT_LISTENER_TYPE.CALL_ENDED, session, event });
@@ -932,12 +923,10 @@ class OpenSIPSJS extends jssip_1.UA {
         });
         session.on('progress', (event) => {
             //console.log('progress', event)
-            console.log('session on progress');
             //dispatch('_triggerListener', { listenerType: CALL_EVENT_LISTENER_TYPE.CALL_PROGRESS, session, event })
             this._triggerListener({ listenerType: exports.CALL_EVENT_LISTENER_TYPE.CALL_PROGRESS, session, event });
         });
         session.on('failed', (event) => {
-            console.log('session on progress');
             //dispatch('_triggerListener', { listenerType: CALL_EVENT_LISTENER_TYPE.CALL_FAILED, session, event })
             this._triggerListener({ listenerType: exports.CALL_EVENT_LISTENER_TYPE.CALL_FAILED, session, event });
             if (session.id === this.callAddingInProgress) {
@@ -959,7 +948,6 @@ class OpenSIPSJS extends jssip_1.UA {
             }
         });
         session.on('confirmed', (event) => {
-            console.log('session on progress');
             //dispatch('_triggerListener', { listenerType: CALL_EVENT_LISTENER_TYPE.CALL_CONFIRMED, session, event })
             this._triggerListener({ listenerType: exports.CALL_EVENT_LISTENER_TYPE.CALL_CONFIRMED, session, event });
             //commit(STORE_MUTATION_TYPES.UPDATE_CALL, session)
@@ -969,18 +957,15 @@ class OpenSIPSJS extends jssip_1.UA {
             }
         });
         //dispatch('_triggerListener', { listenerType: CALL_EVENT_LISTENER_TYPE.NEW_CALL, session })
-        console.log('newRTCSessionCallback - trigger new call');
         //this._triggerListener({ listenerType: CALL_EVENT_LISTENER_TYPE.NEW_CALL, session, event: () => { console.log('1 new call') } })
         //dispatch('_addCall', session)
         this.addCall(session);
         if (session.direction === 'outgoing') {
             //console.log('Is outgoing')
             //dispatch('setCurrentActiveRoom', session.roomId)
-            console.log('newRTCSessionCallback if outgoing');
             const roomId = this.getActiveCalls[session.id].roomId;
             this.setCurrentActiveRoomId(roomId);
         }
-        console.log('newRTCSessionCallback end');
     }
     setInitialized() {
         this.initialized = true;
