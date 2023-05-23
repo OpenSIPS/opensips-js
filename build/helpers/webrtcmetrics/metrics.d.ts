@@ -1,2 +1,2 @@
-import WebRTCMetrics from './index.js';
-export default WebRTCMetrics;
+import WebRTCMetrics from './index.js'
+export default WebRTCMetrics

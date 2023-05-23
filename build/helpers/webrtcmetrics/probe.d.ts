@@ -1,9 +1,9 @@
 export default class Probe {
     constructor(cfg: any);
-    _id: any;
-    _moduleName: any;
-    _config: any;
-    _collector: Collector;
+    _id: any
+    _moduleName: any
+    _config: any
+    _collector: Collector
     /**
      * Register a callback to 'onreport'
      * Unregister when callback is null
@@ -73,4 +73,4 @@ export default class Probe {
     takeReferenceStats(): Promise<any>;
     collectStats(): Promise<any>;
 }
-import Collector from "./collector";
+import Collector from './collector'

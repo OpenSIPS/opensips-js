@@ -1,9 +1,9 @@
-import { UA } from 'jssip';
-import { EndEvent, IncomingAckEvent, IncomingEvent, OutgoingAckEvent, OutgoingEvent } from 'jssip/lib/RTCSession';
-import { UAConfiguration, UAEventMap } from 'jssip/lib/UA';
-import { TempTimeData, ITimeData } from './helpers/time.helper';
-import { WebrtcMetricsConfigType, MediaDeviceType } from '@/types/webrtcmetrics';
-import { RTCConfiguration, RTCSessionExtended, ICall, IntervalType, RoomChangeEmitType } from '@/types/rtc';
+import { UA } from 'jssip'
+import { EndEvent, IncomingAckEvent, IncomingEvent, OutgoingAckEvent, OutgoingEvent } from 'jssip/lib/RTCSession'
+import { UAConfiguration, UAEventMap } from 'jssip/lib/UA'
+import { TempTimeData, ITimeData } from './helpers/time.helper'
+import { WebrtcMetricsConfigType, MediaDeviceType } from '@/types/webrtcmetrics'
+import { RTCConfiguration, RTCSessionExtended, ICall, IntervalType, RoomChangeEmitType } from '@/types/rtc'
 export interface IOpenSIPSJSOptions {
     configuration: Omit<UAConfiguration, 'sockets'>;
     socketInterfaces: [string];
@@ -90,7 +90,7 @@ export declare const CALL_EVENT_LISTENER_TYPE: {
     CALL_FAILED: string;
     CALL_PROGRESS: string;
     CALL_ENDED: string;
-};
+}
 export interface InnerState {
     isMuted: boolean;
     muteWhenJoin: boolean;
@@ -126,13 +126,13 @@ export interface InnerState {
     metricConfig: WebrtcMetricsConfigType;
 }
 declare class OpenSIPSJS extends UA {
-    private initialized;
-    private readonly options;
-    private readonly newRTCSessionEventName;
-    private readonly activeCalls;
-    private _currentActiveRoomId;
-    private _callAddingInProgress;
-    private state;
+    private initialized
+    private readonly options
+    private readonly newRTCSessionEventName
+    private readonly activeCalls
+    private _currentActiveRoomId
+    private _callAddingInProgress
+    private state
     constructor(options: IOpenSIPSJSOptions);
     on<T extends ListenersKeyType>(type: T, listener: ListenerCallbackFnType<T>): any;
     off<T extends ListenersKeyType>(type: T, listener: ListenerCallbackFnType<T>): any;
@@ -188,14 +188,14 @@ declare class OpenSIPSJS extends UA {
     get selectedOutputDevice(): string;
     set selectedOutputDevice(deviceId: string);
     get originalStream(): MediaStream | null;
-    private setAvailableMediaDevices;
+    private setAvailableMediaDevices
     updateDeviceList(): Promise<void>;
     setMediaDevices(setDefaults?: boolean): Promise<void>;
     setCallTime(value: ITimeData): void;
     removeCallTime(callId: string): void;
-    private setTimeInterval;
-    private removeTimeInterval;
-    private _stopCallTimer;
+    private setTimeInterval
+    private removeTimeInterval
+    private _stopCallTimer
     setMetricsConfig(config: WebrtcMetricsConfigType): void;
     sendDTMF(callId: string, value: string): void;
     doMute(value: boolean): void;
@@ -204,52 +204,52 @@ declare class OpenSIPSJS extends UA {
         toHold: boolean;
         automatic?: boolean;
     }): void;
-    private _cancelAllOutgoingUnanswered;
+    private _cancelAllOutgoingUnanswered
     callAnswer(callId: string): void;
     callMove(callId: string, roomId: number): Promise<void>;
     updateCall(value: ICall): void;
     updateRoom(value: IRoomUpdate): void;
-    private _addCall;
-    private _addCallStatus;
-    private _updateCallStatus;
-    private _removeCallStatus;
-    private _addRoom;
+    private _addCall
+    private _addCallStatus
+    private _updateCallStatus
+    private _removeCallStatus
+    private _addRoom
     setMicrophone(dId: string): Promise<void>;
-    private _setOriginalStream;
+    private _setOriginalStream
     setSpeaker(dId: string): Promise<void>;
-    private removeRoom;
-    private deleteRoomIfEmpty;
-    private checkInitialized;
-    private muteReconfigure;
-    private roomReconfigure;
-    private _doConference;
+    private removeRoom
+    private deleteRoomIfEmpty
+    private checkInitialized
+    private muteReconfigure
+    private roomReconfigure
+    private _doConference
     _muteReconfigure(call: ICall): void;
     muteCaller(callId: string, value: boolean): void;
     callTerminate(callId: string): void;
     callTransfer(callId: string, target: string): void;
     callMerge(roomId: number): void;
     setDND(value: boolean): void;
-    private _startCallTimer;
+    private _startCallTimer
     setCurrentActiveRoomId(roomId: number | undefined): Promise<void>;
-    private getNewRoomId;
+    private getNewRoomId
     subscribe(type: string, listener: (c: RTCSessionExtended) => void): void;
     removeIListener(value: string): void;
-    private addCall;
-    private _triggerListener;
-    private _removeCall;
-    private _activeCallListRemove;
-    private newRTCSessionCallback;
-    private setInitialized;
+    private addCall
+    private _triggerListener
+    private _removeCall
+    private _activeCallListRemove
+    private newRTCSessionCallback
+    private setInitialized
     start(): this;
     setMuteWhenJoin(value: boolean): void;
-    private _setCallMetrics;
-    private _removeCallMetrics;
-    private _getCallQuality;
-    private _triggerAddStream;
+    private _setCallMetrics
+    private _removeCallMetrics
+    private _getCallQuality
+    private _triggerAddStream
     doCall({ target, addToCurrentRoom }: IDoCallParam): void;
     callChangeRoom({ callId, roomId }: {
         callId: string;
         roomId: number;
     }): Promise<void>;
 }
-export default OpenSIPSJS;
+export default OpenSIPSJS

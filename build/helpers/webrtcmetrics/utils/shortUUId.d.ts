@@ -1,1 +1,1 @@
-export default function shortUUID(): string;
+export default function shortUUID(): string

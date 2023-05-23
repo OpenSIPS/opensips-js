@@ -1,11 +1,11 @@
 export default class ProbesEngine {
     constructor(cfg: any);
-    _config: any;
-    _probes: any[];
-    _startedTime: number | null;
+    _config: any
+    _probes: any[]
+    _startedTime: number | null
     _callbacks: {
         onresult: null;
-    };
+    }
     get probes(): any[];
     get isRunning(): boolean;
     get isIdle(): boolean;
@@ -17,4 +17,4 @@ export default class ProbesEngine {
     unregisterCallback(name: any): void;
     fireOnReports(report: any): void;
 }
-import Probe from "./probe";
+import Probe from './probe'

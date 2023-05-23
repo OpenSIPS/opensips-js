@@ -10,8 +10,8 @@ export default class WebRTCMetrics {
         uid: string;
         record: boolean;
         ticket: boolean;
-    };
-    _engine: ProbesEngine;
+    }
+    _engine: ProbesEngine
     /**
      * Change log level manually
      * @param {string} level - The level of logs. Can be one of 'TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR', 'SILENT'
@@ -60,4 +60,4 @@ export default class WebRTCMetrics {
     removeProbe(probe: Probe): void;
     set onresult(arg: any);
 }
-import ProbesEngine from "./engine";
+import ProbesEngine from './engine'

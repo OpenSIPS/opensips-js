@@ -1,11 +1,11 @@
 export default class Exporter {
     constructor(cfg: any);
-    _start: string | null;
-    _end: string | null;
-    _cfg: any;
-    _referenceReport: any;
-    _reports: any[];
-    _events: any[];
+    _start: string | null
+    _end: string | null
+    _cfg: any
+    _referenceReport: any
+    _reports: any[]
+    _events: any[]
     start(): Date;
     stop(): Date;
     saveReferenceReport(report: any): void;
