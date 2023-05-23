@@ -1,6 +1,11 @@
 .hidden {
     display: none;
 }
+.login-form {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
 .volume-wrapper {
     margin: 0 10px;
 }
@@ -11,6 +16,7 @@ select::-ms-expand {
 select {
     display: inline-block;
     box-sizing: border-box;
+    margin-top: 5px;
     padding: 0.5em 2em 0.5em 0.5em;
     border: 1px solid #eee;
     font: inherit;
@@ -25,13 +31,8 @@ select {
     background-size: 5px 5px, 5px 5px;
 }
 
-div {
-    font-size: 18px;
-    font-family: Calibri;
-}
-
 button {
-    background-color: #0085b9;
+    background-color: #d82e3a;
     border: none;
     color: white;
     padding: 10px 25px;
@@ -55,6 +56,10 @@ input[type=text], input[type=number] {
     border: 1px solid #ccc;
     border-radius: 4px;
     box-sizing: border-box;
+}
+
+.login-form input {
+    display: block;
 }
 
 .call-quick-actions {
