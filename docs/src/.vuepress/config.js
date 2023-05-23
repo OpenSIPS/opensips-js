@@ -33,6 +33,7 @@ module.exports = {
     docsDir: '',
     editLinkText: '',
     lastUpdated: false,
+    nav: [],
     sidebar: {
       '/': [
         {
