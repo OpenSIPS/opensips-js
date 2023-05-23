@@ -9,6 +9,7 @@
     "build": "tsc --project tsconfig.json && tsc-alias -p tsconfig.json",
     "dev": "vite",
     "demo-build": "vite build",
+    "docs-build": "cd docs && yarn && yarn run build",
     "test": "echo \"Error: no test specified\" && exit 1",
     "ts-check": "tsc --noEmit",
     "lint": "eslint . --ext .js,.jsx,.cjs,.mjs,.ts --fix --ignore-path .gitignore"
