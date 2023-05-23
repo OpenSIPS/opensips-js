@@ -3,12 +3,18 @@ const path = require('path')
 
 const demoComponentFileName = 'DemoView'
 
-const demoHtmlBuildPath = path.join(process.cwd(), '../', 'demo', 'dist', 'index.html')
+const rootPath = path.join(process.cwd(), '../')
+
+const demoHtmlBuildPath = path.join(rootPath, 'demo', 'dist', 'index.html')
+const readmePath = path.join(rootPath, 'README.md')
+
+
 const docsSrcDirPath = path.join(process.cwd(), 'src')
 const docsComponentsDirPath = path.join(docsSrcDirPath, '.vuepress', 'components')
 const demoViewComponentPath = path.join(docsComponentsDirPath, `${demoComponentFileName}.vue`)
 
 const demoMdFilePath = path.join(docsSrcDirPath, 'demo.md')
+const indexMdFilePath = path.join(docsSrcDirPath, 'index.md')
 
 function generateComponentContent (content) {
     return `<template>${content}</template>`
@@ -29,6 +35,7 @@ try {
 
         fs.writeFileSync(demoViewComponentPath, demoComponentContent)
         fs.writeFileSync(demoMdFilePath, demoMdContent)
+        fs.copyFileSync(readmePath, indexMdFilePath)
     }
 } catch(err) {
     console.error(err)
