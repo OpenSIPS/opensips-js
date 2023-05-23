@@ -9,8 +9,8 @@
   },
   "repository": "/opensips-js",
   "scripts": {
-    "dev": "vuepress dev src",
-    "build": "vuepress build src"
+    "dev": "node scripts/prebuild.js && vuepress dev src",
+    "build": "node scripts/prebuild.js && vuepress build src"
   },
   "license": "MIT",
   "devDependencies": {
