@@ -4,7 +4,7 @@ module.exports = {
   /**
    * Ref：https://v1.vuepress.vuejs.org/config/#title
    */
-  title: 'OpenSIPSJS',
+  /* title: 'OpenSIPSJS', */
   /**
    * Ref：https://v1.vuepress.vuejs.org/config/#description
    */
@@ -17,9 +17,9 @@ module.exports = {
    */
   head: [
     ['link', { rel: 'icon', href: '/favicon.png' }],
-    ['meta', { name: 'theme-color', content: '#d82e3a' }],
+    ['meta', { name: 'theme-color', content: '#a5c544' }],
     ['meta', { name: 'apple-mobile-web-app-capable', content: 'yes' }],
-    ['meta', { name: 'apple-mobile-web-app-status-bar-style', content: '#d82e3a' }]
+    ['meta', { name: 'apple-mobile-web-app-status-bar-style', content: '#a5c544' }]
   ],
 
   /**
@@ -30,6 +30,7 @@ module.exports = {
   themeConfig: {
     repo: '',
     editLinks: false,
+    logo: '/logo.png',
     docsDir: '',
     editLinkText: '',
     lastUpdated: false,
