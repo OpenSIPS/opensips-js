@@ -859,11 +859,11 @@ class OpenSIPSJS extends UA {
         if (callsInRoom.length === 0) {
             this.deleteRoomIfEmpty(roomId)
         } else if (callsInRoom.length === 1 && this.currentActiveRoomId !== roomId) {
-            if (!callsInRoom[0].isOnHold()) {
+            if (!callsInRoom[0].isOnHold().local) {
                 this.doCallHold({ callId: callsInRoom[0].id, toHold: true, automatic: true })
             }
         } else if (callsInRoom.length === 1 && this.currentActiveRoomId === roomId) {
-            if (callsInRoom[0].isOnHold() && callsInRoom[0]._automaticHold) {
+            if (callsInRoom[0].isOnHold().local && callsInRoom[0]._automaticHold) {
                 this.doCallHold({ callId: callsInRoom[0].id, toHold: false })
             }
 
