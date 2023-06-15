@@ -5,50 +5,47 @@
     <meta name="viewport"
           content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <link rel="stylesheet" type="text/css" href="styles.css" />
+    <link rel="icon" type="image/x-icon" href="public/favicon.ico">
     <title>Document</title>
-
-    <style>
-        .hidden {
-            display: none;
-        }
-        .volume-wrapper {
-            margin: 0 10px;
-        }
-    </style>
 </head>
 <body>
     <div>
-        <!--<select @n-change="onChangeMicrophone" :value="getSelectedInputDevice">
-            <option v-for="mic in getInputDeviceList"
-                    :value="mic.deviceId"
-                    :key="mic.deviceId"
-                    :selected="getSelectedInputDevice === mic.deviceId">
-                {{ mic.label }}
-            </option>
-        </select>
-        <br/>
-        <select @change="onChangeSpeakers" :value="getSelectedOutputDevice">
-            <option v-for="device in getOutputDeviceList"
-                    :value="device.deviceId"
-                    :key="device.deviceId"
-                    :selected="getSelectedOutputDevice === device.deviceId">
-                {{ device.label }}
-            </option>
-        </select>-->
-
+        <img src="public/logo.png" alt="OpenSIPS" height="64">
+    </div>
+    <div id="loginPage">
+        <form id="loginToAppForm" class="login-form">
+            <label>
+                Username:
+                <input type="text" name="username">
+            </label>
+            <label>
+                Password:
+                <input type="text" name="password">
+            </label>
+            <label>
+                Domain:
+                <input type="text" name="domain">
+            </label>
+            <button type="submit">
+                Register
+            </button>
+        </form>
+    </div>
+    <div id="webRTCPage" style="display: none">
         <div>
             <select id="microphoneEl"></select>
             <select id="speakerEl"></select>
         </div>
 
 
-        <div>
+        <div class="call-quick-actions">
             <div>
-                Mute when join
+                <label for="muteWhenJoinInputEl">Mute when join</label>
                 <input type="checkbox" id="muteWhenJoinInputEl"/>
             </div>
             <div>
-                DND
+                <label for="DNDInputEl">DND</label>
                 <input type="checkbox" id="DNDInputEl"/>
             </div>
         </div>
@@ -59,15 +56,6 @@
                     Mute
                 </button>
             </div>
-            <!--<button v-if="isMuted"
-                    @click="doMute(false)">
-                Unmute
-            </button>
-            <button v-else
-                    :disabled="!Object.keys(getActiveCalls).length"
-                    @click="doMute(true)">
-                Mute
-            </button>-->
         </div>
 
         <br>
@@ -84,7 +72,7 @@
         <div id="callAddingIndicator" class="hidden">Calling...</div>
 
         <div>
-            Add new call to current room
+            <label for="addToCurrentRoomInputEl">Add new call to current room</label>
             <input type="checkbox" id="addToCurrentRoomInputEl">
         </div>
 

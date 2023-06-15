@@ -1,4 +1,4 @@
-import { IntervalType } from '~/src/types/rtc'
+import { IntervalType } from '@/types/rtc'
 
 const height = 20
 const lineWidth = 4

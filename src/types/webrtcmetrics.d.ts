@@ -60,3 +60,5 @@ export interface Probe {
 interface MetricAudioData extends ProbeMetricInType {
     callId?: string
 }
+
+export type MediaDeviceType = 'input' | 'output'

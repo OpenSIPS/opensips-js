@@ -1,0 +1,20 @@
+{
+  "name": "opensips-js",
+  "version": "0.0.1",
+  "description": "",
+  "main": "index.js",
+  "authors": {
+    "name": "",
+    "email": "serhii.ku@voicenter.com"
+  },
+  "repository": "/opensips-js",
+  "scripts": {
+    "dev": "node scripts/prebuild.js && vuepress dev src",
+    "build": "vuepress build src",
+    "prebuild": "node scripts/prebuild.js"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "vuepress": "^1.5.3"
+  }
+}

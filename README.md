@@ -1,3 +1,4 @@
+# Getting started
 ## Installation
 Using npm:
 ```shell

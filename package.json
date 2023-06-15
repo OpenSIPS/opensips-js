@@ -1,13 +1,15 @@
 {
   "name": "opensips-js",
-  "version": "1.0.0",
+  "version": "1.0.9",
   "description": "The JS package for opensips",
   "default": "src/index.ts",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
   "scripts": {
-    "build": "tsc",
-    "dev": "parcel demo/index.html",
+    "build": "tsc --project tsconfig.json && tsc-alias -p tsconfig.json",
+    "dev": "vite",
+    "demo-build": "vite build",
+    "docs-build": "yarn run demo-build && cd docs && yarn && yarn run build",
     "test": "echo \"Error: no test specified\" && exit 1",
     "ts-check": "tsc --noEmit",
     "lint": "eslint . --ext .js,.jsx,.cjs,.mjs,.ts --fix --ignore-path .gitignore"
@@ -32,16 +34,21 @@
     "@types/node": "^18.14.2",
     "@typescript-eslint/eslint-plugin": "^5.53.0",
     "@typescript-eslint/parser": "^5.53.0",
+    "@vitejs/plugin-vue": "^4.2.3",
     "dotenv": "^16.0.3",
     "eslint": "^8.35.0",
-    "parcel": "^2.8.3",
     "pre-commit": "^1.2.2",
     "process": "^0.11.10",
-    "typescript": "^4.9.5"
+    "regenerator-runtime": "^0.13.11",
+    "tsc-alias": "^1.8.6",
+    "typescript": "^4.9.5",
+    "vite": "^4.3.8",
+    "vite-plugin-singlefile": "^0.13.5",
+    "vue": "3.2.25"
   },
   "dependencies": {
     "generate-unique-id": "^2.0.1",
-    "jssip": "^3.10.0",
+    "jssip": "3.4.0",
     "loglevel": "^1.8.1",
     "p-iteration": "^1.1.8"
   }
