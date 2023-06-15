@@ -239,7 +239,7 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
         currentRoomMoveOption.text = `Room ${call.roomId}`
         callMoveSelectEl.appendChild(currentRoomMoveOption)
 
-        Object.values(openSIPSJS.getActiveRooms).forEach((room) => {
+        Object.values(openSIPSJS.getActiveRooms).forEach((room: IRoom) => {
             if (call.roomId === room.roomId) {
                 return
             }
@@ -334,7 +334,7 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
                 calculateVolumeLevel(sessions)
                 calculateActiveCallsNumber(sessions)
 
-                Object.values(openSIPSJS.getActiveRooms).forEach((room) => {
+                Object.values(openSIPSJS.getActiveRooms).forEach((room: IRoom) => {
                     upsertRoomData(room, sessions)
                 })
             })
@@ -569,7 +569,7 @@ dtmfForm?.addEventListener(
             return
         }
 
-        const callsInActiveRoom = Object.values(openSIPSJS.getActiveCalls).filter((call) => call.roomId === openSIPSJS.currentActiveRoomId)
+        const callsInActiveRoom = (Object.values(openSIPSJS.getActiveCalls) as Array<ICall>).filter((call) => call.roomId === openSIPSJS.currentActiveRoomId)
         const dtmfTarget = dtmfInputEl.value
 
         openSIPSJS.sendDTMF(callsInActiveRoom[0].id, dtmfTarget)
@@ -581,6 +581,7 @@ roomSelectEl?.addEventListener(
         event.preventDefault()
 
         const target = event.target as HTMLSelectElement
-        const roomId = parseInt(target.value)
+        const parsedValue = parseInt(target.value)
+        const roomId = isNaN(parsedValue) ? undefined: parsedValue
         await openSIPSJS.setCurrentActiveRoomId(roomId)
     })
