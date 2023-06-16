@@ -27,10 +27,12 @@ export interface StreamMediaType extends HTMLAudioElement {
 }
 
 export interface RTCSessionExtended extends RTCSession {
+    id: string
     _automaticHold: boolean
     _id: string
     _localHold: boolean
 
+    connection: any
     _audioMuted: boolean
     _cancel_reason: string
     _contact: string
@@ -47,10 +49,14 @@ export interface RTCSessionExtended extends RTCSession {
     start_time: Date
     _remote_identity: string
     isOnHold: () => OnHoldResult
+    sendDTMF: (value: number | string, options?: { [key: string]: unknown }) => void
+    hold: (options?: { [key: string]: unknown }, done?: () => void) => boolean
+    unhold: (options?: { [key: string]: unknown }, done?: () => void) => boolean
+    answer: (options?: { [key: string]: unknown }) => void
+    answer: (options?: { [key: string]: unknown }) => void
 }
 
 export interface ICall extends RTCSessionExtended {
-    id: string
     roomId?: number
     localMuted?: boolean
     localHold?: boolean

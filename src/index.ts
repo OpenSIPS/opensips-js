@@ -1,4 +1,3 @@
-// @ts-nocheck
 import JsSIP, { UA } from 'jssip'
 import { forEach } from 'p-iteration'
 import {
