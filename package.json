@@ -47,6 +47,7 @@
     "vue": "3.2.25"
   },
   "dependencies": {
+    "@types/jssip": "^3.5.4",
     "@types/mime": "^3.0.1",
     "generate-unique-id": "^2.0.1",
     "jssip": "3.4.0",

@@ -1,13 +1,14 @@
-import JsSIP, { UA } from 'jssip'
-import { forEach } from 'p-iteration'
-import {
-    EndEvent,
+import JsSIP, {
+    UA,
     IncomingAckEvent,
     IncomingEvent,
     OutgoingAckEvent,
-    OutgoingEvent
-} from 'jssip/lib/RTCSession'
-import { RTCSessionEvent, UAConfiguration, UAEventMap } from 'jssip/lib/UA'
+    OutgoingEvent,
+    RTCSessionEvent,
+    UAConfiguration,
+    UAEventMap
+} from '@/helpers/jssip'
+import { forEach } from 'p-iteration'
 import { TempTimeData, ITimeData, setupTime } from '@/helpers/time.helper'
 import { filterObjectKeys } from '@/helpers/filter.helper'
 import WebRTCMetrics from '@/helpers/webrtcmetrics/metrics'
@@ -18,7 +19,9 @@ import {
     ICall,
     StreamMediaType,
     IntervalType,
-    RoomChangeEmitType
+    RoomChangeEmitType,
+    ListenerEventType,
+    RTCUAEventType
 } from '@/types/rtc'
 import { METRIC_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
 
@@ -164,7 +167,7 @@ export type IRoomUpdate = Omit<IRoom, 'started'> & {
     started?: Date
 }
 
-export type ListenerEventType = EndEvent | IncomingEvent | OutgoingEvent | IncomingAckEvent | OutgoingAckEvent
+
 export interface TriggerListenerOptions {
     listenerType: string
     session: RTCSessionExtended
@@ -249,7 +252,7 @@ class OpenSIPSJS extends UA {
     private initialized = false
 
     private readonly options: IOpenSIPSJSOptions
-    private readonly newRTCSessionEventName: ListenersKeyType = 'newRTCSession'
+    private readonly newRTCSessionEventName: RTCUAEventType = 'newRTCSession'
     private readonly activeCalls: { [key: string]: ICall } = {}
     //private readonly activeRooms: { [key: number]: IRoom } = {}
     private _currentActiveRoomId: number | undefined
@@ -598,9 +601,9 @@ class OpenSIPSJS extends UA {
         //dispatch('setCurrentActiveRoom', call.roomId) //TODO: move to top
         this.setCurrentActiveRoomId(call.roomId)
 
-        call.connection.addEventListener('addstream', async event => {
+        call.connection.addEventListener('addstream', async (event: MediaEvent) => {
             //dispatch('_triggerAddStream', {event, call})
-            this._triggerAddStream(event as MediaEvent, call)
+            this._triggerAddStream(event, call)
         })
     }
 
@@ -919,7 +922,7 @@ class OpenSIPSJS extends UA {
 
             const mixedOutput = audioContext.createMediaStreamDestination()
 
-            session.connection.getReceivers().forEach(receiver => {
+            session.connection.getReceivers().forEach((receiver:  RTCRtpReceiver) => {
                 receivedTracks.forEach(track => {
                     allReceivedMediaStreams.addTrack(receiver.track)
 
@@ -967,7 +970,7 @@ class OpenSIPSJS extends UA {
 
         if (call && call.connection.getReceivers().length) {
             call.localMuted = value
-            call.connection.getReceivers().forEach(receiver => {
+            call.connection.getReceivers().forEach((receiver: RTCRtpReceiver) => {
                 receiver.track.enabled = !value
             })
             //commit(STORE_MUTATION_TYPES.UPDATE_CALL, call)
@@ -1432,9 +1435,8 @@ class OpenSIPSJS extends UA {
             })
         }
 
-        call.connection.addEventListener('addstream', (event) => {
-            // dispatch('_triggerAddStream', { event, call })
-            this._triggerAddStream(event as MediaEvent, call)
+        call.connection.addEventListener('addstream', (event: MediaEvent) => {
+            this._triggerAddStream(event, call as ICall)
         })
     }
 
