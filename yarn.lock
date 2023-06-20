@@ -206,13 +206,6 @@
   resolved "https://registry.yarnpkg.com/@types/json-schema/-/json-schema-7.0.11.tgz#d421b6c527a3037f7c84433fd2c4229e016863d3"
   integrity sha512-wOuvG1SN4Us4rez+tylwwwCV1psiNVOkJeM3AUWUNWg/jDQY2+HE/444y5gc+jBmRqASOm2Oeh5c1axHobwRKQ==
 
-"@types/jssip@^3.5.4":
-  version "3.5.4"
-  resolved "https://registry.yarnpkg.com/@types/jssip/-/jssip-3.5.4.tgz#9d69f2bb49dd871b29e6fe006ef06b51f6f81fd7"
-  integrity sha512-0NPfudXCgoCN6UaZjj/leuw/7271LwzKJ+iQG5IINeinNG3yyYMRqkNSsorVaRc/At6voyrBS5PzbwwfjtPvzQ==
-  dependencies:
-    jssip "*"
-
 "@types/mime@^3.0.1":
   version "3.0.1"
   resolved "https://registry.yarnpkg.com/@types/mime/-/mime-3.0.1.tgz#5f8f2bca0a5863cb69bc0b0acd88c96cb1d4ae10"
@@ -753,7 +746,7 @@ esutils@^2.0.2:
   resolved "https://registry.yarnpkg.com/esutils/-/esutils-2.0.3.tgz#74d2eb4de0b8da1293711910d50775b9b710ef64"
   integrity sha512-kVscqXk4OCp68SZ0dkgEKVi6/8ij300KBWTJq32P/dYeWTSwK41WyTxalN1eRmA5Z9UU/LX9D7FWSmV9SAYx6g==
 
-events@^3.0.0, events@^3.3.0:
+events@^3.3.0:
   version "3.3.0"
   resolved "https://registry.yarnpkg.com/events/-/events-3.3.0.tgz#31a95ad0a924e2d2c419a813aeb2c4e878ea7400"
   integrity sha512-mQw+2fkQbALzQ7V0MY0IqdnXNOeTtP4r0lN9z7AAawCXgqea7bDii20AYrIBrFd/Hx0M2Ocz6S111CaFkUcb0Q==
@@ -988,7 +981,7 @@ json-stable-stringify-without-jsonify@^1.0.1:
   resolved "https://registry.yarnpkg.com/json-stable-stringify-without-jsonify/-/json-stable-stringify-without-jsonify-1.0.1.tgz#9db7b59496ad3f3cfef30a75142d2d930ad72651"
   integrity sha512-Bdboy+l7tA3OGW6FjyFHWkP5LuByj1Tk33Ljyq0axyzdk9//JSi2u3fP1QSmd1KNwq6VOKYGlAu87CisVir6Pw==
 
-jssip@*:
+jssip@^3.10.0:
   version "3.10.0"
   resolved "https://registry.yarnpkg.com/jssip/-/jssip-3.10.0.tgz#ed61e189c756e5974adfdb212b3e0e3e74ac1e7a"
   integrity sha512-iJj+bhnNl0S296sUDc2ZjIbAetnelzZ92aWARyW01oKZ0X8t+5aGrYfJdMFliLFm8hxMcnkep3vmSRGe/yRjsA==
@@ -998,15 +991,6 @@ jssip@*:
     debug "^4.3.1"
     events "^3.3.0"
     sdp-transform "^2.14.1"
-
-jssip@3.4.0:
-  version "3.4.0"
-  resolved "https://registry.yarnpkg.com/jssip/-/jssip-3.4.0.tgz#d1319ac4fa9c68e8b50d8c016eff05df412d6bb4"
-  integrity sha512-8dPw9K7Uwlm981GYaAUFz0AN2++PJ+il8uUMm1DM7fZrO3/x17QMQvXxVDHLbSXpV5jRsBe3xGQ4lpaM4ck2Mg==
-  dependencies:
-    debug "^4.1.1"
-    events "^3.0.0"
-    sdp-transform "^2.7.0"
 
 levn@^0.4.1:
   version "0.4.1"
@@ -1311,7 +1295,7 @@ safe-buffer@~5.1.0, safe-buffer@~5.1.1:
   resolved "https://registry.yarnpkg.com/safe-buffer/-/safe-buffer-5.1.2.tgz#991ec69d296e0313747d59bdfd2b745c35f8828d"
   integrity sha512-Gd2UZBJDkXlY7GbJxfsE8/nvKkUEU1G38c1siN6QP6a9PT9MmHB8GnpscSmMJSoF8LOIrt8ud/wPtojys4G6+g==
 
-sdp-transform@^2.14.1, sdp-transform@^2.7.0:
+sdp-transform@^2.14.1:
   version "2.14.1"
   resolved "https://registry.yarnpkg.com/sdp-transform/-/sdp-transform-2.14.1.tgz#2bb443583d478dee217df4caa284c46b870d5827"
   integrity sha512-RjZyX3nVwJyCuTo5tGPx+PZWkDMCg7oOLpSlhjDdZfwUoNqG1mM8nyj31IGHyaPWXhjbP7cdK3qZ2bmkJ1GzRw==

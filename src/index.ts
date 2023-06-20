@@ -1,230 +1,45 @@
-import JsSIP, {
-    UA,
+import JsSIP from 'jssip'
+import UA from '@/helpers/UA'
+import {
     IncomingAckEvent,
     IncomingEvent,
     OutgoingAckEvent,
-    OutgoingEvent,
-    RTCSessionEvent,
-    UAConfiguration,
-    UAEventMap
-} from '@/helpers/jssip'
+    OutgoingEvent
+} from 'jssip/lib/RTCSession'
+import { RTCSessionEvent, UAConfiguration, UAEventMap } from 'jssip/lib/UA'
 import { forEach } from 'p-iteration'
+
 import { TempTimeData, ITimeData, setupTime } from '@/helpers/time.helper'
 import { filterObjectKeys } from '@/helpers/filter.helper'
+import { syncStream, processAudioVolume, simplifyCallObject } from '@/helpers/audio.helper'
 import WebRTCMetrics from '@/helpers/webrtcmetrics/metrics'
+
 import { WebrtcMetricsConfigType, Probe, ProbeMetricInType, MetricAudioData, MediaDeviceType } from '@/types/webrtcmetrics'
+import { ListenersKeyType, ListenerCallbackFnType } from '@/types/listeners'
 import {
-    RTCConfiguration,
     RTCSessionExtended,
     ICall,
-    StreamMediaType,
     IntervalType,
-    RoomChangeEmitType,
     ListenerEventType,
-    RTCUAEventType
+    RTCUAEventType,
+    MediaEvent,
+    ICallStatusUpdate,
+    IRoom,
+    IDoCallParam,
+    ICallStatus,
+    IRoomUpdate,
+    IOpenSIPSJSOptions,
+    TriggerListenerOptions,
 } from '@/types/rtc'
-import { METRIC_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
 
-export interface IOpenSIPSJSOptions {
-    configuration: Omit<UAConfiguration, 'sockets'>,
-    socketInterfaces: [ string ]
-    sipDomain: string
-    sipOptions: {
-        session_timers: boolean
-        extraHeaders: [ string ]
-        pcConfig: RTCConfiguration
-    }
-}
+import { METRIC_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
+import { CALL_EVENT_LISTENER_TYPE } from '@/enum/call.event.listener.type'
 
 const CALL_STATUS_UNANSWERED = 0
-
-export type readyListener = (value: boolean) => void
-export type changeActiveCallsListener = (event: { [key: string]: ICall }) => void
-export type TestEventListener = (event: { test: string }) => void
-export type ActiveRoomListener = (event: number | undefined) => void
-export type CallAddingProgressListener = (callId: string | undefined) => void
-export type RoomDeletedListener = (roomId: number) => void
-export type changeActiveInputMediaDeviceListener = (event: string) => void
-export type changeActiveOutputMediaDeviceListener = (event: string) => void
-export type changeAvailableDeviceListListener = (event: Array<MediaDeviceInfo>) => void
-export type changeMuteWhenJoinListener = (value: boolean) => void
-export type changeIsDNDListener = (value: boolean) => void
-export type changeIsMutedListener = (value: boolean) => void
-export type changeOriginalStreamListener = (value: MediaStream) => void
-export type addRoomListener = (value: RoomChangeEmitType) => void
-export type updateRoomListener = (value: RoomChangeEmitType) => void
-export type removeRoomListener = (value: RoomChangeEmitType) => void
-export interface OpenSIPSEventMap extends UAEventMap {
-    ready: readyListener
-    changeActiveCalls: changeActiveCallsListener
-    callConfirmed: TestEventListener
-    currentActiveRoomChanged: ActiveRoomListener
-    callAddingInProgressChanged: CallAddingProgressListener
-    roomDeleted: RoomDeletedListener
-    changeActiveInputMediaDevice: changeActiveInputMediaDeviceListener
-    changeActiveOutputMediaDevice: changeActiveOutputMediaDeviceListener
-    changeAvailableDeviceList: changeAvailableDeviceListListener
-    changeMuteWhenJoin: changeMuteWhenJoinListener
-    changeIsDND: changeIsDNDListener
-    changeIsMuted: changeIsMutedListener
-    changeOriginalStream: changeOriginalStreamListener
-    addRoom: addRoomListener
-    updateRoom: updateRoomListener
-    removeRoom: removeRoomListener
-}
-
-export type ListenersKeyType = keyof OpenSIPSEventMap
-export type ListenersCallbackFnType = OpenSIPSEventMap[ListenersKeyType]
-export type ListenerCallbackFnType<T extends ListenersKeyType> = OpenSIPSEventMap[T]
-
-interface MediaEvent extends Event {
-    stream: MediaStream
-}
-
-export interface IDoCallParam {
-    target: string
-    addToCurrentRoom: boolean
-}
-
-/*export interface HHTMLMediaElement extends HTMLMediaElement {
-    setSinkId(id: string)
-}*/
-
-
-
-type ICallKey = keyof ICall
-
-/*export interface IActiveCalls {
-    'roomId': string
-    '_audioMuted': boolean
-    '_cancel_reason': string
-    '_contact': string
-    'direction': string
-    '_end_time': string
-    '_eventsCount': number
-    '_from_tag': string
-    '_id': string
-    '_is_canceled': boolean
-    '_is_confirmed': boolean
-    '_late_sdp': string
-    '_localHold': boolean
-    '_videoMuted': boolean
-    'status': number
-    'start_time': string
-    '_remote_identity': string
-    'audioTag': StreamMediaType
-    //'audioQuality': number
-    'isOnHold': boolean
-    //'originalStream': MediaStream | null
-    'localMuted': boolean
-}*/
-
-const CALL_KEYS_TO_INCLUDE: Array<ICallKey> = [
-    'roomId',
-    '_audioMuted',
-    '_cancel_reason',
-    '_contact',
-    'direction',
-    '_end_time',
-    '_eventsCount',
-    '_from_tag',
-    '_id',
-    '_is_canceled',
-    '_is_confirmed',
-    '_late_sdp',
-    '_localHold',
-    '_videoMuted',
-    'status',
-    'start_time',
-    '_remote_identity',
-    'audioTag',
-    //'audioQuality',
-    'isOnHold',
-    //'originalStream',
-    'localMuted'
-]
-
-export interface IRoom {
-    started: Date
-    incomingInProgress: boolean
-    roomId: number
-}
-
-export interface ICallStatus {
-    isMoving: boolean
-    isTransferring: boolean
-    isMerging: boolean
-}
-
-export interface ICallStatusUpdate {
-    callId: string
-    isMoving?: boolean
-    isTransferring?: boolean
-    isMerging?: boolean
-}
-
-export type IRoomUpdate = Omit<IRoom, 'started'> & {
-    started?: Date
-}
-
-
-export interface TriggerListenerOptions {
-    listenerType: string
-    session: RTCSessionExtended
-    event?:  ListenerEventType
-}
-
-/* Helpers */
-function simplifyCallObject (call: ICall): { [key: string]: any } {
-    //const simplified: { [key: string]: ICall[ICallKey] } = {}
-    const simplified: { [key: string]: any } = {} as ICall
-
-    CALL_KEYS_TO_INCLUDE.forEach(key => {
-        if (call[key] !== undefined) {
-            simplified[key] = call[key]
-        }
-    })
-
-    simplified.localHold = call._localHold
-
-    return simplified
-}
-
-function processAudioVolume (stream: MediaStream, volume: number) {
-    const audioContext = new AudioContext()
-    const audioSource = audioContext.createMediaStreamSource(stream)
-    const audioDestination = audioContext.createMediaStreamDestination()
-    const gainNode = audioContext.createGain()
-    audioSource.connect(gainNode)
-    gainNode.connect(audioDestination)
-    gainNode.gain.value = volume
-
-    return audioDestination.stream
-}
-
-function syncStream (event: MediaEvent, call: ICall, outputDevice: string, volume: number) {
-    const audio = document.createElement('audio') as StreamMediaType
-
-    audio.id = call._id
-    audio.class = 'audioTag'
-    audio.srcObject = event.stream
-    audio.setSinkId(outputDevice)
-    audio.volume = volume
-    audio.play()
-    call.audioTag = audio
-}
 
 const STORAGE_KEYS = {
     SELECTED_INPUT_DEVICE: 'selectedInputDevice',
     SELECTED_OUTPUT_DEVICE: 'selectedOutputDevice'
-}
-
-export const CALL_EVENT_LISTENER_TYPE = {
-    NEW_CALL: 'new_call',
-    CALL_CONFIRMED: 'confirmed',
-    CALL_FAILED: 'failed',
-    CALL_PROGRESS: 'progress',
-    CALL_ENDED: 'ended'
 }
 
 const activeCalls: { [key: string]: ICall } = {}
@@ -601,9 +416,9 @@ class OpenSIPSJS extends UA {
         //dispatch('setCurrentActiveRoom', call.roomId) //TODO: move to top
         this.setCurrentActiveRoomId(call.roomId)
 
-        call.connection.addEventListener('addstream', async (event: MediaEvent) => {
+        call.connection.addEventListener('addstream', async (event) => {
             //dispatch('_triggerAddStream', {event, call})
-            this._triggerAddStream(event, call)
+            this._triggerAddStream(event as MediaEvent, call)
         })
     }
 
@@ -1435,8 +1250,8 @@ class OpenSIPSJS extends UA {
             })
         }
 
-        call.connection.addEventListener('addstream', (event: MediaEvent) => {
-            this._triggerAddStream(event, call as ICall)
+        call.connection.addEventListener('addstream', (event) => {
+            this._triggerAddStream(event as MediaEvent, call as ICall)
         })
     }
 
