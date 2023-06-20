@@ -7,7 +7,6 @@ module.exports = {
     ],
     ignorePatterns: [
         'src/helpers/webrtcmetrics/',
-        'src/helpers/jssip.ts'
     ],
     rules: {
         '@typescript-eslint/ban-ts-comment': [ 'error' ],

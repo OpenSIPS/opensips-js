@@ -15,35 +15,10 @@ export type IntervalType = ReturnType<typeof setInterval>
 
 export type ListenerEventType = EndEvent | IncomingEvent | OutgoingEvent | IncomingAckEvent | OutgoingAckEvent
 
-export type RTCUAEventType =
-    'connecting' |
-    'connected' |
-    'disconnected' |
-    'registered' |
-    'unregistered' |
-    'registrationFailed' |
-    'registrationExpiring' |
-    'newRTCSession' |
-    'newMessage' |
-    'newOptions' |
-    'sipEvent'
-
 export type RTCBundlePolicy = 'balanced' | 'max-bundle' | 'max-compat'
 export type RTCIceTransportPolicy = 'all' | 'relay'
 export type RTCRtcpMuxPolicy = 'require'
-export type RTCMuteOptionsKeys = 'audio' | 'video'
-export type RTCTerminateOptions = {
-    extraHeaders?: Array<string>
-    status_code?: number
-    reason_phrase?: string
-    body?: string
-}
 
-export type RTCReferOptions = {
-    extraHeaders?: Array<string>
-    eventHandlers?: any
-    replaces?: RTCSessionExtended
-}
 export interface RTCIceServer {
     credential?: string;
     urls: string | string[];
@@ -64,39 +39,6 @@ export interface StreamMediaType extends HTMLAudioElement {
     setSinkId (id: string): Promise<void>
 }
 
-/*interface ConstrainDOMStringParameters {
-    exact?: string | string[];
-    ideal?: string | string[];
-}
-
-type ConstrainDOMString = string | string[] | ConstrainDOMStringParameters;
-
-interface MediaTrackConstraintSet {
-    aspectRatio?: number;
-    autoGainControl?: boolean;
-    channelCount?: number;
-    deviceId?: ConstrainDOMString;
-    echoCancellation?: boolean;
-    facingMode?: ConstrainDOMString;
-    frameRate?: number;
-    groupId?: ConstrainDOMString;
-    height?: number;
-    latency?: number;
-    noiseSuppression?: boolean;
-    sampleRate?: number;
-    sampleSize?: number;
-    suppressLocalAudioPlayback?: boolean;
-    width?: number;
-}
-interface MediaTrackConstraints extends MediaTrackConstraintSet {
-    advanced?: MediaTrackConstraintSet[];
-}
-interface MediaStreamConstraints {
-    audio?: boolean | MediaTrackConstraints;
-    peerIdentity?: string;
-    preferCurrentTab?: boolean;
-    video?: boolean | MediaTrackConstraints;
-}*/
 export interface AnswerOptionsExtended extends AnswerOptions {
     mediaConstraints?: MediaStreamConstraints
 }
@@ -106,12 +48,9 @@ export interface RTCSessionExtended extends RTCSession {
     _automaticHold: boolean
     _id: string
     _localHold: boolean
-
-    //connection: any
     _audioMuted: boolean
     _cancel_reason: string
     _contact: string
-    //direction: SessionDirection
     _end_time: Date
     _eventsCount: number
     _from_tag: string
@@ -119,21 +58,9 @@ export interface RTCSessionExtended extends RTCSession {
     _is_confirmed: boolean
     _late_sdp: string
     _videoMuted: boolean
-    //status: number
     _status: number
-    //start_time: Date
     _remote_identity: string
     answer(options?: AnswerOptionsExtended): void
-    /*isOnHold: () => OnHoldResult
-    sendDTMF: (value: number | string, options?: { [key: string]: unknown }) => void
-    hold: (options?: { [key: string]: unknown }, done?: () => void) => boolean
-    unhold: (options?: { [key: string]: unknown }, done?: () => void) => boolean
-    answer: (options?: { [key: string]: unknown }) => void
-    mute: (options?: { [key: RTCMuteOptionsKeys]: boolean }) => void
-    unmute: (options?: { [key: RTCMuteOptionsKeys]: boolean }) => void
-    terminate: (options?: RTCTerminateOptions) => void
-    refer: (target: string, options?: RTCReferOptions) => void
-    on(eventName: string, handler: (event: ListenerEventType) => void)*/
 }
 
 export interface ICall extends RTCSessionExtended {
@@ -141,9 +68,6 @@ export interface ICall extends RTCSessionExtended {
     localMuted?: boolean
     localHold?: boolean
     audioTag?: StreamMediaType
-    /*remote_identity: {
-        uri: any
-    }*/
 }
 
 export type RoomChangeEmitType = {
@@ -199,10 +123,6 @@ export interface TriggerListenerOptions {
     session: RTCSessionExtended
     event?:  ListenerEventType
 }
-
-
-/* Listeners types */
-
 
 /* UA */
 export interface CallOptionsExtended extends AnswerOptionsExtended {
