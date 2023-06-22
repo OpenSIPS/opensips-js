@@ -1,4 +1,5 @@
 import { ICall, StreamMediaType, MediaEvent } from '@/types/rtc'
+import { Writeable } from '@/types/generic'
 
 type ICallKey = keyof ICall
 const CALL_KEYS_TO_INCLUDE: Array<ICallKey> = [
@@ -26,9 +27,10 @@ const CALL_KEYS_TO_INCLUDE: Array<ICallKey> = [
     'localMuted'
 ]
 
-export function simplifyCallObject (call: ICall): { [key: string]: any } {
-    //const simplified: { [key: string]: ICall[ICallKey] } = {}
-    const simplified: { [key: string]: any } = {} as ICall
+
+export type ICallSimplified = Writeable<Pick<ICall, typeof CALL_KEYS_TO_INCLUDE[number]>>
+export function simplifyCallObject (call: ICall): ICallSimplified {
+    const simplified: Partial<ICallSimplified> = {}
 
     CALL_KEYS_TO_INCLUDE.forEach(key => {
         if (call[key] !== undefined) {
@@ -38,7 +40,7 @@ export function simplifyCallObject (call: ICall): { [key: string]: any } {
 
     simplified.localHold = call._localHold
 
-    return simplified
+    return simplified as ICallSimplified
 }
 
 export function processAudioVolume (stream: MediaStream, volume: number) {
@@ -57,7 +59,7 @@ export function syncStream (event: MediaEvent, call: ICall, outputDevice: string
     const audio = document.createElement('audio') as StreamMediaType
 
     audio.id = call._id
-    audio.class = 'audioTag'
+    audio.className = 'audioTag'
     audio.srcObject = event.stream
     audio.setSinkId(outputDevice)
     audio.volume = volume

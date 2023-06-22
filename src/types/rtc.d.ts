@@ -35,7 +35,7 @@ export interface RTCConfiguration {
 }
 
 export interface StreamMediaType extends HTMLAudioElement {
-    class: string
+    className: string
     setSinkId (id: string): Promise<void>
 }
 
