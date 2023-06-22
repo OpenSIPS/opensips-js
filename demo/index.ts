@@ -569,7 +569,9 @@ dtmfForm?.addEventListener(
             return
         }
 
-        const callsInActiveRoom = (Object.values(openSIPSJS.getActiveCalls) as Array<ICall>).filter((call) => call.roomId === openSIPSJS.currentActiveRoomId)
+        const callsInActiveRoom = (Object.values(openSIPSJS.getActiveCalls) as Array<ICall>)
+            .filter((call) => call.roomId === openSIPSJS.currentActiveRoomId)
+
         const dtmfTarget = dtmfInputEl.value
 
         openSIPSJS.sendDTMF(callsInActiveRoom[0].id, dtmfTarget)
