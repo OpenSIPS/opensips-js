@@ -33,6 +33,7 @@ import {
 
 import { METRIC_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
 import { CALL_EVENT_LISTENER_TYPE } from '@/enum/call.event.listener.type'
+import { SendMessageOptions } from 'jssip/lib/Message'
 
 const CALL_STATUS_UNANSWERED = 0
 
@@ -356,6 +357,14 @@ class OpenSIPSJS extends UA {
         const activeRoomId = this.currentActiveRoomId
         this.isMuted = value
         this.roomReconfigure(activeRoomId)
+    }
+
+    sendMessage (target: string | JsSIP.URI, body: string, options?: SendMessageOptions) {
+        return super.sendMessage(
+            `sip:${target}@${this.sipDomain}`,
+            body,
+            options
+        )
     }
 
     public doCallHold ({ callId, toHold, automatic }: { callId: string, toHold: boolean, automatic?: boolean }) {

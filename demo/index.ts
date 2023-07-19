@@ -2,6 +2,7 @@ import OpenSIPSJS, { IRoom } from '../src/index'
 import { RTCSessionEvent } from 'jssip/lib/UA'
 import { ICall, RoomChangeEmitType } from '../src/types/rtc'
 import { runIndicator } from '../src/helpers/volume.helper'
+import { SendMessageOptions } from 'jssip/lib/Message'
 
 let openSIPSJS = null
 let addCallToCurrentRoom = false
@@ -13,6 +14,7 @@ const loginPageEl = document.getElementById('loginPage')
 const webRTCPageEl = document.getElementById('webRTCPage')
 
 const makeCallFormEl = document.getElementById('makeCallForm')
+const sendMessageFormEl = document.getElementById('sendMessageForm')
 const callAddingIndicatorEl = document.getElementById('callAddingIndicator')
 
 const microphoneEl = document.getElementById('microphoneEl') as HTMLSelectElement
@@ -491,6 +493,42 @@ makeCallFormEl?.addEventListener(
             target,
             addToCurrentRoom: addCallToCurrentRoom
         })
+    }
+)
+
+sendMessageFormEl?.addEventListener(
+    'submit',
+    (event) => {
+        event.preventDefault()
+
+        const form = event.target
+
+        if (!(form instanceof HTMLFormElement)) {
+            return
+        }
+
+        const formData = new FormData(form)
+        const target = formData.get('target')
+        const message = formData.get('message')
+        const extraHeaders = formData.get('extraHeaders')
+
+        if (typeof target !== 'string' || target.length === 0) {
+            alert('Please provide a valid string!')
+
+            return
+        }
+
+        const optionsObj: SendMessageOptions = {}
+
+        if (typeof extraHeaders ==='string') {
+            optionsObj.extraHeaders = extraHeaders.split(',')
+        }
+
+        openSIPSJS.sendMessage(
+            target,
+            message,
+            optionsObj
+        )
     }
 )
 
