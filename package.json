@@ -1,6 +1,6 @@
 {
   "name": "opensips-js",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "The JS package for opensips",
   "default": "src/index.ts",
   "main": "build/index.js",
@@ -53,5 +53,9 @@
     "loglevel": "^1.8.1",
     "mime": "^3.0.0",
     "p-iteration": "^1.1.8"
-  }
+  },
+  "files": [
+    "build",
+    "src/types"
+  ]
 }
