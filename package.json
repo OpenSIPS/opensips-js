@@ -1,5 +1,5 @@
 {
-  "name": "opensips-js",
+  "name": "@voicenter-team/opensips-js",
   "version": "1.0.10",
   "description": "The JS package for opensips",
   "default": "src/index.ts",
