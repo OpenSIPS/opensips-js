@@ -524,7 +524,7 @@ sendMessageFormEl?.addEventListener(
             optionsObj.extraHeaders = extraHeaders.split(',')
         }
 
-        openSIPSJS.sendMessage(
+        openSIPSJS.sendMSRPMessage(
             target,
             message,
             optionsObj

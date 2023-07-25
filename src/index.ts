@@ -359,7 +359,9 @@ class OpenSIPSJS extends UA {
         this.roomReconfigure(activeRoomId)
     }
 
-    sendMessage (target: string | JsSIP.URI, body: string, options?: SendMessageOptions) {
+    public sendMSRP (target: string | JsSIP.URI, body: string, options?: SendMessageOptions) {
+
+        super.sendMSRPMessage (`sip:${target}@${this.sipDomain}`, this.sipOptions)
         return super.sendMessage(
             `sip:${target}@${this.sipDomain}`,
             body,
