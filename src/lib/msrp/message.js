@@ -6,14 +6,13 @@ export class MSRPMessage {
     ident = null
     code = null
     method = null
-    headers : any = {}
+    headers = {}
     body = ''
-    challenge = null
 
-    constructor (msg : string) {
+    constructor (msg) {
         if (msg.length > 0) {
             let _hasBody = false
-            const msgLines : any = msg.split('\r\n')
+            const msgLines = msg.split('\r\n')
             const msgHeadLineArray = msgLines.shift().split(/\s/)
             this.protocol = msgHeadLineArray[0]
             this.ident = msgHeadLineArray[1]
@@ -40,11 +39,11 @@ export class MSRPMessage {
         }
     }
 
-    addHeader (name : string, content : string) {
+    addHeader (name, content) {
         this.headers[name] = content
     }
 
-    getHeader (name : string) {
+    getHeader (name) {
         return this.headers[name]
     }
 

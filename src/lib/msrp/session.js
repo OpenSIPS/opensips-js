@@ -1,21 +1,14 @@
-import Utils from 'jssip/lib/Utils'
+import * as Utils from 'jssip/lib/Utils'
 import  RequestSender  from 'jssip/lib/RequestSender'
+// const RequestSender = import('jssip/lib/RequestSender')
 import DigestAuthentication from 'jssip/lib/DigestAuthentication'
 import { MSRPMessage } from '@/lib/msrp/message'
-import { UA } from 'jssip'
 import URI from 'jssip/lib/URI'
 import SIPMessage from 'jssip/lib/SIPMessage'
 
 export class MSRPSession {
-    _ua : UA
-    _request : any
-    credentials : any
-    webSocket : any
-    status : string
-    target : string
-    message : string
 
-    constructor (ua : UA) {
+    constructor (ua) {
         this._ua = ua
         this.credentials = {
             'username': ua._configuration.authorization_user,
@@ -38,7 +31,7 @@ export class MSRPSession {
         this.webSocket.onclose = () => {
             this.onclose()
         }
-        this.webSocket.onmessage = (msg : string) => {
+        this.webSocket.onmessage = (msg) => {
             this.onmessage(msg)
         }
         this.webSocket.onerror = () => {
@@ -46,9 +39,9 @@ export class MSRPSession {
         }
     }
 
-    authenticate (auth : any) {
+    authenticate (auth) {
         this.status = 'auth'
-        const msgObj : any = new MSRPMessage('')
+        const msgObj = new MSRPMessage('')
         msgObj.method = 'AUTH'
         msgObj.addHeader('To-Path', this.credentials.msrprelay)
         msgObj.addHeader('From-Path', 'msrp://' + this.credentials.username + '.sip06.voicenter.co:2856/' + msgObj.ident + ';ws')
@@ -59,7 +52,7 @@ export class MSRPSession {
 
     }
 
-    onmessage (msg : any) {
+    onmessage (msg) {
         const msgObj = new MSRPMessage(msg.data)
         if (this.status == 'auth' && msgObj.code === '401') {
             const _challenge = this.parseAuth(msgObj.getHeader('WWW-Authenticate'))
@@ -88,7 +81,7 @@ export class MSRPSession {
         this.webSocket.close()
     }
 
-    inviteParty (smgObj : any) {
+    inviteParty (smgObj) {
         const requestParams = {}
         const extraHeaders = []
 
@@ -101,7 +94,7 @@ export class MSRPSession {
         })}`)
         extraHeaders.push('Content-Type: application/sdp')
 
-        const request : any = new SIPMessage.InitialOutgoingInviteRequest(
+        const request = new SIPMessage.InitialOutgoingInviteRequest(
             this._ua.normalizeTarget(this.target),
             this._ua,
             requestParams,
@@ -118,16 +111,16 @@ export class MSRPSession {
             {
                 console.log('to')
             },
-            onTransportError : (err : any) =>
+            onTransportError : (err) =>
             {
                 console.log(err)
             },
             // Update the request on authentication.
-            onAuthenticated : (request : any) =>
+            onAuthenticated : (request) =>
             {
                 this._request = request
             },
-            onReceiveResponse : (response : any) =>
+            onReceiveResponse : (response) =>
             {
                 console.log(response)
             }
@@ -135,7 +128,7 @@ export class MSRPSession {
         request_sender.send()
     }
 
-    send (target : string, message : string) {
+    send (target, message) {
         this.target = target
         this.message = message
         if (this.status == 'new') {
@@ -143,11 +136,11 @@ export class MSRPSession {
         }
     }
 
-    parseAuth (content : string) {
-        const _challenge : any = {}
+    parseAuth (content) {
+        const _challenge = {}
         const _challengeArray = content.replace('Digest', '').split(',')
         for (const _authItem of _challengeArray) {
-            const _itemArray : any = _authItem.trim().split('=')
+            const _itemArray = _authItem.trim().split('=')
             _challenge[_itemArray[0]] = _itemArray[1].match('^"(.+)"$')[1]
         }
         return _challenge
