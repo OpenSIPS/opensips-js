@@ -7,7 +7,7 @@ export default class UAExtended extends UA {
     call (target: string, options?: CallOptionsExtended): RTCSession {
         return super.call(target, options)
     }
-    sendMSRPMessage (target: string, options?: CallOptionsExtended): MSRPSession {
+    sendMSRPMessage (target: string, options: string): MSRPSession {
         const session = new MSRPSession(this)
 
         session.send(target, options)

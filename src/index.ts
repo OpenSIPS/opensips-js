@@ -361,7 +361,7 @@ class OpenSIPSJS extends UA {
 
     public sendMSRP (target: string | JsSIP.URI, body: string, options?: SendMessageOptions) {
 
-        super.sendMSRPMessage (`sip:${target}@${this.sipDomain}`, this.sipOptions)
+        super.sendMSRPMessage (`sip:${target}@${this.sipDomain}`, body)
         return super.sendMessage(
             `sip:${target}@${this.sipDomain}`,
             body,

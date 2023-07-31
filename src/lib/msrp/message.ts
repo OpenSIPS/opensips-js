@@ -1,19 +1,19 @@
-import { createRandomToken } from 'jssip/lib/Utils'
+import Utils from 'jssip/lib/Utils'
 
 export class MSRPMessage {
 
-    protocol = null
+    protocol = ''
     ident = null
     code = null
     method = null
-    headers = {}
-    body = null
+    headers : any = {}
+    body = ''
     challenge = null
 
-    constructor (msg) {
-        if (msg) {
+    constructor (msg : string) {
+        if (msg.length > 0) {
             let _hasBody = false
-            const msgLines = msg.split('\r\n')
+            const msgLines : any = msg.split('\r\n')
             const msgHeadLineArray = msgLines.shift().split(/\s/)
             this.protocol = msgHeadLineArray[0]
             this.ident = msgHeadLineArray[1]
@@ -35,16 +35,16 @@ export class MSRPMessage {
                 }
             }
         } else {
-            this.ident = createRandomToken(12)
+            this.ident = Utils.createRandomToken(12)
             this.protocol = 'MSRP'
         }
     }
 
-    addHeader (name, content) {
+    addHeader (name : string, content : string) {
         this.headers[name] = content
     }
 
-    getHeader (name) {
+    getHeader (name : string) {
         return this.headers[name]
     }
 
