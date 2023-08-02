@@ -912,6 +912,7 @@ class OpenSIPSJS extends UA {
             this._addCall(call)
         }
 
+        // this._addCall(call)
         this._addCallStatus(session.id)
         this._addRoom(newRoomInfo)
 
