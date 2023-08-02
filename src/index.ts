@@ -4,7 +4,7 @@ import {
     IncomingAckEvent,
     IncomingEvent,
     OutgoingAckEvent,
-    OutgoingEvent
+    OutgoingEvent, SessionDirection
 } from 'jssip/lib/RTCSession'
 import { RTCSessionEvent, UAConfiguration, UAEventMap } from 'jssip/lib/UA'
 import { forEach } from 'p-iteration'
@@ -33,7 +33,6 @@ import {
 
 import { METRIC_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
 import { CALL_EVENT_LISTENER_TYPE } from '@/enum/call.event.listener.type'
-import { CALL_DIRECTIONS } from '@/enum/call.directions'
 import { SendMessageOptions } from 'jssip/lib/Message'
 
 const CALL_STATUS_UNANSWERED = 0
@@ -391,7 +390,7 @@ class OpenSIPSJS extends UA {
 
     private _cancelAllOutgoingUnanswered () {
         Object.values(this.getActiveCalls).filter(call => {
-            return call.direction === CALL_DIRECTIONS.OUTGOING
+            return call.direction === SessionDirection.OUTGOING
                 && call.status === CALL_STATUS_UNANSWERED
         }).forEach(call => this.callTerminate(call._id))
     }
@@ -876,7 +875,7 @@ class OpenSIPSJS extends UA {
             roomId
         }
 
-        if (session.direction === CALL_DIRECTIONS.INCOMING) {
+        if (session.direction === SessionDirection.INCOMING) {
             newRoomInfo.incomingInProgress = true
 
             this.subscribe(CALL_EVENT_LISTENER_TYPE.CALL_CONFIRMED, (call) => {
@@ -898,7 +897,7 @@ class OpenSIPSJS extends UA {
                 }
             })
 
-        } else if (session.direction === CALL_DIRECTIONS.OUTGOING) {
+        } else if (session.direction === SessionDirection.OUTGOING) {
             this._startCallTimer(session.id)
         }
 
@@ -907,7 +906,7 @@ class OpenSIPSJS extends UA {
         call.roomId = roomId
         call.localMuted = false
 
-        const doAutoAnswer = call.direction === CALL_DIRECTIONS.INCOMING && this.autoAnswer
+        const doAutoAnswer = call.direction === SessionDirection.INCOMING && this.autoAnswer
 
         if (doAutoAnswer) {
             this._addCall(call, false)
@@ -1005,7 +1004,7 @@ class OpenSIPSJS extends UA {
 
         this.addCall(session)
 
-        if (session.direction === CALL_DIRECTIONS.OUTGOING) {
+        if (session.direction === SessionDirection.OUTGOING) {
             const roomId = this.getActiveCalls[session.id].roomId
             this.setCurrentActiveRoomId(roomId)
         }
