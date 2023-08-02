@@ -43,6 +43,13 @@ export interface AnswerOptionsExtended extends AnswerOptions {
     mediaConstraints?: MediaStreamConstraints
 }
 
+export interface RemoteIdentityCallType {
+    _display_name: string
+    _uri: {
+        _user: string
+    }
+}
+
 export interface RTCSessionExtended extends RTCSession {
     id: string
     _automaticHold: boolean
@@ -59,7 +66,7 @@ export interface RTCSessionExtended extends RTCSession {
     _late_sdp: string
     _videoMuted: boolean
     _status: number
-    _remote_identity: string
+    _remote_identity: RemoteIdentityCallType
     answer(options?: AnswerOptionsExtended): void
 }
 

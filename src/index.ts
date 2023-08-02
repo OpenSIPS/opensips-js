@@ -61,6 +61,7 @@ export interface InnerState {
     originalStream: MediaStream | null
     listeners: { [key: string]: Array<(call: RTCSessionExtended, event: ListenerEventType | undefined) => void> }
     metricConfig: WebrtcMetricsConfigType
+    isAutoAnswer: boolean
 }
 
 class OpenSIPSJS extends UA {
@@ -74,6 +75,7 @@ class OpenSIPSJS extends UA {
     private _callAddingInProgress: string | undefined
     private state: InnerState = {
         isMuted: false,
+        isAutoAnswer: false,
         activeCalls: {},
         availableMediaDevices: [],
         selectedMediaDevices: {
@@ -135,6 +137,14 @@ class OpenSIPSJS extends UA {
     private set currentActiveRoomId (roomId: number | undefined) {
         this._currentActiveRoomId = roomId
         this.emit('currentActiveRoomChanged', roomId)
+    }
+
+    public get autoAnswer () {
+        return this.state.isAutoAnswer
+    }
+
+    public set autoAnswer (value: boolean) {
+        this.state.isAutoAnswer = value
     }
 
     public get callAddingInProgress () {
@@ -428,14 +438,17 @@ class OpenSIPSJS extends UA {
         this.emit('updateRoom', { room: newRoomData, roomList: this.state.activeRooms })
     }
 
-    private _addCall (value: ICall) {
+    private _addCall (value: ICall, emitEvent = true) {
         this.state.activeCalls = {
             ...this.state.activeCalls,
             [value._id]: simplifyCallObject(value) as ICall
         }
 
         activeCalls[value._id] = value
-        this.emit('changeActiveCalls', this.state.activeCalls)
+
+        if (emitEvent) {
+            this.emit('changeActiveCalls', this.state.activeCalls)
+        }
     }
 
     private _addCallStatus (callId: string) {
@@ -893,9 +906,18 @@ class OpenSIPSJS extends UA {
         call.roomId = roomId
         call.localMuted = false
 
-        this._addCall(call)
+        if (call.direction === 'incoming' && this.autoAnswer) {
+            this._addCall(call, false)
+        } else {
+            this._addCall(call)
+        }
+
         this._addCallStatus(session.id)
         this._addRoom(newRoomInfo)
+
+        if (call.direction === 'incoming' && this.autoAnswer) {
+            this.callAnswer(call._id)
+        }
     }
 
     private _triggerListener ({ listenerType, session, event }: TriggerListenerOptions) {
@@ -1007,6 +1029,10 @@ class OpenSIPSJS extends UA {
 
     public setMuteWhenJoin (value: boolean) {
         this.muteWhenJoin = value
+    }
+
+    public setAutoAnswer (value: boolean) {
+        this.autoAnswer = value
     }
 
     private _setCallMetrics (value: any) {
