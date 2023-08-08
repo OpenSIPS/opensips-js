@@ -767,9 +767,14 @@ class OpenSIPSJS extends UA {
             return console.error('Target must be passed')
         }
 
-        this._updateCallStatus({ callId, isTransferring: true })
-
         const call = activeCalls[callId]
+
+        if (!call._is_confirmed && !call._is_canceled) {
+            call.refer(`sip:${target}@${this.sipDomain}`)
+            return
+        }
+
+        this._updateCallStatus({ callId, isTransferring: true })
 
         call.refer(`sip:${target}@${this.sipDomain}`)
         this.updateCall(call)
