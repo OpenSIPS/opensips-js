@@ -1,4 +1,4 @@
-import { ICall, RoomChangeEmitType } from '@/types/rtc'
+import { ICall, RoomChangeEmitType, ICallStatus } from '@/types/rtc'
 import { UAEventMap } from 'jssip/lib/UA'
 
 export type readyListener = (value: boolean) => void
@@ -17,6 +17,7 @@ export type changeOriginalStreamListener = (value: MediaStream) => void
 export type addRoomListener = (value: RoomChangeEmitType) => void
 export type updateRoomListener = (value: RoomChangeEmitType) => void
 export type removeRoomListener = (value: RoomChangeEmitType) => void
+export type changeCallStatusListener = (event: { [key: string]: ICallStatus }) => void
 
 export interface OpenSIPSEventMap extends UAEventMap {
     ready: readyListener
@@ -35,6 +36,7 @@ export interface OpenSIPSEventMap extends UAEventMap {
     addRoom: addRoomListener
     updateRoom: updateRoomListener
     removeRoom: removeRoomListener
+    changeCallStatus: changeCallStatusListener
 }
 
 export type ListenersKeyType = keyof OpenSIPSEventMap

@@ -460,6 +460,8 @@ class OpenSIPSJS extends UA {
                 isMerging: false
             }
         }
+
+        this.emit('changeCallStatus', this.state.callStatus)
     }
 
     private _updateCallStatus (value: ICallStatusUpdate) {
@@ -487,6 +489,8 @@ class OpenSIPSJS extends UA {
                 ...newStatus
             }
         }
+
+        this.emit('changeCallStatus', this.state.callStatus)
     }
 
     private _removeCallStatus (callId: string) {
@@ -496,6 +500,8 @@ class OpenSIPSJS extends UA {
         this.state.callStatus = {
             ...callStatusCopy,
         }
+
+        this.emit('changeCallStatus', this.state.callStatus)
     }
 
     private _addRoom (value: IRoom) {
