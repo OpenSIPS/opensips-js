@@ -4,7 +4,7 @@ import {
     IncomingAckEvent,
     IncomingEvent,
     OutgoingAckEvent,
-    OutgoingEvent, SessionDirection
+    OutgoingEvent
 } from 'jssip/lib/RTCSession'
 import { RTCSessionEvent, UAConfiguration, UAEventMap } from 'jssip/lib/UA'
 import { forEach } from 'p-iteration'
@@ -390,7 +390,7 @@ class OpenSIPSJS extends UA {
 
     private _cancelAllOutgoingUnanswered () {
         Object.values(this.getActiveCalls).filter(call => {
-            return call.direction === SessionDirection.OUTGOING
+            return call.direction === 'outgoing'
                 && call.status === CALL_STATUS_UNANSWERED
         }).forEach(call => this.callTerminate(call._id))
     }
@@ -460,6 +460,8 @@ class OpenSIPSJS extends UA {
                 isMerging: false
             }
         }
+
+        this.emit('changeCallStatus', this.state.callStatus)
     }
 
     private _updateCallStatus (value: ICallStatusUpdate) {
@@ -487,6 +489,8 @@ class OpenSIPSJS extends UA {
                 ...newStatus
             }
         }
+
+        this.emit('changeCallStatus', this.state.callStatus)
     }
 
     private _removeCallStatus (callId: string) {
@@ -496,6 +500,8 @@ class OpenSIPSJS extends UA {
         this.state.callStatus = {
             ...callStatusCopy,
         }
+
+        this.emit('changeCallStatus', this.state.callStatus)
     }
 
     private _addRoom (value: IRoom) {
@@ -594,7 +600,7 @@ class OpenSIPSJS extends UA {
             this.removeRoom(roomId)
 
             if (this.currentActiveRoomId === roomId) {
-                this.currentActiveRoomId = roomId
+                this.currentActiveRoomId = undefined
             }
         }
     }
@@ -767,9 +773,14 @@ class OpenSIPSJS extends UA {
             return console.error('Target must be passed')
         }
 
-        this._updateCallStatus({ callId, isTransferring: true })
-
         const call = activeCalls[callId]
+
+        if (!call._is_confirmed && !call._is_canceled) {
+            call.refer(`sip:${target}@${this.sipDomain}`)
+            return
+        }
+
+        this._updateCallStatus({ callId, isTransferring: true })
 
         call.refer(`sip:${target}@${this.sipDomain}`)
         this.updateCall(call)
@@ -875,7 +886,7 @@ class OpenSIPSJS extends UA {
             roomId
         }
 
-        if (session.direction === SessionDirection.INCOMING) {
+        if (session.direction === 'incoming') {
             newRoomInfo.incomingInProgress = true
 
             this.subscribe(CALL_EVENT_LISTENER_TYPE.CALL_CONFIRMED, (call) => {
@@ -894,10 +905,12 @@ class OpenSIPSJS extends UA {
                         incomingInProgress: false,
                         roomId
                     })
+
+                    this.deleteRoomIfEmpty(roomId)
                 }
             })
 
-        } else if (session.direction === SessionDirection.OUTGOING) {
+        } else if (session.direction === 'outgoing') {
             this._startCallTimer(session.id)
         }
 
@@ -906,7 +919,7 @@ class OpenSIPSJS extends UA {
         call.roomId = roomId
         call.localMuted = false
 
-        const doAutoAnswer = call.direction === SessionDirection.INCOMING && this.autoAnswer
+        const doAutoAnswer = call.direction === 'incoming' && this.autoAnswer
 
         if (doAutoAnswer) {
             this._addCall(call, false)
@@ -964,7 +977,11 @@ class OpenSIPSJS extends UA {
         session.on('ended', (event) => {
             this._triggerListener({ listenerType: CALL_EVENT_LISTENER_TYPE.CALL_ENDED, session, event })
             const s = this.getActiveCalls[session.id]
-            this._activeCallListRemove(s)
+
+            if (s) {
+                this._activeCallListRemove(s)
+            }
+
             this._stopCallTimer(session.id)
             this._removeCallStatus(session.id)
             this._removeCallMetrics(session.id)
@@ -984,7 +1001,11 @@ class OpenSIPSJS extends UA {
             }
 
             const s = this.getActiveCalls[session.id]
-            this._activeCallListRemove(s)
+
+            if (s) {
+                this._activeCallListRemove(s)
+            }
+
             this._stopCallTimer(session.id)
             this._removeCallStatus(session.id)
             this._removeCallMetrics(session.id)
@@ -1004,7 +1025,7 @@ class OpenSIPSJS extends UA {
 
         this.addCall(session)
 
-        if (session.direction === SessionDirection.OUTGOING) {
+        if (session.direction === 'outgoing') {
             const roomId = this.getActiveCalls[session.id].roomId
             this.setCurrentActiveRoomId(roomId)
         }
