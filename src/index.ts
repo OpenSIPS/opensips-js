@@ -784,7 +784,14 @@ class OpenSIPSJS extends UA {
         const call = this.state.extendedCalls[callId]
 
         if (!call._is_confirmed && !call._is_canceled) {
-            call.refer(`sip:${target}@${this.sipDomain}`)
+            const redirectTarget = `sip:${target}@${this.sipDomain}`
+
+            call.terminate({
+                status_code: 302,
+                reason_phrase: 'Moved Temporarily',
+                extraHeaders: [ `Contact: ${redirectTarget}` ]
+            })
+
             return
         }
 
