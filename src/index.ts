@@ -204,6 +204,10 @@ class OpenSIPSJS extends UA {
         return this.state.activeCalls
     }
 
+    public get hasActiveCalls () {
+        return Object.values(this.state.extendedCalls).length > 0
+    }
+
     public get getActiveRooms () {
         return this.state.activeRooms
     }
@@ -439,6 +443,15 @@ class OpenSIPSJS extends UA {
         }
 
         this.emit('updateRoom', { room: newRoomData, roomList: this.state.activeRooms })
+    }
+
+    private hasAutoAnswerHeaders (event: RTCSessionEvent) {
+        const regex = /answer-after=0/
+        const request = event.request
+
+        const callInfoHeader = request.getHeader('Call-Info')
+
+        return callInfoHeader && regex.test(callInfoHeader)
     }
 
     private _addCall (value: ICall, emitEvent = true) {
@@ -886,7 +899,8 @@ class OpenSIPSJS extends UA {
         }
     }
 
-    private async addCall (session: RTCSessionExtended) {
+    private async addCall (event: RTCSessionEvent) {
+        const session = event.session as RTCSessionExtended
         const sessionAlreadyInActiveCalls = this.getActiveCalls[session.id]
 
         if (sessionAlreadyInActiveCalls !== undefined) {
@@ -934,7 +948,9 @@ class OpenSIPSJS extends UA {
         call.roomId = roomId
         call.localMuted = false
 
-        const doAutoAnswer = call.direction === 'incoming' && this.autoAnswer
+        const autoAnswerByHeaders = this.hasAutoAnswerHeaders(event)
+
+        const doAutoAnswer = call.direction === 'incoming' && !this.hasActiveCalls && (autoAnswerByHeaders || this.autoAnswer)
 
         if (doAutoAnswer) {
             this._addCall(call, false)
@@ -1045,7 +1061,7 @@ class OpenSIPSJS extends UA {
             }
         })
 
-        this.addCall(session)
+        this.addCall(event)
 
         if (session.direction === 'outgoing') {
             const roomId = this.getActiveCalls[session.id].roomId
