@@ -945,12 +945,13 @@ class OpenSIPSJS extends UA {
 
         const call = session as ICall
 
-        call.roomId = roomId
-        call.localMuted = false
-
         const autoAnswerByHeaders = this.hasAutoAnswerHeaders(event)
 
         const doAutoAnswer = call.direction === 'incoming' && !this.hasActiveCalls && (autoAnswerByHeaders || this.autoAnswer)
+
+        call.roomId = roomId
+        call.localMuted = false
+        call.autoAnswer = doAutoAnswer
 
         if (doAutoAnswer) {
             this._addCall(call, false)

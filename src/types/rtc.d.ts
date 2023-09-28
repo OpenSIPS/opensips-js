@@ -75,6 +75,7 @@ export interface ICall extends RTCSessionExtended {
     localMuted?: boolean
     localHold?: boolean
     audioTag?: StreamMediaType
+    autoAnswer?: boolean
 }
 
 export type RoomChangeEmitType = {
