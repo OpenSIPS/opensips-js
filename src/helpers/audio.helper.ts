@@ -24,7 +24,8 @@ const CALL_KEYS_TO_INCLUDE: Array<ICallKey> = [
     //'audioQuality',
     'isOnHold',
     //'originalStream',
-    'localMuted'
+    'localMuted',
+    'autoAnswer'
 ]
 
 
