@@ -32,6 +32,7 @@ export class MSRPSession extends EventEmitter
         super()
 
         this._id = null
+        this.my_ip = '127.0.0.1'
         this._ua = ua
         this.auth_id = Utils.createRandomToken(10)
         this._status = C.STATUS_NULL
@@ -109,7 +110,7 @@ export class MSRPSession extends EventEmitter
         this.target = target
         this._connection = new WebSocket(`ws://${this._ua._configuration.realm}:2856`, 'msrp')
         this._connection.binaryType = 'arraybuffer'
-        this._connection.onopen = () =>
+        this._connection.onopen = (event) =>
         {
             this.onopen()
         }
@@ -137,13 +138,12 @@ export class MSRPSession extends EventEmitter
         this._request.parseSDP(true)
         // this.target_addr = this._request.sdp.media[0].invalid[1].value.replaceAll('path:', '');
         this._request.reply(200, 'OK', [], 'v=0\n' +
-            'o=- 4232740119537112802 2 IN IP4 100.96.4.18\n' +
-            'c=IN IP4 100.96.4.18\n' +
+            `o=- 4232740119537112802 2 IN IP4 ${this.my_ip}\n` +
+            `c=IN IP4 ${this.my_ip}\n` +
             't=0 0\n' +
             'm=message 2856 TCP/TLS/MSRP *\n' +
             'a=accept-types:text/plain text/html\n' +
             `a=path: ${msgObj.getHeader('Use-Path')} msrp://${this._ua._configuration.authorization_user}.${this._ua._configuration.realm}:2856/${this.auth_id};ws\n`)
-        console.log(this, '---------------------------------')
     }
 
     terminate (options = {})
@@ -168,7 +168,6 @@ export class MSRPSession extends EventEmitter
             case C.STATUS_NULL:
             case C.STATUS_INVITE_SENT:
             case C.STATUS_1XX_RECEIVED:
-                logger.debug('canceling session')
 
                 if (status_code && (status_code < 200 || status_code >= 700))
                 {
@@ -286,8 +285,6 @@ export class MSRPSession extends EventEmitter
 
     sendRequest (method, options)
     {
-        logger.debug('sendRequest()')
-
         return this._dialog.sendRequest(method, options)
     }
 
@@ -336,10 +333,21 @@ export class MSRPSession extends EventEmitter
 
     onopen ()
     {
-        this.authenticate(null)
+        const pc = new RTCPeerConnection({ iceServers: [] })
+        pc.createDataChannel('')
+        pc.createOffer().then(pc.setLocalDescription.bind(pc))
+        pc.onicecandidate = (ice) => {
+            if (!ice || !ice.candidate || !ice.candidate.candidate) return
+            const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3})/
+            const ipMatch = ice.candidate.candidate.match(ipRegex)
+            this.my_ip = ipMatch && ipMatch[1]
+            pc.onicecandidate = () => {}
+            this.authenticate(null)
+        }
     }
-    onerror ()
+    onerror (e)
     {
+        console.log(e)
     }
 
     inviteParty (msgObj)
@@ -355,20 +363,18 @@ export class MSRPSession extends EventEmitter
             outbound : true
         })}`)
         extraHeaders.push('Content-Type: application/sdp')
-
         this._request = new SIPMessage.InitialOutgoingInviteRequest(
             new URI('sip', this.target, this._ua._configuration.realm).clone(),
             this._ua,
             requestParams,
             extraHeaders,
             'v=0\n' +
-            'o=- 4232740119537112802 2 IN IP4 100.96.4.18\n' +
-            'c=IN IP4 100.96.4.18\n' +
+            `o=- 4232740119537112802 2 IN IP4 ${this.my_ip}\n` +
+            `c=IN IP4 ${this.my_ip}\n` +
             't=0 0\n' +
             'm=message 2856 TCP/TLS/MSRP *\n' +
             'a=accept-types:text/plain text/html\n' +
             `a=path:${msgObj.getHeader('Use-Path')} msrp://${this._ua._configuration.authorization_user}.${this._ua._configuration.realm}:2856/${this.auth_id};ws\n`)
-        console.log(this, '-=================================')
         this._newMSRPSession('local', this._request)
 
         this._id = this._request.call_id + this._from_tag
