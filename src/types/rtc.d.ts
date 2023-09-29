@@ -61,6 +61,7 @@ export interface RTCSessionExtended extends RTCSession {
     _status: number
     _remote_identity: string
     answer(options?: AnswerOptionsExtended): void
+    init_icncoming(request)
 }
 
 export interface ICall extends RTCSessionExtended {

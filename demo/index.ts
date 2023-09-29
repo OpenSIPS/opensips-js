@@ -1,8 +1,9 @@
 import OpenSIPSJS, { IRoom } from '../src/index'
-import { RTCSessionEvent } from 'jssip/lib/UA'
+import { MSRPSessionEvent, RTCSessionEvent } from 'jssip/lib/UA'
 import { ICall, RoomChangeEmitType } from '../src/types/rtc'
 import { runIndicator } from '../src/helpers/volume.helper'
 import { SendMessageOptions } from 'jssip/lib/Message'
+import { IMessage } from '../src/types/msrp'
 
 let openSIPSJS = null
 let addCallToCurrentRoom = false
@@ -97,7 +98,7 @@ const calculateVolumeLevel = (sessions: { [key: string]: ICall }) => {
     }
 }
 
-const calculateActiveCallsNumber = (sessions: { [key: string]: ICall }) => {
+const calculateActiveCallsNumber = (sessions: { [key: string]: ICall | IMessage }) => {
     const counter = Object.keys(sessions).length
     activeCallsCounterEl.innerText = `${counter}`
 }
@@ -148,14 +149,16 @@ const updateRoomListOptions = (roomList: { [key: number]: IRoom }) => {
         roomsContainerEl.appendChild(roomEl)
 
         upsertRoomData(room, openSIPSJS.getActiveCalls)
+        upsertRoomData(room, openSIPSJS.getActiveMessages)
     })
 }
 
-const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
+const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall|IMessage}) => {
     const ulListEl = roomsContainerEl.querySelector(`#room-${room.roomId} ul`)
     ulListEl.querySelectorAll('li').forEach(el => el.remove())
 
     const activeCallsInRoom = Object.values(sessions).filter((call) => call.roomId === room.roomId)
+    console.log(activeCallsInRoom, sessions)
     activeCallsInRoom.forEach((call, index) => {
         const listItemEl = document.createElement('li')
         listItemEl.setAttribute('key', `${index}`)
@@ -183,6 +186,14 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
             openSIPSJS.callTerminate(call._id)
         })
         listItemEl.appendChild(terminateButtonEl)
+
+        const terminateMsgButtonEl = document.createElement('button') as HTMLButtonElement
+        terminateMsgButtonEl.innerText = 'Hangup'
+        terminateMsgButtonEl.addEventListener('click', (event) => {
+            event.preventDefault()
+            openSIPSJS.messageTerminate(call._id)
+        })
+        listItemEl.appendChild(terminateMsgButtonEl)
 
 
         const transferButtonEl = document.createElement('button') as HTMLButtonElement
@@ -228,6 +239,16 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
             answerButtonEl.addEventListener('click', (event) => {
                 event.preventDefault()
                 openSIPSJS.callAnswer(call._id)
+            })
+            listItemEl.appendChild(answerButtonEl)
+        }
+
+        if (call.direction !== 'outgoing' && !call._is_confirmed) {
+            const answerButtonEl = document.createElement('button') as HTMLButtonElement
+            answerButtonEl.innerText = 'AnswerMsg'
+            answerButtonEl.addEventListener('click', (event) => {
+                event.preventDefault()
+                openSIPSJS.msrpAnswer(call._id)
             })
             listItemEl.appendChild(answerButtonEl)
         }
@@ -335,12 +356,20 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
                 calculateMuteButtonDisability(sessions)
                 calculateVolumeLevel(sessions)
                 calculateActiveCallsNumber(sessions)
-
+                Object.values(openSIPSJS.getActiveRooms).forEach((room: IRoom) => {
+                    upsertRoomData(room, sessions)
+                })
+            })
+            .on('changeActiveMessages', (sessions) => {
+                calculateActiveCallsNumber(sessions)
                 Object.values(openSIPSJS.getActiveRooms).forEach((room: IRoom) => {
                     upsertRoomData(room, sessions)
                 })
             })
             .on('newRTCSession', ({ session }: RTCSessionEvent) => {
+                console.warn('e', session)
+            })
+            .on('newMSRPSession', ({ session }: MSRPSessionEvent) => {
                 console.warn('e', session)
             })
             .on('callAddingInProgressChanged', (value) => {
@@ -524,7 +553,7 @@ sendMessageFormEl?.addEventListener(
             optionsObj.extraHeaders = extraHeaders.split(',')
         }
 
-        openSIPSJS.sendMSRPMessage(
+        openSIPSJS.initMSRP(
             target,
             message,
             optionsObj
@@ -625,3 +654,4 @@ roomSelectEl?.addEventListener(
         const roomId = isNaN(parsedValue) ? undefined: parsedValue
         await openSIPSJS.setCurrentActiveRoomId(roomId)
     })
+

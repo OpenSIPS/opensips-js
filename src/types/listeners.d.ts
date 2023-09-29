@@ -1,8 +1,10 @@
 import { ICall, RoomChangeEmitType } from '@/types/rtc'
+import { IMessage } from '@/types/msrp'
 import { UAEventMap } from 'jssip/lib/UA'
 
 export type readyListener = (value: boolean) => void
 export type changeActiveCallsListener = (event: { [key: string]: ICall }) => void
+export type changeActiveMessagesListener = (event: { [key: string]: IMessage }) => void
 export type TestEventListener = (event: { test: string }) => void
 export type ActiveRoomListener = (event: number | undefined) => void
 export type CallAddingProgressListener = (callId: string | undefined) => void
@@ -17,10 +19,14 @@ export type changeOriginalStreamListener = (value: MediaStream) => void
 export type addRoomListener = (value: RoomChangeEmitType) => void
 export type updateRoomListener = (value: RoomChangeEmitType) => void
 export type removeRoomListener = (value: RoomChangeEmitType) => void
+export type IncomingMSRPSessionListener = (event: IncomingMSRPSessionEvent) => void;
+export type OutgoingMSRPSessionListener = (event: OutgoingMSRPSessionEvent) => void;
+export type MSRPSessionListener = IncomingMSRPSessionListener | OutgoingMSRPSessionListener;
 
 export interface OpenSIPSEventMap extends UAEventMap {
     ready: readyListener
     changeActiveCalls: changeActiveCallsListener
+    changeActiveMessages: changeActiveMessagesListener
     callConfirmed: TestEventListener
     currentActiveRoomChanged: ActiveRoomListener
     callAddingInProgressChanged: CallAddingProgressListener
@@ -35,6 +41,7 @@ export interface OpenSIPSEventMap extends UAEventMap {
     addRoom: addRoomListener
     updateRoom: updateRoomListener
     removeRoom: removeRoomListener
+    newMSRPSession: MSRPSessionListener
 }
 
 export type ListenersKeyType = keyof OpenSIPSEventMap
