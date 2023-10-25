@@ -1316,8 +1316,10 @@ class OpenSIPSJS extends UA {
             return console.error('Target must be a valid string')
         }
 
-        const call = this.startMSRP( target, options) as MSRPSessionExtended
-
+        const call = this.startMSRP(target, options) as MSRPSessionExtended
+        call.on('active', () => {
+            call.sendMSRP(body)
+        })
 
         this.callAddingInProgress = call.id
 

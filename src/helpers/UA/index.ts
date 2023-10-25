@@ -9,6 +9,7 @@ import { MSRPOptions, UAConfiguration } from 'jssip'
 import Transactions from 'jssip/lib/Transactions'
 
 import { IncomingRequest } from 'jssip/lib/SIPMessage'
+import URI from 'jssip/lib/URI'
 const logger = console
 
 const C = {
@@ -48,7 +49,13 @@ export default class UAExtended extends UA {
     }
 
     constructor (configuration: UAConfiguration) {
+        console.log(configuration)
+        // const _proto = configuration.uri.split(':').shift()
+        // const _user = (configuration.uri.split(':').pop()).split('@').shift()
+        // const _realm = (configuration.uri.split(':').pop()).split('@').pop()
+        // configuration.uri = URI.parse(configuration.uri)
         super(configuration)
+        // console.log(configuration.uri)
     }
 
     call (target: string, options?: CallOptionsExtended): RTCSession {
@@ -75,7 +82,7 @@ export default class UAExtended extends UA {
     receiveRequest (request: any)
     {
         const method = request.method
-
+        console.log('-----------')
         // Check that request URI points to us.
         if (request.ruri.user !== this._configuration.uri.user &&
             request.ruri.user !== this._contact.uri.user)

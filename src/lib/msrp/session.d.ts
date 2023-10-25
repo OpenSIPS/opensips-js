@@ -44,6 +44,7 @@ export interface MSRPSessionEventMap {
     'sdp': SDPListener;
     'icecandidate': IceCandidateListener;
     'getusermediafailed': Listener;
+    'active' : Listener;
     'peerconnection:createofferfailed': Listener;
     'peerconnection:createanswerfailed': Listener;
     'peerconnection:setlocaldescriptionfailed': Listener;

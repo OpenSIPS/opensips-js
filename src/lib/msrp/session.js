@@ -1,7 +1,7 @@
 import * as Utils from 'jssip/lib/Utils'
 import RequestSender from 'jssip/lib/RequestSender'
 import DigestAuthentication from 'jssip/lib/DigestAuthentication'
-import Message from 'jssip/lib/MSRPMessage'
+import Message from './message'
 import URI from 'jssip/lib/URI'
 import * as SIPMessage from 'jssip/lib/SIPMessage'
 import JsSIP_C from 'jssip/lib/Constants'
@@ -9,6 +9,8 @@ import { EventEmitter } from 'events'
 import Dialog from 'jssip/lib/Dialog'
 import Exceptions from 'jssip/lib/Exceptions'
 import Transactions from 'jssip/lib/Transactions'
+
+let _j = 0
 
 const C = {
     // RTCSession states.
@@ -41,6 +43,8 @@ export class MSRPSession extends EventEmitter
         this._contact = null
         this._from_tag = null
         this._to_tag = null
+        this.target_addr = []
+        this.my_addr = []
         this.credentials = {
             'username' : ua._configuration.authorization_user,
             'ha1'      : ua._configuration.ha1,
@@ -104,7 +108,6 @@ export class MSRPSession extends EventEmitter
     {
         if (target !== '')
         {
-            this.target = target
             this._direction = 'outgoing'
         }
         this.target = target
@@ -112,18 +115,22 @@ export class MSRPSession extends EventEmitter
         this._connection.binaryType = 'arraybuffer'
         this._connection.onopen = (event) =>
         {
+            console.log('open')
             this.onopen()
         }
         this._connection.onclose = () =>
         {
+            console.log('close')
             this.onclose()
         }
         this._connection.onmessage = (msg) =>
         {
+            console.log('msg')
             this.onmessage(msg)
         }
         this._connection.onerror = () =>
         {
+            console.log('error')
             this.onerror()
         }
     }
@@ -291,7 +298,7 @@ export class MSRPSession extends EventEmitter
     authenticate (auth)
     {
         this.status = 'auth'
-        const msgObj = new Message('')
+        let msgObj = new Message('')
         msgObj.method = 'AUTH'
         msgObj.addHeader('To-Path', `msrp://${this._ua._configuration.realm}:2856;ws`)
         msgObj.addHeader('From-Path',
@@ -300,6 +307,7 @@ export class MSRPSession extends EventEmitter
         {
             msgObj.addHeader('Authorization', auth.toString())
         }
+
         this._connection.send(msgObj.toString())
     }
 
@@ -315,14 +323,43 @@ export class MSRPSession extends EventEmitter
         }
         if (this.status === 'auth' && msgObj.code === 200 && this._direction === 'outgoing')
         {
-            this.my_addr = msgObj.getHeader('Use-Path')
+            this.my_addr.push(msgObj.getHeader('To-Path'))
+            this.my_addr.push(msgObj.getHeader('Use-Path'))
             this.status = 'ready'
             this.inviteParty(msgObj)
         }
         else if (this.status === 'auth' && msgObj.code === 200 && this._direction === 'incoming')
         {
-            this.my_addr = msgObj.getHeader('Use-Path')
+            this.my_addr.push(msgObj.getHeader('To-Path'))
+            this.my_addr.push(msgObj.getHeader('Use-Path'))
+            this.status = 'ready'
             this.acceptParty(msgObj)
+        }
+        else if (msgObj.method === 'SEND')
+        {
+            let _i = msgObj.ident
+            let _mId = msgObj.getHeader('Message-ID')
+            let _ok = new Message('')
+            _ok.method = '200 OK'
+            _ok.addHeader('To-Path', `${this.my_addr[1]}`)
+            _ok.addHeader('From-Path', `${this.my_addr[0]}`)
+            _ok.addHeader('Message-ID', _mId)
+            _ok.ident = _i
+            this._connection.send(_ok.toString())
+
+            let _report = new Message('')
+            _report.method = 'REPORT'
+            _report.addHeader('To-Path', `${msgObj.getHeader('From-Path')}`)
+            _report.addHeader('From-Path', `${this.my_addr[0]}`)
+            _report.addHeader('Message-ID', _mId)
+            _report.addHeader('Byte-Range', '1-25/25')
+            _report.addHeader('Status', '000 200 OK')
+            _report.ident = _i
+            this._connection.send(_report.toString())
+        }
+        if (msgObj.code === 480) {
+            console.log('---------------------------------')
+            this._close()
         }
     }
 
@@ -396,11 +433,12 @@ export class MSRPSession extends EventEmitter
             {
                 if (response.status_code === 200)
                 {
+                    console.log(response, '99999999999999999999999999999999')
                     response.parseSDP(true)
                     this._status = C.STATUS_CONFIRMED
-                    this.target_addr = response.sdp.media[0].invalid[1].value.replaceAll('path:', '')
+                    this.target_addr = response.sdp.media[0].invalid[1].value.replaceAll('path:', '').split(' ').reverse()
                     this.status = 'active'
-                    this.sendMSRP('Test')
+                    this.emit('active')
                 }
             }
         })
@@ -409,10 +447,11 @@ export class MSRPSession extends EventEmitter
 
     sendMSRP (message)
     {
+        _j = 0
         const msgObj = new Message('')
         msgObj.method = 'SEND'
-        msgObj.addHeader('To-Path', `${this.target_addr}`)
-        msgObj.addHeader('From-Path', this.my_addr)
+        msgObj.addHeader('To-Path', `${this.my_addr[1]} ${this.target_addr[1]} ${this.target_addr[0]}`)
+        msgObj.addHeader('From-Path', `${this.my_addr[0]}`)
         msgObj.addHeader('Message-ID', '1')
         msgObj.addHeader('Byte-Range', '1-25/25')
         msgObj.addHeader('Content-Type', 'text/plain')
@@ -523,7 +562,9 @@ export class MSRPSession extends EventEmitter
         }
 
         request.parseSDP(true)
-        this.target_addr = request.sdp.media[0].invalid[1].value.replaceAll('path:', '')
+        console.log(request, '888888888888888888888888888888888')
+        this.target_addr = request.sdp.media[0].invalid[1].value.replaceAll('path:', '').split(' ')
+        console.log(this.target_addr)
 
         // Fire 'newMSRPSession' event.
         this._newMSRPSession('remote', request)
