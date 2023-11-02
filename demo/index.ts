@@ -460,7 +460,7 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
             .on('removeRoom', ({ roomList }: RoomChangeEmitType) => {
                 updateRoomListOptions(roomList)
             })
-            .start()
+            .begin()
 
         loginPageEl.style.display = 'none'
         webRTCPageEl.style.display = 'block'
