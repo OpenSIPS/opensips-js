@@ -356,10 +356,13 @@ export class MSRPSession extends EventEmitter
             _report.addHeader('Byte-Range', '1-25/25')
             _report.addHeader('Status', '000 200 OK')
             _report.ident = _i
+
             this._connection.send(_report.toString())
             this.emit('newMessage', msgObj)
+
             this._msgHistory.push(msgObj)
             this.emit('msgHistoryUpdate', this._msgHistory)
+            console.log('======================================================================')
         }
         if (msgObj.code === 480) {
             console.log('---------------------------------')
@@ -437,7 +440,6 @@ export class MSRPSession extends EventEmitter
             {
                 if (response.status_code === 200)
                 {
-                    console.log(response, '99999999999999999999999999999999')
                     response.parseSDP(true)
                     this._status = C.STATUS_CONFIRMED
                     this.target_addr = response.sdp.media[0].invalid[1].value.replaceAll('path:', '').split(' ').reverse()
@@ -464,6 +466,7 @@ export class MSRPSession extends EventEmitter
         msgObj.addHeader('Failure-Report', 'yes')
         msgObj.body = message
         this._msgHistory.push(msgObj)
+
         this.emit('msgHistoryUpdate', this._msgHistory)
         this._connection.send(msgObj.toString())
     }
@@ -569,9 +572,7 @@ export class MSRPSession extends EventEmitter
         }
 
         request.parseSDP(true)
-        console.log(request, '888888888888888888888888888888888')
         this.target_addr = request.sdp.media[0].invalid[1].value.replaceAll('path:', '').split(' ')
-        console.log(this.target_addr)
 
         // Fire 'newMSRPSession' event.
         this._newMSRPSession('remote', request)
