@@ -43,6 +43,7 @@ export class MSRPSession extends EventEmitter
         this._contact = null
         this._from_tag = null
         this._to_tag = null
+        this._msgHistory = []
         this.target_addr = []
         this.my_addr = []
         this.credentials = {
@@ -356,6 +357,9 @@ export class MSRPSession extends EventEmitter
             _report.addHeader('Status', '000 200 OK')
             _report.ident = _i
             this._connection.send(_report.toString())
+            this.emit('newMessage', msgObj)
+            this._msgHistory.push(msgObj)
+            this.emit('msgHistoryUpdate', this._msgHistory)
         }
         if (msgObj.code === 480) {
             console.log('---------------------------------')
@@ -439,6 +443,7 @@ export class MSRPSession extends EventEmitter
                     this.target_addr = response.sdp.media[0].invalid[1].value.replaceAll('path:', '').split(' ').reverse()
                     this.status = 'active'
                     this.emit('active')
+                    this.emit('confirmed')
                 }
             }
         })
@@ -458,6 +463,8 @@ export class MSRPSession extends EventEmitter
         msgObj.addHeader('Success-Report', 'yes')
         msgObj.addHeader('Failure-Report', 'yes')
         msgObj.body = message
+        this._msgHistory.push(msgObj)
+        this.emit('msgHistoryUpdate', this._msgHistory)
         this._connection.send(msgObj.toString())
     }
 
