@@ -67,6 +67,11 @@ export default class UAExtended extends UA {
      */
     newMSRPSession (session: MSRPSession, data: object)
     {
+        // Listening for message history update
+        session.on('msgHistoryUpdate', (obj : []) => {
+            console.log(obj)
+        })
+
         this._msrp_sessions[session.id] = session
         this.emit('newMSRPSession', data)
     }
@@ -288,15 +293,11 @@ export default class UAExtended extends UA {
 
     startMSRP (target: string, options: MSRPOptions)
     {
-        logger.debug('sendMessage()', options)
-        try {
-            const session = new MSRPSession(this)
-            session.connect(target)
+        logger.debug('startMSRP()', options)
 
-            return session
-        } catch (e) {
-            console.log('ERR', e)
-        }
+        const session = new MSRPSession(this)
+        session.connect(target)
+        return session
     }
 
 

@@ -45,6 +45,8 @@ export interface MSRPSessionEventMap {
     'icecandidate': IceCandidateListener;
     'getusermediafailed': Listener;
     'active' : Listener;
+    'msgHistoryUpdate' : Listener;
+    'newMessage' : Listener;
     'peerconnection:createofferfailed': Listener;
     'peerconnection:createanswerfailed': Listener;
     'peerconnection:setlocaldescriptionfailed': Listener;
