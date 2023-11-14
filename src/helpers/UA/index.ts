@@ -289,11 +289,14 @@ export default class UAExtended extends UA {
     startMSRP (target: string, options: MSRPOptions)
     {
         logger.debug('sendMessage()', options)
+        try {
+            const session = new MSRPSession(this)
+            session.connect(target)
 
-        const session = new MSRPSession(this)
-        session.connect(target)
-
-        return session
+            return session
+        } catch (e) {
+            console.log('ERR', e)
+        }
     }
 
 

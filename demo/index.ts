@@ -42,6 +42,7 @@ const activeCallsCounterEl = document.getElementById('activeCallsCounter')
 const roomSelectEl = document.getElementById('roomSelect') as HTMLSelectElement
 
 const roomsContainerEl = document.getElementById('roomsContainer')
+const messagesContainerEl = document.getElementById('messagesContainer')
 
 /* Helpers */
 
@@ -149,16 +150,15 @@ const updateRoomListOptions = (roomList: { [key: number]: IRoom }) => {
         roomsContainerEl.appendChild(roomEl)
 
         upsertRoomData(room, openSIPSJS.getActiveCalls)
-        upsertRoomData(room, openSIPSJS.getActiveMessages)
+        //upsertRoomData(room, openSIPSJS.getActiveMessages)
     })
 }
 
-const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall|IMessage}) => {
+const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
     const ulListEl = roomsContainerEl.querySelector(`#room-${room.roomId} ul`)
     ulListEl.querySelectorAll('li').forEach(el => el.remove())
 
     const activeCallsInRoom = Object.values(sessions).filter((call) => call.roomId === room.roomId)
-    console.log(activeCallsInRoom, sessions)
     activeCallsInRoom.forEach((call, index) => {
         const listItemEl = document.createElement('li')
         listItemEl.setAttribute('key', `${index}`)
@@ -187,13 +187,13 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall|IMessage}) =>
         })
         listItemEl.appendChild(terminateButtonEl)
 
-        const terminateMsgButtonEl = document.createElement('button') as HTMLButtonElement
+        /*const terminateMsgButtonEl = document.createElement('button') as HTMLButtonElement
         terminateMsgButtonEl.innerText = 'Hangup'
         terminateMsgButtonEl.addEventListener('click', (event) => {
             event.preventDefault()
             openSIPSJS.messageTerminate(call._id)
         })
-        listItemEl.appendChild(terminateMsgButtonEl)
+        listItemEl.appendChild(terminateMsgButtonEl)*/
 
 
         const transferButtonEl = document.createElement('button') as HTMLButtonElement
@@ -243,7 +243,7 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall|IMessage}) =>
             listItemEl.appendChild(answerButtonEl)
         }
 
-        if (call.direction !== 'outgoing' && !call._is_confirmed) {
+        /*if (call.direction !== 'outgoing' && !call._is_confirmed) {
             const answerButtonEl = document.createElement('button') as HTMLButtonElement
             answerButtonEl.innerText = 'AnswerMsg'
             answerButtonEl.addEventListener('click', (event) => {
@@ -251,7 +251,7 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall|IMessage}) =>
                 openSIPSJS.msrpAnswer(call._id)
             })
             listItemEl.appendChild(answerButtonEl)
-        }
+        }*/
 
 
         /* New functional */
@@ -282,6 +282,51 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall|IMessage}) =>
         listItemEl.appendChild(callMoveSelectEl)
 
         ulListEl.appendChild(listItemEl)
+    })
+}
+
+const upsertMSRPMessagesData = (sessions: { [p: string]: IMessage }) => {
+    messagesContainerEl.querySelectorAll('.messageWrapper').forEach(el => el.remove())
+
+    Object.values(sessions).forEach((session) => {
+        const messageEl = document.createElement('div')
+        messageEl.setAttribute('id', `message-${session._id}`)
+        messageEl.setAttribute('key', `${session._id}`)
+        messageEl.classList.add('messageWrapper')
+
+        const messageIdEl = document.createElement('b')
+        messageIdEl.innerText = `Message ${session._id}`
+        messageEl.appendChild(messageIdEl)
+
+        if (session.direction !== 'outgoing' && !session._is_confirmed) {
+            const answerButtonEl = document.createElement('button') as HTMLButtonElement
+            answerButtonEl.innerText = 'AnswerMsg'
+            answerButtonEl.addEventListener('click', (event) => {
+                event.preventDefault()
+                openSIPSJS.msrpAnswer(session._id)
+                messageEl.removeChild(answerButtonEl)
+                //answerButtonEl.remove()
+            })
+            messageEl?.appendChild(answerButtonEl)
+
+            /*openSIPSJS
+              .subscribe('')
+            session.on('active', () => {
+                console.log('DEMO session active')
+                answerButtonEl.remove()
+            })*/
+            //listItemEl.appendChild(answerButtonEl)
+        }
+
+        const terminateMsgButtonEl = document.createElement('button') as HTMLButtonElement
+        terminateMsgButtonEl.innerText = 'Hangup'
+        terminateMsgButtonEl.addEventListener('click', (event) => {
+            event.preventDefault()
+            openSIPSJS.messageTerminate(session._id)
+        })
+        messageEl.appendChild(terminateMsgButtonEl)
+
+        messagesContainerEl.appendChild(messageEl)
     })
 }
 
@@ -360,11 +405,9 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
                     upsertRoomData(room, sessions)
                 })
             })
-            .on('changeActiveMessages', (sessions) => {
-                calculateActiveCallsNumber(sessions)
-                Object.values(openSIPSJS.getActiveRooms).forEach((room: IRoom) => {
-                    upsertRoomData(room, sessions)
-                })
+            .on('changeActiveMessages', (sessions: { [p: string]: IMessage }) => {
+                //calculateActiveCallsNumber(sessions)
+                upsertMSRPMessagesData(sessions)
             })
             .on('newRTCSession', ({ session }: RTCSessionEvent) => {
                 console.warn('e', session)

@@ -8,6 +8,7 @@ export type changeActiveMessagesListener = (event: { [key: string]: IMessage }) 
 export type TestEventListener = (event: { test: string }) => void
 export type ActiveRoomListener = (event: number | undefined) => void
 export type CallAddingProgressListener = (callId: string | undefined) => void
+export type MSRPInitializingListener = (sessionId: string | undefined) => void
 export type RoomDeletedListener = (roomId: number) => void
 export type changeActiveInputMediaDeviceListener = (event: string) => void
 export type changeActiveOutputMediaDeviceListener = (event: string) => void
@@ -30,6 +31,7 @@ export interface OpenSIPSEventMap extends UAEventMap {
     callConfirmed: TestEventListener
     currentActiveRoomChanged: ActiveRoomListener
     callAddingInProgressChanged: CallAddingProgressListener
+    isMSRPInitializingChanged: MSRPInitializingListener
     roomDeleted: RoomDeletedListener
     changeActiveInputMediaDevice: changeActiveInputMediaDeviceListener
     changeActiveOutputMediaDevice: changeActiveOutputMediaDeviceListener

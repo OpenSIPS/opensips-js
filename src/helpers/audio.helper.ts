@@ -29,7 +29,7 @@ const CALL_KEYS_TO_INCLUDE: Array<ICallKey> = [
 ]
 type IMessageKey = keyof IMessage
 const MESSAGE_KEYS_TO_INCLUDE: Array<IMessageKey> = [
-    'roomId',
+    //'roomId',
     '_cancel_reason',
     '_contact',
     'direction',
