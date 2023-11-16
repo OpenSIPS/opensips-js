@@ -1,4 +1,4 @@
-import { UA } from 'jssip'
+import UA from 'jssip/lib/UA'
 import { CallOptionsExtended } from '@/types/rtc'
 import { Options, Message } from 'jssip'
 import * as JsSIP_C from 'jssip/lib/Constants'

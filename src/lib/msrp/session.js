@@ -36,6 +36,9 @@ export class MSRPSession extends EventEmitter
         this._id = null
         this.my_ip = '127.0.0.1'
         this._ua = ua
+        console.log('session constructor configuration', ua.configuration)
+        console.log('session constructor uri ', ua.configuration.uri)
+        console.log('session constructor uri instanceof URI', ua.configuration.uri instanceof URI)
         this.auth_id = Utils.createRandomToken(10)
         this._status = C.STATUS_NULL
         this._dialog = null
@@ -126,7 +129,7 @@ export class MSRPSession extends EventEmitter
         }
         this._connection.onmessage = (msg) =>
         {
-            console.log('msg')
+            console.log('msg', msg)
             this.onmessage(msg)
         }
         this._connection.onerror = () =>
@@ -208,6 +211,7 @@ export class MSRPSession extends EventEmitter
             case C.STATUS_ANSWERED:
                 status_code = status_code || 480
 
+                console.log('REPLY 480')
                 if (status_code < 300 || status_code >= 700)
                 {
                     throw new TypeError(`Invalid status_code: ${status_code}`)
@@ -314,6 +318,7 @@ export class MSRPSession extends EventEmitter
 
     onmessage (msg)
     {
+        console.log('onmessage', msg)
         const msgObj = new Message(msg.data)
         if (this.status === 'auth' && msgObj.code === 401)
         {
@@ -358,6 +363,7 @@ export class MSRPSession extends EventEmitter
             _report.ident = _i
 
             this._connection.send(_report.toString())
+            msgObj.direction = 'incoming'
             this.emit('newMessage', msgObj)
 
             this._msgHistory.push(msgObj)
@@ -399,16 +405,25 @@ export class MSRPSession extends EventEmitter
         const requestParams = {}
         const extraHeaders = []
 
+        console.log(new URI('sip', this.target,                      this._ua._configuration.realm))
+
         requestParams.to_uri   = new URI('sip', this.target,                      this._ua._configuration.realm)
+
+        console.log(requestParams.to_uri instanceof URI);
         requestParams.from_uri = new URI('sip', this._ua._configuration.uri.user, this._ua._configuration.uri.host)
         // extraHeaders.push(`P-Preferred-Identity: ${this._ua._configuration.uri.toString()}`)
+        console.log('requestParams.from_uri instanceof URI', requestParams.from_uri instanceof URI);
 
         extraHeaders.push(`Contact: ${this._ua.contact.toString({
             outbound : true
         })}`)
         extraHeaders.push('Content-Type: application/sdp')
+        const newUri = new URI('sip', this.target, this._ua._configuration.realm).clone()
+        console.log('newUri.configuration.uri instanceof URI', newUri instanceof URI)
+        console.log('this._ua.configuration.uri instanceof URI', this._ua.configuration.uri instanceof URI)
+
         this._request = new SIPMessage.InitialOutgoingInviteRequest(
-            new URI('sip', this.target, this._ua._configuration.realm).clone(),
+            newUri,
             this._ua,
             requestParams,
             extraHeaders,
@@ -429,6 +444,7 @@ export class MSRPSession extends EventEmitter
             },
             onTransportError : (err) =>
             {
+                console.log('asdasdasdasdas');
                 console.log(err)
             },
             // Update the request on authentication.
@@ -438,6 +454,7 @@ export class MSRPSession extends EventEmitter
             },
             onReceiveResponse : (response) =>
             {
+                console.log('response', response);
                 if (response.status_code === 200)
                 {
                     response.parseSDP(true)
@@ -465,10 +482,14 @@ export class MSRPSession extends EventEmitter
         msgObj.addHeader('Success-Report', 'yes')
         msgObj.addHeader('Failure-Report', 'yes')
         msgObj.body = message
+        this._connection.send(msgObj.toString())
+
+        msgObj.direction = 'outgoing'
+
+        this.emit('newMessage', msgObj)
         this._msgHistory.push(msgObj)
 
         this.emit('msgHistoryUpdate', this._msgHistory)
-        this._connection.send(msgObj.toString())
     }
 
     parseAuth (content)

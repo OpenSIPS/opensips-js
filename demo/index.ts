@@ -4,6 +4,7 @@ import { ICall, RoomChangeEmitType } from '../src/types/rtc'
 import { runIndicator } from '../src/helpers/volume.helper'
 import { SendMessageOptions } from 'jssip/lib/Message'
 import { IMessage } from '../src/types/msrp'
+import MSRPMessage from '../src/lib/msrp/message'
 
 let openSIPSJS = null
 let addCallToCurrentRoom = false
@@ -288,6 +289,16 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
 const upsertMSRPMessagesData = (sessions: { [p: string]: IMessage }) => {
     messagesContainerEl.querySelectorAll('.messageWrapper').forEach(el => el.remove())
 
+    const msrpTargetLabelEl = document.getElementById('msrpTargetLabel')
+    if (msrpTargetLabelEl) {
+        if (Object.keys(sessions).length) {
+            msrpTargetLabelEl.style.display = 'none'
+        } else {
+            msrpTargetLabelEl.style.display = 'inline'
+        }
+    }
+
+
     Object.values(sessions).forEach((session) => {
         const messageEl = document.createElement('div')
         messageEl.setAttribute('id', `message-${session._id}`)
@@ -302,9 +313,11 @@ const upsertMSRPMessagesData = (sessions: { [p: string]: IMessage }) => {
             const answerButtonEl = document.createElement('button') as HTMLButtonElement
             answerButtonEl.innerText = 'AnswerMsg'
             answerButtonEl.addEventListener('click', (event) => {
+                console.log('click')
                 event.preventDefault()
                 openSIPSJS.msrpAnswer(session._id)
                 messageEl.removeChild(answerButtonEl)
+                answerButtonEl.disabled = true
                 //answerButtonEl.remove()
             })
             messageEl?.appendChild(answerButtonEl)
@@ -326,7 +339,32 @@ const upsertMSRPMessagesData = (sessions: { [p: string]: IMessage }) => {
         })
         messageEl.appendChild(terminateMsgButtonEl)
 
+        const msgHistoryEl = document.createElement('div')
+        msgHistoryEl.setAttribute('id', `history-${session._id}`)
+        messageEl.appendChild(msgHistoryEl)
+
         messagesContainerEl.appendChild(messageEl)
+    })
+}
+
+const upsertMSRPHistoryData = (msg: MSRPMessage, history: { [msrpId: string]: Array<MSRPMessage> }) => {
+
+    Object.keys(history).forEach((msrpId) => {
+        const historyWrapper = document.getElementById(`history-${msrpId}`)
+
+        if (!historyWrapper) {
+            return
+        }
+
+        const msgEl = document.createElement('p')
+        msgEl.innerText = msg.body
+        historyWrapper.appendChild(msgEl)
+        /*const msrpHistory = history[msrpId]
+        msrpHistory.forEach((msg) => {
+            const msgEl = document.createElement('p')
+            msgEl.innerText = msg.body
+            historyWrapper.appendChild(msgEl)
+        })*/
     })
 }
 
@@ -408,6 +446,9 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
             .on('changeActiveMessages', (sessions: { [p: string]: IMessage }) => {
                 //calculateActiveCallsNumber(sessions)
                 upsertMSRPMessagesData(sessions)
+            })
+            .on('changeMSRPHistory', ({ newMessage, history }: { newMessage: MSRPMessage, history: { [p: string]: Array<MSRPMessage> } }) => {
+                upsertMSRPHistoryData(newMessage, history)
             })
             .on('newRTCSession', ({ session }: RTCSessionEvent) => {
                 console.warn('e', session)
@@ -579,12 +620,19 @@ sendMessageFormEl?.addEventListener(
             return
         }
 
+        const activeMSRPSessionLength = Object.keys(openSIPSJS.getActiveMessages).length
+        // messagesContainerEl.querySelectorAll('.messageWrapper').length
+
         const formData = new FormData(form)
-        const target = formData.get('target')
+        let target
+        if (!activeMSRPSessionLength) {
+            target = formData.get('target')
+        }
+
         const message = formData.get('message')
         const extraHeaders = formData.get('extraHeaders')
 
-        if (typeof target !== 'string' || target.length === 0) {
+        if (!activeMSRPSessionLength && (typeof target !== 'string' || target.length === 0)) {
             alert('Please provide a valid string!')
 
             return
@@ -596,11 +644,19 @@ sendMessageFormEl?.addEventListener(
             optionsObj.extraHeaders = extraHeaders.split(',')
         }
 
-        openSIPSJS.initMSRP(
-            target,
-            message,
-            optionsObj
-        )
+        if (activeMSRPSessionLength) {
+            console.log('SEND ONLY', openSIPSJS.getActiveMessages)
+            const msrpSession = Object.values(openSIPSJS.getActiveMessages)[0] as IMessage
+            openSIPSJS.sendMSRP(msrpSession._id, message)
+        } else {
+            console.log('SEND AND CREATE')
+            openSIPSJS.initMSRP(
+                target,
+                message,
+                optionsObj
+            )
+        }
+
     }
 )
 

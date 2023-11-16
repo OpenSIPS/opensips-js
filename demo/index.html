@@ -17,15 +17,15 @@
         <form id="loginToAppForm" class="login-form">
             <label>
                 Username:
-                <input type="text" name="username" value="">
+                <input type="text" name="username" value="YI3SEDhZ">
             </label>
             <label>
                 Password:
-                <input type="text" name="password" value="">
+                <input type="text" name="password" value="FwT2NFr18eWMDwXS">
             </label>
             <label>
                 Domain:
-                <input type="text" name="domain" value="">
+                <input type="text" name="domain" value="sip06.voicenter.co">
             </label>
             <button type="submit">
                 Register
@@ -59,24 +59,6 @@
         </div>
 
         <br>
-
-        <form id="sendMessageForm">
-            <label>
-                Your target:
-                <input type="text" name="target">
-            </label>
-            <label>
-                Your Message:
-                <input type="text" name="message">
-            </label>
-            <label>
-                Extra Headers (comma separated):
-                <textarea name="extraHeaders"></textarea>
-            </label>
-            <button type="submit">
-                Send message
-            </button>
-        </form>
 
         <form id="makeCallForm">
             <label>
@@ -150,6 +132,24 @@
         <br>
 
         <div id="roomsContainer"></div>
+
+        <form id="sendMessageForm">
+          <label id="msrpTargetLabel">
+            Your target:
+            <input type="text" name="target">
+          </label>
+          <label>
+            Your Message:
+            <input type="text" name="message">
+          </label>
+          <label>
+            Extra Headers (comma separated):
+            <textarea name="extraHeaders"></textarea>
+          </label>
+          <button type="submit">
+            Send message
+          </button>
+        </form>
         <div id="messagesContainer"></div>
 
     </div>

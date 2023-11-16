@@ -5,6 +5,7 @@ export default class MSRPMessage {
     method: string
     headers: any
     body: string
+    direction: string
 
     constructor(msg: string)
     addHeader(name: string, content: string): void

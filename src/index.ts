@@ -1,4 +1,3 @@
-import JsSIP from 'jssip'
 import UA from '@/helpers/UA'
 import {
     IncomingAckEvent,
@@ -38,6 +37,9 @@ import {
     TriggerMSRPListenerOptions
 } from '@/types/msrp'
 
+import MSRPMessage from '@/lib/msrp/message'
+import JsSIP, { URI } from 'jssip/lib/JsSIP'
+
 import { METRIC_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
 import { CALL_EVENT_LISTENER_TYPE } from '@/enum/call.event.listener.type'
 
@@ -69,6 +71,7 @@ export interface InnerState {
     originalStream: MediaStream | null
     listeners: { [key: string]: Array<(call: any, event: ListenerEventType | undefined) => void> }
     metricConfig: WebrtcMetricsConfigType
+    msrpHistory: { [key: string]: Array<MSRPMessage> }
 }
 
 class OpenSIPSJS extends UA {
@@ -105,7 +108,8 @@ class OpenSIPSJS extends UA {
         callMetrics: {},
         metricConfig: {
             refreshEvery: 1000,
-        }
+        },
+        msrpHistory: {}
     }
 
     constructor (options: IOpenSIPSJSOptions) {
@@ -1182,6 +1186,18 @@ class OpenSIPSJS extends UA {
             }*/
         })
 
+        session.on('msgHistoryUpdate', (data: Array<MSRPMessage>) => {
+            console.log('msgHistoryUpdate', data)
+            /*this.state.msrpHistory[session.id] = [ ...history ]
+            this.emit('changeMSRPHistory', { newMessage: newMessage, history: this.state.msrpHistory })
+            console.log('ON msgHistoryUpdate', event)*/
+        })
+
+        session.on('newMessage', (msg: MSRPMessage) => {
+            console.log('newMessage', msg)
+            //this.emit('newMSRPMessage', )
+        })
+
         this.addMessageSession(session)
 
         /*if (session.direction === 'outgoing') {
@@ -1350,6 +1366,15 @@ class OpenSIPSJS extends UA {
         // }
 
         //this.updateMSRPSession(session)
+    }
+
+    public sendMSRP (msrpSessionId: string, body: string) {
+        const msrpSession = activeMessages[msrpSessionId]
+        if (!msrpSession) {
+            throw new Error(`MSRP session with id ${msrpSessionId} doesn't exist!`)
+        }
+
+        msrpSession.sendMSRP(body)
     }
 
     public async callChangeRoom ({ callId, roomId }: { callId: string, roomId: number }) {
