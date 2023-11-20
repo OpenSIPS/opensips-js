@@ -418,12 +418,8 @@ export class MSRPSession extends EventEmitter
             outbound : true
         })}`)
         extraHeaders.push('Content-Type: application/sdp')
-        const newUri = new URI('sip', this.target, this._ua._configuration.realm).clone()
-        console.log('newUri.configuration.uri instanceof URI', newUri instanceof URI)
-        console.log('this._ua.configuration.uri instanceof URI', this._ua.configuration.uri instanceof URI)
-
         this._request = new SIPMessage.InitialOutgoingInviteRequest(
-            newUri,
+            new URI('sip', this.target, this._ua._configuration.realm).clone(),
             this._ua,
             requestParams,
             extraHeaders,
@@ -444,7 +440,6 @@ export class MSRPSession extends EventEmitter
             },
             onTransportError : (err) =>
             {
-                console.log('asdasdasdasdas');
                 console.log(err)
             },
             // Update the request on authentication.
@@ -454,7 +449,6 @@ export class MSRPSession extends EventEmitter
             },
             onReceiveResponse : (response) =>
             {
-                console.log('response', response);
                 if (response.status_code === 200)
                 {
                     response.parseSDP(true)
