@@ -369,6 +369,7 @@ export class MSRPSession extends EventEmitter
             this._msgHistory.push(msgObj)
             this.emit('msgHistoryUpdate', this._msgHistory)
             console.log('======================================================================')
+
         }
         if (msgObj.code === 480) {
             console.log('---------------------------------')
@@ -409,10 +410,10 @@ export class MSRPSession extends EventEmitter
 
         requestParams.to_uri   = new URI('sip', this.target,                      this._ua._configuration.realm)
 
-        console.log(requestParams.to_uri instanceof URI);
+        console.log(requestParams.to_uri instanceof URI)
         requestParams.from_uri = new URI('sip', this._ua._configuration.uri.user, this._ua._configuration.uri.host)
         // extraHeaders.push(`P-Preferred-Identity: ${this._ua._configuration.uri.toString()}`)
-        console.log('requestParams.from_uri instanceof URI', requestParams.from_uri instanceof URI);
+        console.log('requestParams.from_uri instanceof URI', requestParams.from_uri instanceof URI)
 
         extraHeaders.push(`Contact: ${this._ua.contact.toString({
             outbound : true
@@ -444,7 +445,7 @@ export class MSRPSession extends EventEmitter
             },
             onTransportError : (err) =>
             {
-                console.log('asdasdasdasdas');
+                console.log('asdasdasdasdas')
                 console.log(err)
             },
             // Update the request on authentication.
@@ -454,7 +455,7 @@ export class MSRPSession extends EventEmitter
             },
             onReceiveResponse : (response) =>
             {
-                console.log('response', response);
+                console.log('response', response)
                 if (response.status_code === 200)
                 {
                     response.parseSDP(true)
@@ -476,7 +477,7 @@ export class MSRPSession extends EventEmitter
         msgObj.method = 'SEND'
         msgObj.addHeader('To-Path', `${this.my_addr[1]} ${this.target_addr[1]} ${this.target_addr[0]}`)
         msgObj.addHeader('From-Path', `${this.my_addr[0]}`)
-        msgObj.addHeader('Message-ID', '1')
+        msgObj.addHeader('Message-ID', Utils.createRandomToken(10))
         msgObj.addHeader('Byte-Range', '1-25/25')
         msgObj.addHeader('Content-Type', 'text/plain')
         msgObj.addHeader('Success-Report', 'yes')
@@ -593,7 +594,7 @@ export class MSRPSession extends EventEmitter
         }
 
         request.parseSDP(true)
-        this.target_addr = request.sdp.media[0].invalid[1].value.replaceAll('path:', '').split(' ')
+        this.target_addr = request.sdp.media[0].invalid[1].value.replaceAll('path:', '').split(' ').reverse()
 
         // Fire 'newMSRPSession' event.
         this._newMSRPSession('remote', request)
