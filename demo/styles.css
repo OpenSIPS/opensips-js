@@ -34,6 +34,7 @@ select {
 button {
     background-color: #A5C544;
     border: none;
+    border-radius: 3px;
     color: white;
     padding: 10px 25px;
     text-align: center;
@@ -67,4 +68,31 @@ input[type=text], input[type=number] {
     display: flex;
     justify-content: space-between;
     margin: 20px 0;
+}
+
+.history-wrapper {
+    display: flex;
+    flex-direction: column;
+    width: 700px;
+    max-width: 90vw;
+    overflow-y: auto;
+    max-height: 300px;
+}
+
+.history-message {
+    margin: 10px 20px;
+}
+
+.message-right {
+    display: flex;
+    justify-content: flex-end;
+    background-color: #f1f8dc;
+    border-top: 1px solid #fff;
+}
+
+.message-left {
+    display: flex;
+    justify-content: flex-start;
+    background-color: #fdfdfd;
+    border-top: 1px solid #fff;
 }

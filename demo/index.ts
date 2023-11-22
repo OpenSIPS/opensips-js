@@ -3,10 +3,13 @@ import { MSRPSessionEvent, RTCSessionEvent } from 'jssip/lib/UA'
 import { ICall, RoomChangeEmitType } from '../src/types/rtc'
 import { runIndicator } from '../src/helpers/volume.helper'
 import { SendMessageOptions } from 'jssip/lib/Message'
-import { IMessage } from '../src/types/msrp'
+import { IMessage, MSRPSessionExtended } from '../src/types/msrp'
 import MSRPMessage from '../src/lib/msrp/message'
+import { IndexedDBService } from './helpers/IndexedDBService'
+import { getUIDFromSession } from './helpers'
 
 let openSIPSJS = null
+let msrpHistoryDb = null
 let addCallToCurrentRoom = false
 
 /* DOM Elements */
@@ -188,15 +191,6 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
         })
         listItemEl.appendChild(terminateButtonEl)
 
-        /*const terminateMsgButtonEl = document.createElement('button') as HTMLButtonElement
-        terminateMsgButtonEl.innerText = 'Hangup'
-        terminateMsgButtonEl.addEventListener('click', (event) => {
-            event.preventDefault()
-            openSIPSJS.messageTerminate(call._id)
-        })
-        listItemEl.appendChild(terminateMsgButtonEl)*/
-
-
         const transferButtonEl = document.createElement('button') as HTMLButtonElement
         transferButtonEl.innerText = 'Transfer'
         transferButtonEl.addEventListener('click', (event) => {
@@ -244,17 +238,6 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
             listItemEl.appendChild(answerButtonEl)
         }
 
-        /*if (call.direction !== 'outgoing' && !call._is_confirmed) {
-            const answerButtonEl = document.createElement('button') as HTMLButtonElement
-            answerButtonEl.innerText = 'AnswerMsg'
-            answerButtonEl.addEventListener('click', (event) => {
-                event.preventDefault()
-                openSIPSJS.msrpAnswer(call._id)
-            })
-            listItemEl.appendChild(answerButtonEl)
-        }*/
-
-
         /* New functional */
         const callMoveSelectEl = document.createElement('select') as HTMLSelectElement
 
@@ -299,7 +282,7 @@ const upsertMSRPMessagesData = (sessions: { [p: string]: IMessage }) => {
     }
 
 
-    Object.values(sessions).forEach((session) => {
+    Object.values(sessions).forEach(async (session) => {
         const messageEl = document.createElement('div')
         messageEl.setAttribute('id', `message-${session._id}`)
         messageEl.setAttribute('key', `${session._id}`)
@@ -309,26 +292,19 @@ const upsertMSRPMessagesData = (sessions: { [p: string]: IMessage }) => {
         messageIdEl.innerText = `Message ${session._id}`
         messageEl.appendChild(messageIdEl)
 
+        // TODO: not working cause session don't have _is_confirmed prop
         if (session.direction !== 'outgoing' && !session._is_confirmed) {
             const answerButtonEl = document.createElement('button') as HTMLButtonElement
             answerButtonEl.innerText = 'AnswerMsg'
             answerButtonEl.addEventListener('click', (event) => {
-                console.log('click')
                 event.preventDefault()
                 openSIPSJS.msrpAnswer(session._id)
                 messageEl.removeChild(answerButtonEl)
                 answerButtonEl.disabled = true
+                answerButtonEl.style.display = 'none'
                 //answerButtonEl.remove()
             })
             messageEl?.appendChild(answerButtonEl)
-
-            /*openSIPSJS
-              .subscribe('')
-            session.on('active', () => {
-                console.log('DEMO session active')
-                answerButtonEl.remove()
-            })*/
-            //listItemEl.appendChild(answerButtonEl)
         }
 
         const terminateMsgButtonEl = document.createElement('button') as HTMLButtonElement
@@ -341,31 +317,51 @@ const upsertMSRPMessagesData = (sessions: { [p: string]: IMessage }) => {
 
         const msgHistoryEl = document.createElement('div')
         msgHistoryEl.setAttribute('id', `history-${session._id}`)
+        msgHistoryEl.classList.add('history-wrapper')
         messageEl.appendChild(msgHistoryEl)
 
         messagesContainerEl.appendChild(messageEl)
+
+        const uid = getUIDFromSession(session)
+        if (uid) {
+            const records = await msrpHistoryDb.getData(uid)
+            msgHistoryEl.querySelectorAll('.history-message').forEach(el => el.remove())
+            records.forEach((record) => {
+                upsertNewMSRPMessage({ message: record, session: session })
+            })
+        }
+
     })
 }
 
-const upsertMSRPHistoryData = (msg: MSRPMessage, history: { [msrpId: string]: Array<MSRPMessage> }) => {
+const upsertNewMSRPMessage = ({ message, session }: { message: MSRPMessage, session: MSRPSessionExtended }, saveToStorage = false) => {
+    if (saveToStorage) {
+        const uid = getUIDFromSession(session)
+        msrpHistoryDb.saveData(message, uid)
+    }
 
-    Object.keys(history).forEach((msrpId) => {
-        const historyWrapper = document.getElementById(`history-${msrpId}`)
+    const historyWrapper = document.getElementById(`history-${session._id}`)
 
-        if (!historyWrapper) {
-            return
-        }
+    if (!historyWrapper) {
+        return
+    }
 
-        const msgEl = document.createElement('p')
-        msgEl.innerText = msg.body
-        historyWrapper.appendChild(msgEl)
-        /*const msrpHistory = history[msrpId]
-        msrpHistory.forEach((msg) => {
-            const msgEl = document.createElement('p')
-            msgEl.innerText = msg.body
-            historyWrapper.appendChild(msgEl)
-        })*/
-    })
+    const msgWrapperEl = document.createElement('div')
+    if (message.direction === 'outgoing') {
+        msgWrapperEl.classList.add('message-right')
+    } else {
+        msgWrapperEl.classList.add('message-left')
+    }
+
+    const msgEl = document.createElement('p')
+    msgEl.innerText = message.body
+    msgEl.classList.add('history-message')
+
+    msgWrapperEl.appendChild(msgEl)
+    historyWrapper.appendChild(msgWrapperEl)
+
+    // Scroll to the newest message
+    historyWrapper.scrollTop = historyWrapper.scrollHeight
 }
 
 /* DOMContentLoaded Listener */
@@ -433,6 +429,8 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
 
                 muteContainerEl.querySelector('button').setAttribute('disabled', 'true')
                 addToCurrentRoomInputEl.checked = false
+                msrpHistoryDb = new IndexedDBService('msrpHistory', 6)
+                msrpHistoryDb.connect()
             })
             .on('changeActiveCalls', (sessions) => {
                 calculateDtmfButtonDisability(sessions)
@@ -444,17 +442,16 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
                 })
             })
             .on('changeActiveMessages', (sessions: { [p: string]: IMessage }) => {
-                //calculateActiveCallsNumber(sessions)
                 upsertMSRPMessagesData(sessions)
-            })
-            .on('changeMSRPHistory', ({ newMessage, history }: { newMessage: MSRPMessage, history: { [p: string]: Array<MSRPMessage> } }) => {
-                upsertMSRPHistoryData(newMessage, history)
             })
             .on('newRTCSession', ({ session }: RTCSessionEvent) => {
                 console.warn('e', session)
             })
             .on('newMSRPSession', ({ session }: MSRPSessionEvent) => {
                 console.warn('e', session)
+            })
+            .on('newMSRPMessage', (msg: { message: MSRPMessage, session: MSRPSessionExtended }) => {
+                upsertNewMSRPMessage(msg, true)
             })
             .on('callAddingInProgressChanged', (value) => {
                 if (!callAddingIndicatorEl) {
@@ -621,7 +618,6 @@ sendMessageFormEl?.addEventListener(
         }
 
         const activeMSRPSessionLength = Object.keys(openSIPSJS.getActiveMessages).length
-        // messagesContainerEl.querySelectorAll('.messageWrapper').length
 
         const formData = new FormData(form)
         let target
@@ -645,11 +641,9 @@ sendMessageFormEl?.addEventListener(
         }
 
         if (activeMSRPSessionLength) {
-            console.log('SEND ONLY', openSIPSJS.getActiveMessages)
             const msrpSession = Object.values(openSIPSJS.getActiveMessages)[0] as IMessage
             openSIPSJS.sendMSRP(msrpSession._id, message)
         } else {
-            console.log('SEND AND CREATE')
             openSIPSJS.initMSRP(
                 target,
                 message,

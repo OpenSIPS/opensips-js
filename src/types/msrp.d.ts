@@ -37,6 +37,7 @@ export interface MSRPSessionExtended extends MSRPSession {
     _videoMuted: boolean
     _status: number
     _remote_identity: string
+    target_addr: Array<string>
     answer(options?: any): void
     _init_incomeing()
 }

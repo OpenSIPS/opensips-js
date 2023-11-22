@@ -38,7 +38,7 @@ import {
 } from '@/types/msrp'
 
 import MSRPMessage from '@/lib/msrp/message'
-import JsSIP, { URI } from 'jssip/lib/JsSIP'
+import JsSIP from 'jssip/lib/JsSIP'
 
 import { METRIC_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
 import { CALL_EVENT_LISTENER_TYPE } from '@/enum/call.event.listener.type'
@@ -494,16 +494,16 @@ class OpenSIPSJS extends UA {
         this.emit('changeActiveMessages', this.state.activeMessages)
     }
 
-    /*private _addMMSRPSessionStatus (callId: string) {
-        this.state.callStatus = {
-            ...this.state.callStatus,
-            [callId]: {
-                isMoving: false,
-                isTransferring: false,
-                isMerging: false
-            }
+    private _addMSRPMessage (value: MSRPMessage, session: MSRPSessionExtended) {
+        const sessionMessages = this.state.msrpHistory[session.id] || []
+        sessionMessages.push(value)
+
+        this.state.msrpHistory = {
+            ...this.state.msrpHistory,
+            [session.id]: [ ...sessionMessages ]
         }
-    }*/
+        this.emit('newMSRPMessage', { message: value, session: session })
+    }
 
     private _updateCallStatus (value: ICallStatusUpdate) {
         const prevStatus = { ...this.state.callStatus[value.callId] }
@@ -962,7 +962,7 @@ class OpenSIPSJS extends UA {
         this._addRoom(newRoomInfo)
     }
 
-    private async addMessageSession (session: MSRPSessionExtended) {
+    private addMessageSession (session: MSRPSessionExtended) {
         // For cases when session.direction === 'outgoing' and all the
         // session properties are missing before answer
         if (!session._id) {
@@ -970,7 +970,6 @@ class OpenSIPSJS extends UA {
         }
 
         const sessionAlreadyInActiveMessages = this.getActiveMessages[session._id]
-        console.log('sessionAlreadyInActiveMessages', sessionAlreadyInActiveMessages)
 
         if (sessionAlreadyInActiveMessages !== undefined) {
             return
@@ -1186,16 +1185,8 @@ class OpenSIPSJS extends UA {
             }*/
         })
 
-        session.on('msgHistoryUpdate', (data: Array<MSRPMessage>) => {
-            console.log('msgHistoryUpdate', data)
-            /*this.state.msrpHistory[session.id] = [ ...history ]
-            this.emit('changeMSRPHistory', { newMessage: newMessage, history: this.state.msrpHistory })
-            console.log('ON msgHistoryUpdate', event)*/
-        })
-
         session.on('newMessage', (msg: MSRPMessage) => {
-            console.log('newMessage', msg)
-            //this.emit('newMSRPMessage', )
+            this._addMSRPMessage(msg, session)
         })
 
         this.addMessageSession(session)
@@ -1351,8 +1342,8 @@ class OpenSIPSJS extends UA {
 
         const session = this.startMSRP(target, options) as MSRPSessionExtended
         session.on('active', () => {
-            session.sendMSRP(body)
             this.addMessageSession(session)
+            session.sendMSRP(body)
             this.isMSRPInitializing = false
         })
 

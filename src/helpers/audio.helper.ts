@@ -42,7 +42,8 @@ const MESSAGE_KEYS_TO_INCLUDE: Array<IMessageKey> = [
     '_late_sdp',
     'status',
     'start_time',
-    '_remote_identity'
+    '_remote_identity',
+    'target_addr'
 ]
 
 
