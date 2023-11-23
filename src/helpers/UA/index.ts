@@ -1,14 +1,15 @@
-import UA from 'jssip/lib/UA'
-import { CallOptionsExtended } from '@/types/rtc'
-import { Options, Message } from 'jssip'
-import * as JsSIP_C from 'jssip/lib/Constants'
-import { MSRPSession } from '../../lib/msrp/session'
-import { Originator, RTCSession } from 'jssip/lib/RTCSession'
-import { RTCSessiono } from 'jssip'
-import { MSRPOptions, UAConfiguration } from 'jssip'
-import Transactions from 'jssip/lib/Transactions'
+import { MSRPOptions, UAConfiguration, Options, Message, RTCSessiono, UA as UAType  } from 'jssip'
 
+import UA from 'jssip/lib/UA'
+import * as JsSIP_C from 'jssip/lib/Constants'
+import { Originator, RTCSession } from 'jssip/lib/RTCSession'
+import Transactions from 'jssip/lib/Transactions'
 import { IncomingRequest } from 'jssip/lib/SIPMessage'
+
+import { MSRPSession } from '@/lib/msrp/session'
+
+import { CallOptionsExtended } from '@/types/rtc'
+
 import URI from 'jssip/lib/URI'
 const logger = console
 
@@ -38,11 +39,12 @@ export interface OutgoingMSRPSessionEvent {
 
 export type MSRPSessionEvent = IncomingMSRPSessionEvent | OutgoingMSRPSessionEvent;
 
-export default class UAExtended extends UA {
+const UAConstructor: typeof UAType = UA as unknown as typeof UAType
+
+export default class UAExtended extends UAConstructor {
 
     _msrp_sessions: MSRPSession[] = []
-    _transactions = {
-        nist : {},
+    _transactions = { nist : {},
         nict : {},
         ist  : {},
         ict  : {}
@@ -284,10 +286,10 @@ export default class UAExtended extends UA {
              * been created.
              */
             else
-            if (method !== JsSIP_C.ACK)
-            {
-                request.reply(481)
-            }
+                if (method !== JsSIP_C.ACK)
+                {
+                    request.reply(481)
+                }
         }
     }
 
@@ -305,10 +307,8 @@ export default class UAExtended extends UA {
     {
         logger.debug('terminateSessions()')
 
-        for (const idx in this._msrp_sessions)
-        {
-            if (!this._msrp_sessions[idx].isEnded())
-            {
+        for (const idx in this._msrp_sessions) {
+            if (!this._msrp_sessions[idx].isEnded()) {
                 this._msrp_sessions[idx].terminate(options)
             }
         }
@@ -321,8 +321,7 @@ export default class UAExtended extends UA {
         // Remove dynamic settings.
         this._dynConfiguration = {}
 
-        if (this._status === C.STATUS_USER_CLOSED)
-        {
+        if (this._status === C.STATUS_USER_CLOSED) {
             logger.debug('UA already closed')
 
             return
@@ -335,13 +334,15 @@ export default class UAExtended extends UA {
         const num_sessions = Object.keys(this._sessions).length
 
         // Run  _terminate_ on every Session.
-        for (const session in this._sessions)
-        {
-            if (Object.prototype.hasOwnProperty.call(this._sessions, session))
-            {
+        for (const session in this._sessions) {
+            if (Object.prototype.hasOwnProperty.call(this._sessions, session)) {
                 logger.debug(`closing session ${session}`)
-                try { this._sessions[session].terminate() }
-                catch (error) {}
+
+                try {
+                    this._sessions[session].terminate()
+                } catch (error) {
+                    console.error(error)
+                }
             }
         }
 
@@ -349,22 +350,27 @@ export default class UAExtended extends UA {
         // const num_msrp_sessions = Object.keys(this._msrp_sessions).length
 
         // Run  _terminate_ on every Session.
-        for (const msrp_session in this._msrp_sessions)
-        {
-            if (Object.prototype.hasOwnProperty.call(this._msrp_sessions, msrp_session))
-            {
+        for (const msrp_session in this._msrp_sessions) {
+            if (Object.prototype.hasOwnProperty.call(this._msrp_sessions, msrp_session)) {
                 logger.debug(`closing session ${msrp_session}`)
-                try { this._msrp_sessions[msrp_session].terminate() }
-                catch (error) {}
+
+                try {
+                    this._msrp_sessions[msrp_session].terminate()
+                } catch (error) {
+                    console.error(error)
+                }
             }
         }
 
         // Run  _close_ on every applicant.
-        for (const applicant in this._applicants)
-        {
-            if (Object.prototype.hasOwnProperty.call(this._applicants, applicant))
-                try { this._applicants[applicant].close() }
-                catch (error) {}
+        for (const applicant in this._applicants) {
+            if (Object.prototype.hasOwnProperty.call(this._applicants, applicant)) {
+                try {
+                    this._applicants[applicant].close()
+                } catch (error) {
+                    console.error(error)
+                }
+            }
         }
 
         this._status = C.STATUS_USER_CLOSED
@@ -375,17 +381,16 @@ export default class UAExtended extends UA {
             Object.keys(this._transactions.ict).length +
             Object.keys(this._transactions.ist).length
 
-        if (num_transactions === 0 && num_sessions === 0)
-        {
+        if (num_transactions === 0 && num_sessions === 0) {
             this._transport.disconnect()
-        }
-        else
-        {
-            this._closeTimer = setTimeout(() =>
-            {
-                this._closeTimer = null
-                this._transport.disconnect()
-            }, 2000)
+        } else {
+            this._closeTimer = setTimeout(
+                () => {
+                    this._closeTimer = null
+                    this._transport.disconnect()
+                },
+                2000
+            )
         }
     }
 
