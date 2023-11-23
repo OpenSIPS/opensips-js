@@ -70,11 +70,14 @@ class OpenSIPSJS extends UA {
     private readonly newRTCSessionEventName: ListenersKeyType = 'newRTCSession'
     private readonly registeredEventName: ListenersKeyType = 'registered'
     private readonly unregisteredEventName: ListenersKeyType = 'unregistered'
+    private readonly disconnectedEventName: ListenersKeyType = 'disconnected'
+    private readonly connectedEventName: ListenersKeyType = 'connected'
     private readonly activeCalls: { [key: string]: ICall } = {}
     private readonly extendedCalls: { [key: string]: ICall } = {}
     //private readonly activeRooms: { [key: number]: IRoom } = {}
     private _currentActiveRoomId: number | undefined
     private _callAddingInProgress: string | undefined
+    private isReconnecting = false
     private state: InnerState = {
         isMuted: false,
         isAutoAnswer: false,
@@ -1075,7 +1078,12 @@ class OpenSIPSJS extends UA {
         this.emit('ready', value)
     }
 
-    public start () {
+    public begin () {
+        if (this.isConnected()) {
+            console.error('Connection is already established')
+            return
+        }
+
         this.on(
             this.registeredEventName,
             () => {
@@ -1095,7 +1103,27 @@ class OpenSIPSJS extends UA {
             this.newRTCSessionCallback.bind(this)
         )
 
-        super.start()
+        this.on(
+            this.connectedEventName,
+            () => {
+                this.isReconnecting = false
+            }
+        )
+
+        this.on(
+            this.disconnectedEventName,
+            () => {
+                if (this.isReconnecting) {
+                    return
+                }
+                this.isReconnecting = true
+                this.stop()
+                this.setInitialized(false)
+                setTimeout(this.start.bind(this), 5000)
+            }
+        )
+
+        this.start()
 
         this.setMediaDevices(true)
 
