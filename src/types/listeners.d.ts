@@ -1,5 +1,4 @@
-import { ICall, RoomChangeEmitType } from '@/types/rtc'
-import { IMessage } from '@/types/msrp'
+import { ICall, RoomChangeEmitType, ICallStatus } from '@/types/rtc'
 import { UAEventMap } from 'jssip/lib/UA'
 import MSRPMessage from '@/lib/msrp/message'
 
@@ -25,6 +24,7 @@ export type IncomingMSRPSessionListener = (event: IncomingMSRPSessionEvent) => v
 export type OutgoingMSRPSessionListener = (event: OutgoingMSRPSessionEvent) => void;
 export type MSRPSessionListener = IncomingMSRPSessionListener | OutgoingMSRPSessionListener;
 export type MSRPMessageListener = MSRPMessage;
+export type changeCallStatusListener = (event: { [key: string]: ICallStatus }) => void
 
 export interface OpenSIPSEventMap extends UAEventMap {
     ready: readyListener
@@ -45,6 +45,7 @@ export interface OpenSIPSEventMap extends UAEventMap {
     addRoom: addRoomListener
     updateRoom: updateRoomListener
     removeRoom: removeRoomListener
+    changeCallStatus: changeCallStatusListener
     newMSRPSession: MSRPSessionListener
     newMSRPMessage: MSRPMessageListener
 }

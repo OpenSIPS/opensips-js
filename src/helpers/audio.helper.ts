@@ -25,7 +25,8 @@ const CALL_KEYS_TO_INCLUDE: Array<ICallKey> = [
     //'audioQuality',
     'isOnHold',
     //'originalStream',
-    'localMuted'
+    'localMuted',
+    'autoAnswer'
 ]
 type IMessageKey = keyof IMessage
 const MESSAGE_KEYS_TO_INCLUDE: Array<IMessageKey> = [

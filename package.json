@@ -1,6 +1,6 @@
 {
-  "name": "opensips-js",
-  "version": "1.0.9",
+  "name": "@voicenter-team/opensips-js",
+  "version": "1.0.21",
   "description": "The JS package for opensips",
   "default": "src/index.ts",
   "main": "build/index.js",
@@ -42,7 +42,7 @@
     "regenerator-runtime": "^0.13.11",
     "tsc-alias": "^1.8.6",
     "typescript": "^4.9.5",
-    "vite": "^4.3.8",
+    "vite": "4.3.9",
     "vite-plugin-singlefile": "^0.13.5",
     "vue": "3.2.25"
   },
@@ -53,5 +53,9 @@
     "loglevel": "^1.8.1",
     "mime": "^3.0.0",
     "p-iteration": "^1.1.8"
-  }
+  },
+  "files": [
+    "build",
+    "src/types"
+  ]
 }
