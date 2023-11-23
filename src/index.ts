@@ -116,7 +116,7 @@ class OpenSIPSJS extends UA {
     }
 
     public on <T extends ListenersKeyType> (type: T, listener: ListenerCallbackFnType<T>) {
-        return super.on(type as keyof UAEventMap, listener)
+        return super.on(type as keyof UAEventMap, listener as UAEventMap[keyof UAEventMap])
     }
     public off <T extends ListenersKeyType> (type: T, listener: ListenerCallbackFnType<T>) {
         return super.off(type, listener)
