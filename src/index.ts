@@ -35,7 +35,7 @@ import {
     IRoomUpdate,
     IOpenSIPSJSOptions,
     TriggerListenerOptions, CustomLoggerType
-} from "@/types/rtc";
+} from '@/types/rtc'
 
 import {
     IMessage,

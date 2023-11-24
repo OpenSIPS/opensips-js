@@ -10,8 +10,6 @@ import Dialog from 'jssip/lib/Dialog'
 import Exceptions from 'jssip/lib/Exceptions'
 import Transactions from 'jssip/lib/Transactions'
 
-let _j = 0
-
 const C = {
     // RTCSession states.
     STATUS_NULL               : 0,
@@ -173,6 +171,8 @@ export class MSRPSession extends EventEmitter
             throw new Exceptions.InvalidStateError(this._status)
         }
 
+        this.status = 'terminated'
+
         switch (this._status)
         {
             // - UAC -
@@ -331,38 +331,22 @@ export class MSRPSession extends EventEmitter
         {
             this.my_addr.push(msgObj.getHeader('To-Path'))
             this.my_addr.push(msgObj.getHeader('Use-Path'))
-            this.status = 'ready'
+            this.status = 'active'
             this.inviteParty(msgObj)
         }
         else if (this.status === 'auth' && msgObj.code === 200 && this._direction === 'incoming')
         {
             this.my_addr.push(msgObj.getHeader('To-Path'))
             this.my_addr.push(msgObj.getHeader('Use-Path'))
-            this.status = 'ready'
+            this.status = 'active'
             this.acceptParty(msgObj)
         }
         else if (msgObj.method === 'SEND')
         {
-            let _i = msgObj.ident
-            let _mId = msgObj.getHeader('Message-ID')
-            let _ok = new Message('')
-            _ok.method = '200 OK'
-            _ok.addHeader('To-Path', `${this.my_addr[1]}`)
-            _ok.addHeader('From-Path', `${this.my_addr[0]}`)
-            _ok.addHeader('Message-ID', _mId)
-            _ok.ident = _i
-            this._connection.send(_ok.toString())
+            this._sendOk(msgObj)
 
-            let _report = new Message('')
-            _report.method = 'REPORT'
-            _report.addHeader('To-Path', `${msgObj.getHeader('From-Path')}`)
-            _report.addHeader('From-Path', `${this.my_addr[0]}`)
-            _report.addHeader('Message-ID', _mId)
-            _report.addHeader('Byte-Range', '1-25/25')
-            _report.addHeader('Status', '000 200 OK')
-            _report.ident = _i
+            this._sendReport(msgObj)
 
-            this._connection.send(_report.toString())
             msgObj.direction = 'incoming'
             this.emit('newMessage', msgObj)
 
@@ -395,6 +379,7 @@ export class MSRPSession extends EventEmitter
             this.authenticate(null)
         }
     }
+
     onerror (e)
     {
         console.log(e)
@@ -460,7 +445,6 @@ export class MSRPSession extends EventEmitter
 
     sendMSRP (message)
     {
-        _j = 0
         const msgObj = new Message('')
         msgObj.method = 'SEND'
         msgObj.addHeader('To-Path', `${this.my_addr[1]} ${this.target_addr[1]} ${this.target_addr[0]}`)
@@ -470,6 +454,8 @@ export class MSRPSession extends EventEmitter
         msgObj.addHeader('Content-Type', 'text/plain')
         msgObj.addHeader('Success-Report', 'yes')
         msgObj.addHeader('Failure-Report', 'yes')
+        // msgObj.addHeader('To', this._to_tag)
+        // msgObj.addHeader('From', this._from_tag)
         msgObj.body = message
         this._connection.send(msgObj.toString())
 
@@ -479,6 +465,38 @@ export class MSRPSession extends EventEmitter
         this._msgHistory.push(msgObj)
 
         this.emit('msgHistoryUpdate', this._msgHistory)
+    }
+
+    _sendOk (msgObj)
+    {
+
+        let _i = msgObj.ident
+        let _mId = msgObj.getHeader('Message-ID')
+        let _ok = new Message('')
+        _ok.method = '200 OK'
+        _ok.addHeader('To-Path', `${this.my_addr[1]}`)
+        _ok.addHeader('From-Path', `${this.my_addr[0]}`)
+        _ok.addHeader('Message-ID', _mId)
+        _ok.ident = _i
+        this._connection.send(_ok.toString())
+
+    }
+
+    _sendReport (msgObj)
+    {
+
+        let _i = msgObj.ident
+        let _mId = msgObj.getHeader('Message-ID')
+        let _report = new Message('')
+        _report.method = 'REPORT'
+        _report.addHeader('To-Path', `${msgObj.getHeader('From-Path')}`)
+        _report.addHeader('From-Path', `${this.my_addr[0]}`)
+        _report.addHeader('Message-ID', _mId)
+        _report.addHeader('Byte-Range', '1-25/25')
+        _report.addHeader('Status', '000 200 OK')
+        _report.ident = _i
+        this._connection.send(_report.toString())
+
     }
 
     parseAuth (content)

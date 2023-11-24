@@ -286,10 +286,10 @@ export default class UAExtended extends UAConstructor {
              * been created.
              */
             else
-                if (method !== JsSIP_C.ACK)
-                {
-                    request.reply(481)
-                }
+            if (method !== JsSIP_C.ACK)
+            {
+                request.reply(481)
+            }
         }
     }
 
