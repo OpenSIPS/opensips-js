@@ -132,6 +132,14 @@ export interface TriggerListenerOptions {
     session: RTCSessionExtended
     event?:  ListenerEventType
 }
+type CommonLogMethodType = (...args: unknown[]) => void
+
+export interface CustomLoggerType {
+    log: CommonLogMethodType
+    warn: CommonLogMethodType
+    error: CommonLogMethodType
+    debug: CommonLogMethodType
+}
 
 /* UA */
 export interface CallOptionsExtended extends AnswerOptionsExtended {

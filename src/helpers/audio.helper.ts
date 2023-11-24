@@ -1,4 +1,4 @@
-import { ICall, StreamMediaType, MediaEvent } from '@/types/rtc'
+import { ICall, StreamMediaType, MediaEvent, CustomLoggerType } from "@/types/rtc";
 import { Writeable } from '@/types/generic'
 import { IMessage } from '@/types/msrp'
 
@@ -99,4 +99,14 @@ export function syncStream (event: MediaEvent, call: ICall, outputDevice: string
     audio.volume = volume
     audio.play()
     call.audioTag = audio
+}
+
+export function isLoggerCompatible (logger: CustomLoggerType) {
+    if (logger
+      && typeof logger.log === 'function'
+      && typeof logger.warn === 'function'
+      && typeof logger.error === 'function'
+    ) {
+        return true
+    }
 }

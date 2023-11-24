@@ -11,7 +11,13 @@ import { forEach } from 'p-iteration'
 
 import { TempTimeData, ITimeData, setupTime } from '@/helpers/time.helper'
 import { filterObjectKeys } from '@/helpers/filter.helper'
-import { syncStream, processAudioVolume, simplifyCallObject, simplifyMessageObject } from '@/helpers/audio.helper'
+import {
+    syncStream,
+    processAudioVolume,
+    simplifyCallObject,
+    simplifyMessageObject,
+    isLoggerCompatible
+} from '@/helpers/audio.helper'
 import WebRTCMetrics from '@/helpers/webrtcmetrics/metrics'
 
 import { WebrtcMetricsConfigType, Probe, ProbeMetricInType, MetricAudioData, MediaDeviceType } from '@/types/webrtcmetrics'
@@ -28,8 +34,8 @@ import {
     ICallStatus,
     IRoomUpdate,
     IOpenSIPSJSOptions,
-    TriggerListenerOptions,
-} from '@/types/rtc'
+    TriggerListenerOptions, CustomLoggerType
+} from "@/types/rtc";
 
 import {
     IMessage,
@@ -93,6 +99,7 @@ class OpenSIPSJS extends UA {
     private _callAddingInProgress: string | undefined
     private _isMSRPInitializing: boolean | undefined
     private isReconnecting = false
+    private logger: CustomLoggerType = console
     private state: InnerState = {
         isMuted: false,
         isAutoAnswer: false,
@@ -121,7 +128,7 @@ class OpenSIPSJS extends UA {
         msrpHistory: {}
     }
 
-    constructor (options: IOpenSIPSJSOptions) {
+    constructor (options: IOpenSIPSJSOptions, logger?: CustomLoggerType) {
         const configuration: UAConfiguration = {
             ...options.configuration,
             sockets: options.socketInterfaces.map(sock => new JsSIP.WebSocketInterface(sock))
@@ -130,6 +137,10 @@ class OpenSIPSJS extends UA {
         super(configuration)
 
         this.options = options
+
+        if (logger && isLoggerCompatible(logger)) {
+            this.logger = logger
+        }
     }
 
     public on <T extends ListenersKeyType> (type: T, listener: ListenerCallbackFnType<T>) {
@@ -984,6 +995,7 @@ class OpenSIPSJS extends UA {
         }
 
         if (session.direction === 'incoming') {
+            this.logger.log('New incoming call from', session._remote_identity?._uri?._user)
             newRoomInfo.incomingInProgress = true
 
             this.subscribe(CALL_EVENT_LISTENER_TYPE.CALL_CONFIRMED, (call) => {
@@ -1166,6 +1178,7 @@ class OpenSIPSJS extends UA {
 
         // stop timers on ended and failed
         session.on('ended', (event) => {
+            this.logger.log('Session ended for', session._remote_identity?._uri?._user)
             this._triggerListener({ listenerType: CALL_EVENT_LISTENER_TYPE.CALL_ENDED, session, event })
             const s = this.getActiveCalls[session.id]
 
@@ -1182,9 +1195,11 @@ class OpenSIPSJS extends UA {
             }
         })
         session.on('progress', (event: IncomingEvent | OutgoingEvent) => {
+            this.logger.log('Session in progress for', session._remote_identity?._uri?._user)
             this._triggerListener({ listenerType: CALL_EVENT_LISTENER_TYPE.CALL_PROGRESS, session, event })
         })
         session.on('failed', (event) => {
+            this.logger.log('Session failed for', session._remote_identity?._uri?._user)
             this._triggerListener({ listenerType: CALL_EVENT_LISTENER_TYPE.CALL_FAILED, session, event })
 
             if (session.id === this.callAddingInProgress) {
@@ -1206,6 +1221,7 @@ class OpenSIPSJS extends UA {
             }
         })
         session.on('confirmed', (event: IncomingAckEvent | OutgoingAckEvent) => {
+            this.logger.log('Session confirmed for', session._remote_identity?._uri?._user)
             this._triggerListener({ listenerType: CALL_EVENT_LISTENER_TYPE.CALL_CONFIRMED, session, event })
             this.updateCall(session as ICall)
 
@@ -1300,6 +1316,7 @@ class OpenSIPSJS extends UA {
         this.on(
             this.registeredEventName,
             () => {
+                this.logger.log('Successfully registered to', this.options.socketInterfaces[0])
                 this.setInitialized(true)
             }
         )
@@ -1307,6 +1324,7 @@ class OpenSIPSJS extends UA {
         this.on(
             this.unregisteredEventName,
             () => {
+                this.logger.log('Unregistered from', this.options.socketInterfaces[0])
                 this.setInitialized(false)
             }
         )
@@ -1319,6 +1337,7 @@ class OpenSIPSJS extends UA {
         this.on(
             this.connectedEventName,
             () => {
+                this.logger.log('Connected to', this.options.socketInterfaces[0])
                 this.isReconnecting = false
             }
         )
@@ -1329,6 +1348,8 @@ class OpenSIPSJS extends UA {
                 if (this.isReconnecting) {
                     return
                 }
+                this.logger.log('Disconnected from', this.options.socketInterfaces[0])
+                this.logger.log('Reconnecting to', this.options.socketInterfaces[0])
                 this.isReconnecting = true
                 this.stop()
                 this.setInitialized(false)
@@ -1341,6 +1362,7 @@ class OpenSIPSJS extends UA {
             this.newMSRPSessionCallback.bind(this)
         )
 
+        this.logger.log('Connecting to', this.options.socketInterfaces[0])
         this.start()
 
         this.setMediaDevices(true)
@@ -1439,6 +1461,7 @@ class OpenSIPSJS extends UA {
             return console.error('Target must be a valid string')
         }
 
+        this.logger.log(`Calling sip:${target}@${this.sipDomain}...`)
         const call = this.call(
             `sip:${target}@${this.sipDomain}`,
             this.sipOptions
