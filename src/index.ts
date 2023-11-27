@@ -56,77 +56,59 @@ const STORAGE_KEYS = {
     SELECTED_OUTPUT_DEVICE: 'selectedOutputDevice'
 }
 
-const activeMessages: { [key: string]: IMessage } = {}
-
-export interface InnerState {
-    isMuted: boolean
-    muteWhenJoin: boolean
-    isDND: boolean
-    activeCalls: { [key: string]: ICall }
-    extendedCalls: { [key: string]: ICall }
-    activeMessages: { [key: string]: IMessage }
-    activeRooms: { [key: number]: IRoom }
-    callTime: { [key: string]: TempTimeData }
-    callStatus: { [key: string]: ICallStatus }
-    timeIntervals: { [key: string]: IntervalType }
-    callMetrics: { [key: string]: any }
-    availableMediaDevices: Array<MediaDeviceInfo>
-    selectedMediaDevices: { [key in MediaDeviceType]: string }
-    microphoneInputLevel: number
-    speakerVolume: number
-    originalStream: MediaStream | null
-    listeners: { [key: string]: Array<(call: any, event: ListenerEventType | undefined) => void> }
-    metricConfig: WebrtcMetricsConfigType
-    isAutoAnswer: boolean
-    msrpHistory: { [key: string]: Array<MSRPMessage> }
-}
-
 class OpenSIPSJS extends UA {
     private initialized = false
 
     private readonly options: IOpenSIPSJSOptions
+    private logger: CustomLoggerType = console
+
+    /* Events */
     private readonly newRTCSessionEventName: ListenersKeyType = 'newRTCSession'
     private readonly registeredEventName: ListenersKeyType = 'registered'
     private readonly unregisteredEventName: ListenersKeyType = 'unregistered'
     private readonly disconnectedEventName: ListenersKeyType = 'disconnected'
     private readonly connectedEventName: ListenersKeyType = 'connected'
     private readonly newMSRPSessionEventName: ListenersKeyType = 'newMSRPSession'
-    private readonly activeCalls: { [key: string]: ICall } = {}
-    private readonly extendedCalls: { [key: string]: ICall } = {}
-    private readonly activeMessages: { [key: string]: IMessage } = {}
-    //private readonly activeRooms: { [key: number]: IRoom } = {}
-    private _currentActiveRoomId: number | undefined
-    private _callAddingInProgress: string | undefined
-    private _isMSRPInitializing: boolean | undefined
-    private isReconnecting = false
-    private logger: CustomLoggerType = console
-    private state: InnerState = {
-        isMuted: false,
-        isAutoAnswer: false,
-        activeCalls: {},
-        extendedCalls: {},
-        activeMessages: {},
-        availableMediaDevices: [],
-        selectedMediaDevices: {
-            input: 'default', //localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE) || 'default',
-            output: 'default' //localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
-        },
-        microphoneInputLevel: 2, // from 0 to 2
-        speakerVolume: 1, // from 0 to 1
-        muteWhenJoin: false,
-        originalStream: null,
-        isDND: false,
-        listeners: {},
-        activeRooms: {},
-        callStatus: {},
-        callTime: {},
-        timeIntervals: {},
-        callMetrics: {},
-        metricConfig: {
-            refreshEvery: 1000,
-        },
-        msrpHistory: {}
+
+    /* State */
+    private muted = false
+    private isAutoAnswer = false
+    private isDNDEnabled = false
+    private muteWhenJoinEnabled = false
+
+    private activeRooms: { [key: number]: IRoom } = {}
+    private activeCalls: { [key: string]: ICall } = {}
+    private extendedCalls: { [key: string]: ICall } = {}
+
+    private activeMessages: { [key: string]: IMessage } = {}
+    private extendedMessages: { [key: string]: IMessage } = {}
+    private msrpHistory: { [key: string]: Array<MSRPMessage> } = {}
+
+    private microphoneInputLevelValue = 2 // [0;2]
+    private speakerVolumeValue = 1 // [0;1]
+    private availableMediaDevices: Array<MediaDeviceInfo> = []
+    private selectedMediaDevices: { [key in MediaDeviceType]: string } = {
+        input: 'default',
+        output: 'default'
     }
+
+    private callStatus: { [key: string]: ICallStatus } = {}
+    private callTime: { [key: string]: TempTimeData } = {}
+    private callMetrics: { [key: string]: any } = {}
+    private timeIntervals: { [key: string]: IntervalType } = {}
+    private metricConfig: WebrtcMetricsConfigType = {
+        refreshEvery: 1000
+    }
+
+    private originalStreamValue: MediaStream | null = null
+    private currentActiveRoomIdValue: number | undefined
+    private isCallAddingInProgress: string | undefined
+    private isMSRPInitializingValue: boolean | undefined
+    private isReconnecting = false
+
+    private listenersList: {
+        [key: string]: Array<(call: any, event: ListenerEventType | undefined) => void>
+    } = {}
 
     constructor (options: IOpenSIPSJSOptions, logger?: CustomLoggerType) {
         const configuration: UAConfiguration = {
@@ -166,112 +148,71 @@ class OpenSIPSJS extends UA {
     }
 
     public get currentActiveRoomId () {
-        return this._currentActiveRoomId
+        return this.currentActiveRoomIdValue
     }
     private set currentActiveRoomId (roomId: number | undefined) {
-        this._currentActiveRoomId = roomId
+        this.currentActiveRoomIdValue = roomId
         this.emit('currentActiveRoomChanged', roomId)
     }
 
     public get autoAnswer () {
-        return this.state.isAutoAnswer
+        return this.isAutoAnswer
     }
-
-    /*public set autoAnswer (value: boolean) {
-        this.state.isAutoAnswer = value
-    }*/
 
     public get callAddingInProgress () {
-        return this._callAddingInProgress
+        return this.isCallAddingInProgress
     }
     private set callAddingInProgress (value: string | undefined) {
-        this._callAddingInProgress = value
+        this.isCallAddingInProgress = value
         this.emit('callAddingInProgressChanged', value)
     }
 
     public get isMSRPInitializing () {
-        return this._isMSRPInitializing
-    }
-    private set isMSRPInitializing (value: boolean | undefined) {
-        this._isMSRPInitializing = value
-        this.emit('isMSRPInitializingChanged', value)
+        return this.isMSRPInitializingValue
     }
 
     public get muteWhenJoin () {
-        return this.state.muteWhenJoin
-    }
-
-    public set muteWhenJoin (value: boolean) {
-        this.state.muteWhenJoin = value
-        this.emit('changeMuteWhenJoin', value)
+        return this.muteWhenJoinEnabled
     }
 
     public get isDND () {
-        return this.state.isDND
-    }
-
-    public set isDND (value: boolean) {
-        this.state.isDND = value
-        this.emit('changeIsDND', value)
+        return this.isDNDEnabled
     }
 
     public get speakerVolume () {
-        return this.state.speakerVolume
+        return this.speakerVolumeValue
     }
-
-    /*public set speakerVolume (value) {
-        this.state.speakerVolume = value
-
-        Object.values(this.state.extendedCalls).forEach((call) => {
-            if (call.audioTag) {
-                call.audioTag.volume = value
-            }
-        })
-    }*/
 
     public get microphoneInputLevel () {
-        return this.state.microphoneInputLevel
+        return this.microphoneInputLevelValue
     }
 
-    /*public set microphoneInputLevel (value: number) {
-        this.state.microphoneInputLevel = value
-        this.roomReconfigure(this.currentActiveRoomId)
-    }*/
-
-
     public get getActiveCalls () {
-        return this.state.activeCalls
+        return this.activeCalls
     }
 
     public get hasActiveCalls () {
-        return Object.values(this.state.extendedCalls).length > 0
+        return Object.values(this.extendedCalls).length > 0
     }
 
     public get getActiveMessages () {
-        return this.state.activeMessages
+        return this.activeMessages
     }
 
     public get getActiveRooms () {
-        return this.state.activeRooms
+        return this.activeRooms
     }
-
 
     public get isMuted () {
-        return this.state.isMuted
+        return this.muted
     }
-
-    public set isMuted (value: boolean) {
-        this.state.isMuted = value
-        this.emit('changeIsMuted', value)
-    }
-
 
     public get getInputDeviceList () {
-        return this.state.availableMediaDevices.filter(device => device.kind === 'audioinput')
+        return this.availableMediaDevices.filter(device => device.kind === 'audioinput')
     }
 
     public get getOutputDeviceList () {
-        return this.state.availableMediaDevices.filter(device => device.kind === 'audiooutput')
+        return this.availableMediaDevices.filter(device => device.kind === 'audiooutput')
     }
 
     /*getInputDeviceList: (state) => {
@@ -285,7 +226,7 @@ class OpenSIPSJS extends UA {
         return {
             audio: {
                 deviceId: {
-                    exact: this.state.selectedMediaDevices.input
+                    exact: this.selectedMediaDevices.input
                 }
             },
             video: false
@@ -302,33 +243,19 @@ class OpenSIPSJS extends UA {
     }
 
     public get selectedInputDevice () {
-        return this.state.selectedMediaDevices.input
-    }
-
-    public set selectedInputDevice (deviceId: string) {
-        localStorage.setItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE, deviceId)
-
-        this.state.selectedMediaDevices.input = deviceId
-        this.emit('changeActiveInputMediaDevice', deviceId)
+        return this.selectedMediaDevices.input
     }
 
     public get selectedOutputDevice () {
-        return this.state.selectedMediaDevices.output
-    }
-
-    public set selectedOutputDevice (deviceId: string) {
-        localStorage.setItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE, deviceId)
-
-        this.state.selectedMediaDevices.output = deviceId
-        this.emit('changeActiveOutputMediaDevice', deviceId)
+        return this.selectedMediaDevices.output
     }
 
     public get originalStream () {
-        return this.state.originalStream
+        return this.originalStreamValue
     }
 
     private setAvailableMediaDevices (devices: Array<MediaDeviceInfo>) {
-        this.state.availableMediaDevices = devices
+        this.availableMediaDevices = devices
         this.emit('changeAvailableDeviceList', devices)
     }
 
@@ -340,8 +267,8 @@ class OpenSIPSJS extends UA {
     }
 
     public async setMediaDevices (setDefaults = false) {
-        this.state.selectedMediaDevices.input = localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE) || 'default'
-        this.state.selectedMediaDevices.output = localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
+        this.selectedMediaDevices.input = localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE) || 'default'
+        this.selectedMediaDevices.output = localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
 
         await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
         const devices = await navigator.mediaDevices.enumerateDevices()
@@ -363,38 +290,38 @@ class OpenSIPSJS extends UA {
         const time: TempTimeData = { ...value }
         delete time.callId
 
-        this.state.callTime = {
-            ...this.state.callTime,
+        this.callTime = {
+            ...this.callTime,
             [value.callId]: time
         }
 
-        this.emit('changeCallTime', this.state.callTime)
+        this.emit('changeCallTime', this.callTime)
     }
 
     public removeCallTime (callId: string) {
-        const callTimeCopy = { ...this.state.callTime }
+        const callTimeCopy = { ...this.callTime }
         delete callTimeCopy[callId]
 
-        this.state.callTime = {
+        this.callTime = {
             ...callTimeCopy,
         }
 
-        this.emit('changeCallTime', this.state.callTime)
+        this.emit('changeCallTime', this.callTime)
     }
 
     private setTimeInterval (callId: string, interval: IntervalType) {
-        this.state.timeIntervals = {
-            ...this.state.timeIntervals,
+        this.timeIntervals = {
+            ...this.timeIntervals,
             [callId]: interval
         }
     }
 
     private removeTimeInterval (callId: string) {
-        const timeIntervalsCopy = { ...this.state.timeIntervals }
+        const timeIntervalsCopy = { ...this.timeIntervals }
         clearInterval(timeIntervalsCopy[callId])
         delete timeIntervalsCopy[callId]
 
-        this.state.timeIntervals = {
+        this.timeIntervals = {
             ...timeIntervalsCopy,
         }
     }
@@ -405,7 +332,7 @@ class OpenSIPSJS extends UA {
     }
 
     public setMetricsConfig (config: WebrtcMetricsConfigType)  {
-        this.state.metricConfig = { ...this.state.metricConfig, ...config }
+        this.metricConfig = { ...this.metricConfig, ...config }
     }
 
     public sendDTMF (callId: string, value: string) {
@@ -413,18 +340,24 @@ class OpenSIPSJS extends UA {
         if (!validation_regex.test(value)) {
             throw new Error('Not allowed character in DTMF input')
         }
-        const call = this.state.extendedCalls[callId]
+        const call = this.extendedCalls[callId]
         call.sendDTMF(value)
+    }
+
+    private setIsMuted (value: boolean) {
+        this.muted = value
+        this.emit('changeIsMuted', value)
     }
 
     public doMute (value: boolean) {
         const activeRoomId = this.currentActiveRoomId
-        this.isMuted = value
+        this.setIsMuted(value)
+        //this.isMuted = value
         this.roomReconfigure(activeRoomId)
     }
 
     public doCallHold ({ callId, toHold, automatic }: { callId: string, toHold: boolean, automatic?: boolean }) {
-        const call = this.state.extendedCalls[callId]
+        const call = this.extendedCalls[callId]
         call._automaticHold = automatic ?? false
 
         if (toHold) {
@@ -442,7 +375,7 @@ class OpenSIPSJS extends UA {
     }
 
     public callAnswer (callId: string) {
-        const call = this.state.extendedCalls[callId]
+        const call = this.extendedCalls[callId]
 
         this._cancelAllOutgoingUnanswered()
         call.answer(this.sipOptions)
@@ -456,7 +389,7 @@ class OpenSIPSJS extends UA {
     }
 
     public msrpAnswer (callId: string) {
-        const call = activeMessages[callId]
+        const call = this.extendedMessages[callId]
 
         //this._cancelAllOutgoingUnanswered()
         call.answer(this.sipOptions)
@@ -472,31 +405,31 @@ class OpenSIPSJS extends UA {
     }
 
     public updateCall (value: ICall) {
-        this.state.activeCalls[value._id] = simplifyCallObject(value) as ICall
-        this.emit('changeActiveCalls', this.state.activeCalls)
+        this.activeCalls[value._id] = simplifyCallObject(value) as ICall
+        this.emit('changeActiveCalls', this.activeCalls)
     }
 
     public updateMSRPSession (value: IMessage) {
-        this.state.activeMessages[value._id] = simplifyMessageObject(value) as IMessage
-        this.emit('changeActiveMessages', this.state.activeMessages)
+        this.activeMessages[value._id] = simplifyMessageObject(value) as IMessage
+        this.emit('changeActiveMessages', this.activeMessages)
     }
 
     public updateRoom (value: IRoomUpdate) {
-        const room = this.state.activeRooms[value.roomId]
+        const room = this.activeRooms[value.roomId]
 
         const newRoomData: IRoom = {
             ...room,
             ...value
         }
 
-        this.state.activeRooms = {
-            ...this.state.activeRooms,
+        this.activeRooms = {
+            ...this.activeRooms,
             [value.roomId]: {
                 ...newRoomData
             }
         }
 
-        this.emit('updateRoom', { room: newRoomData, roomList: this.state.activeRooms })
+        this.emit('updateRoom', { room: newRoomData, roomList: this.activeRooms })
     }
 
     private hasAutoAnswerHeaders (event: RTCSessionEvent) {
@@ -509,26 +442,26 @@ class OpenSIPSJS extends UA {
     }
 
     private _addCall (value: ICall, emitEvent = true) {
-        this.state.activeCalls = {
-            ...this.state.activeCalls,
+        this.activeCalls = {
+            ...this.activeCalls,
             [value._id]: simplifyCallObject(value) as ICall
         }
 
-        /*this.state.extendedCalls = {
-            ...this.state.extendedCalls,
+        /*this.extendedCalls = {
+            ...this.extendedCalls,
             [value._id]: value
         }*/
 
-        this.state.extendedCalls[value._id] = value
+        this.extendedCalls[value._id] = value
 
         if (emitEvent) {
-            this.emit('changeActiveCalls', this.state.activeCalls)
+            this.emit('changeActiveCalls', this.activeCalls)
         }
     }
 
     private _addCallStatus (callId: string) {
-        this.state.callStatus = {
-            ...this.state.callStatus,
+        this.callStatus = {
+            ...this.callStatus,
             [callId]: {
                 isMoving: false,
                 isTransferring: false,
@@ -536,32 +469,32 @@ class OpenSIPSJS extends UA {
             }
         }
 
-        this.emit('changeCallStatus', this.state.callStatus)
+        this.emit('changeCallStatus', this.callStatus)
     }
 
     private _addMMSRPSession (value: IMessage) {
-        this.state.activeMessages = {
-            ...this.state.activeMessages,
+        this.activeMessages = {
+            ...this.activeMessages,
             [value._id]: simplifyMessageObject(value) as IMessage
         }
 
-        activeMessages[value._id] = value
-        this.emit('changeActiveMessages', this.state.activeMessages)
+        this.extendedMessages[value._id] = value
+        this.emit('changeActiveMessages', this.activeMessages)
     }
 
     private _addMSRPMessage (value: MSRPMessage, session: MSRPSessionExtended) {
-        const sessionMessages = this.state.msrpHistory[session.id] || []
+        const sessionMessages = this.msrpHistory[session.id] || []
         sessionMessages.push(value)
 
-        this.state.msrpHistory = {
-            ...this.state.msrpHistory,
+        this.msrpHistory = {
+            ...this.msrpHistory,
             [session.id]: [ ...sessionMessages ]
         }
         this.emit('newMSRPMessage', { message: value, session: session })
     }
 
     private _updateCallStatus (value: ICallStatusUpdate) {
-        const prevStatus = { ...this.state.callStatus[value.callId] }
+        const prevStatus = { ...this.callStatus[value.callId] }
 
         const newStatus: ICallStatus = {
             ...prevStatus
@@ -579,34 +512,34 @@ class OpenSIPSJS extends UA {
             newStatus.isMerging = value.isMerging
         }
 
-        this.state.callStatus = {
-            ...this.state.callStatus,
+        this.callStatus = {
+            ...this.callStatus,
             [value.callId]: {
                 ...newStatus
             }
         }
 
-        this.emit('changeCallStatus', this.state.callStatus)
+        this.emit('changeCallStatus', this.callStatus)
     }
 
     private _removeCallStatus (callId: string) {
-        const callStatusCopy = { ...this.state.callStatus }
+        const callStatusCopy = { ...this.callStatus }
         delete callStatusCopy[callId]
 
-        this.state.callStatus = {
+        this.callStatus = {
             ...callStatusCopy,
         }
 
-        this.emit('changeCallStatus', this.state.callStatus)
+        this.emit('changeCallStatus', this.callStatus)
     }
 
     private _addRoom (value: IRoom) {
-        this.state.activeRooms = {
-            ...this.state.activeRooms,
+        this.activeRooms = {
+            ...this.activeRooms,
             [value.roomId]: value
         }
 
-        this.emit('addRoom', { room: value, roomList: this.state.activeRooms })
+        this.emit('addRoom', { room: value, roomList: this.activeRooms })
     }
 
     public async setMicrophone (dId: string) {
@@ -614,7 +547,7 @@ class OpenSIPSJS extends UA {
             return
         }
 
-        this.selectedInputDevice = dId
+        this.setSelectedInputDevice(dId)
 
         let stream: MediaStream // = null
 
@@ -628,7 +561,7 @@ class OpenSIPSJS extends UA {
             return
         }
 
-        const callsInCurrentRoom = Object.values(this.state.extendedCalls).filter(call => call.roomId === this.currentActiveRoomId)
+        const callsInCurrentRoom = Object.values(this.extendedCalls).filter(call => call.roomId === this.currentActiveRoomId)
 
         if (callsInCurrentRoom.length === 1) {
             Object.values(callsInCurrentRoom).forEach(call => {
@@ -644,7 +577,7 @@ class OpenSIPSJS extends UA {
     }
 
     private _setOriginalStream (value: MediaStream) {
-        this.state.originalStream = value
+        this.originalStreamValue = value
         this.emit('changeOriginalStream', value)
     }
 
@@ -653,9 +586,9 @@ class OpenSIPSJS extends UA {
             return
         }
 
-        this.selectedOutputDevice = dId
+        this.setSelectedOutputDevice(dId)
 
-        const activeCallList = Object.values(this.state.extendedCalls)
+        const activeCallList = Object.values(this.extendedCalls)
 
         if (activeCallList.length === 0) {
             return
@@ -674,17 +607,17 @@ class OpenSIPSJS extends UA {
     }
 
     private removeRoom (roomId: number) {
-        const activeRoomsCopy = { ...this.state.activeRooms }
+        const activeRoomsCopy = { ...this.activeRooms }
 
         const roomToRemove = { ...activeRoomsCopy[roomId] }
 
         delete activeRoomsCopy[roomId]
 
-        this.state.activeRooms = {
+        this.activeRooms = {
             ...activeRoomsCopy,
         }
 
-        this.emit('removeRoom', { room: roomToRemove, roomList: this.state.activeRooms })
+        this.emit('removeRoom', { room: roomToRemove, roomList: this.activeRooms })
     }
 
     private deleteRoomIfEmpty (roomId: number | undefined) {
@@ -692,7 +625,7 @@ class OpenSIPSJS extends UA {
             return
         }
 
-        if (Object.values(this.state.extendedCalls).filter(call => call.roomId === roomId).length === 0) {
+        if (Object.values(this.extendedCalls).filter(call => call.roomId === roomId).length === 0) {
             this.removeRoom(roomId)
 
             if (this.currentActiveRoomId === roomId) {
@@ -708,7 +641,7 @@ class OpenSIPSJS extends UA {
     }
 
     private muteReconfigure (call: ICall) {
-        if (this.state.isMuted) {
+        if (this.muted) {
             call.mute({ audio: true })
         } else {
             call.unmute({ audio: true })
@@ -720,7 +653,7 @@ class OpenSIPSJS extends UA {
             return
         }
 
-        const callsInRoom = Object.values(this.state.extendedCalls).filter(call => call.roomId === roomId)
+        const callsInRoom = Object.values(this.extendedCalls).filter(call => call.roomId === roomId)
 
         // Let`s take care on the audio output first and check if passed room is our selected room
         if (this.currentActiveRoomId === roomId) {
@@ -762,7 +695,7 @@ class OpenSIPSJS extends UA {
 
             if (stream && callsInRoom[0].connection && callsInRoom[0].connection.getSenders()[0]) {
                 const processedStream = processAudioVolume(stream, this.microphoneInputLevel)
-                processedStream.getTracks().forEach(track => track.enabled = !this.state.isMuted)
+                processedStream.getTracks().forEach(track => track.enabled = !this.muted)
                 this._setOriginalStream(processedStream)
                 await callsInRoom[0].connection.getSenders()[0].replaceTrack(processedStream.getTracks()[0])
                 this.muteReconfigure(callsInRoom[0])
@@ -844,7 +777,7 @@ class OpenSIPSJS extends UA {
     }
 
     public muteCaller (callId: string, value: boolean) {
-        const call = this.state.extendedCalls[callId]
+        const call = this.extendedCalls[callId]
 
         if (call && call.connection.getReceivers().length) {
             call.localMuted = value
@@ -857,7 +790,7 @@ class OpenSIPSJS extends UA {
     }
 
     public callTerminate (callId: string) {
-        const call = this.state.extendedCalls[callId]
+        const call = this.extendedCalls[callId]
 
         if (call._status !== 8) {
             call.terminate()
@@ -865,7 +798,7 @@ class OpenSIPSJS extends UA {
     }
 
     public messageTerminate (callId: string) {
-        const call = activeMessages[callId]
+        const call = this.extendedMessages[callId]
 
         if (call._status !== 8) {
             call.terminate()
@@ -877,7 +810,7 @@ class OpenSIPSJS extends UA {
             return console.error('Target must be passed')
         }
 
-        const call = this.state.extendedCalls[callId]
+        const call = this.extendedCalls[callId]
 
         if (!call._is_confirmed && !call._is_canceled) {
             const redirectTarget = `sip:${target}@${this.sipDomain}`
@@ -898,7 +831,7 @@ class OpenSIPSJS extends UA {
     }
 
     public callMerge (roomId: number) {
-        const callsInRoom = Object.values(this.state.extendedCalls).filter((call) => call.roomId === roomId)
+        const callsInRoom = Object.values(this.extendedCalls).filter((call) => call.roomId === roomId)
         if (callsInRoom.length !== 2) return
 
         const firstCall = callsInRoom[0]
@@ -918,7 +851,8 @@ class OpenSIPSJS extends UA {
 
     // TODO: Use this method in demo
     public setDND (value: boolean) {
-        this.isDND = value
+        this.isDNDEnabled = value
+        this.emit('changeIsDND', value)
     }
 
     private _startCallTimer (callId: string) {
@@ -932,7 +866,7 @@ class OpenSIPSJS extends UA {
         this.setCallTime(timeData)
 
         const interval = setInterval(() => {
-            const callTime = { ...this.state.callTime[callId] }
+            const callTime = { ...this.callTime[callId] }
             const updatedTime = setupTime(callTime)
             this.setCallTime({ callId, ...updatedTime })
         }, 1000)
@@ -954,7 +888,7 @@ class OpenSIPSJS extends UA {
     }
 
     private getNewRoomId () {
-        const roomIdList = Object.keys(this.state.activeRooms)
+        const roomIdList = Object.keys(this.activeRooms)
 
         if (roomIdList.length === 0) {
             return 1
@@ -964,20 +898,20 @@ class OpenSIPSJS extends UA {
     }
 
     public subscribe (type: string, listener: (c: RTCSessionExtended) => void) {
-        const isListenerEmpty = !this.state.listeners[type] || !this.state.listeners[type].length
-        const newListeners = isListenerEmpty? [ listener ]: [ ...this.state.listeners[type], listener ]
+        const isListenerEmpty = !this.listenersList[type] || !this.listenersList[type].length
+        const newListeners = isListenerEmpty? [ listener ]: [ ...this.listenersList[type], listener ]
 
-        this.state.listeners = {
-            ...this.state.listeners,
+        this.listenersList = {
+            ...this.listenersList,
             [type]: newListeners
         }
     }
 
     public removeIListener (value: string) {
-        const listenersCopy = { ...this.state.listeners }
+        const listenersCopy = { ...this.listenersList }
         delete listenersCopy[value]
 
-        this.state.listeners = {
+        this.listenersList = {
             ...listenersCopy,
         }
     }
@@ -1109,7 +1043,7 @@ class OpenSIPSJS extends UA {
     }
 
     private _triggerListener ({ listenerType, session, event }: TriggerListenerOptions) {
-        const listeners = this.state.listeners[listenerType]
+        const listeners = this.listenersList[listenerType]
 
         if (!listeners || !listeners.length) {
             return
@@ -1120,7 +1054,7 @@ class OpenSIPSJS extends UA {
         })
     }
     private _triggerMSRPListener ({ listenerType, session, event }: TriggerMSRPListenerOptions) {
-        const listeners = this.state.listeners[listenerType]
+        const listeners = this.listenersList[listenerType]
 
         if (!listeners || !listeners.length) {
             return
@@ -1132,36 +1066,43 @@ class OpenSIPSJS extends UA {
     }
 
     private _removeCall (value: string) {
-        const stateActiveCallsCopy = { ...this.state.activeCalls }
+        const stateActiveCallsCopy = { ...this.activeCalls }
         delete stateActiveCallsCopy[value]
 
         // delete activeCalls[value]
-        this.state.activeCalls = {
+        this.activeCalls = {
             ...stateActiveCallsCopy,
         }
 
-        const stateExtendedCallsCopy = { ...this.state.extendedCalls }
+        const stateExtendedCallsCopy = { ...this.extendedCalls }
         delete stateExtendedCallsCopy[value]
-        this.state.extendedCalls = {
+        this.extendedCalls = {
             ...stateExtendedCallsCopy,
         }
 
-        this.emit('changeActiveCalls', this.state.activeCalls)
+        this.emit('changeActiveCalls', this.activeCalls)
     }
 
     private _removeMMSRPSession (value: string) {
-        const stateActiveMessagesCopy = { ...this.state.activeMessages }
+        const stateActiveMessagesCopy = { ...this.activeMessages }
         delete stateActiveMessagesCopy[value]
 
-        delete activeMessages[value]
-        this.state.activeMessages = {
+        //delete activeMessages[value]
+        this.activeMessages = {
             ...stateActiveMessagesCopy,
         }
-        this.emit('changeActiveMessages', this.state.activeMessages)
+
+        const stateExtendedMessagesCopy = { ...this.extendedMessages }
+        delete stateExtendedMessagesCopy[value]
+        this.extendedMessages = {
+            ...stateExtendedMessagesCopy,
+        }
+
+        this.emit('changeActiveMessages', this.activeMessages)
     }
 
     private _activeCallListRemove (call: ICall) {
-        const callRoomIdToConfigure = this.state.extendedCalls[call._id].roomId
+        const callRoomIdToConfigure = this.extendedCalls[call._id].roomId
         this._removeCall(call._id)
         this.roomReconfigure(callRoomIdToConfigure)
     }
@@ -1194,8 +1135,8 @@ class OpenSIPSJS extends UA {
             this._removeCallStatus(session.id)
             this._removeCallMetrics(session.id)
 
-            if (!Object.keys(this.state.extendedCalls).length) {
-                this.isMuted = false
+            if (!Object.keys(this.extendedCalls).length) {
+                this.setIsMuted(false)
             }
         })
         session.on('progress', (event: IncomingEvent | OutgoingEvent) => {
@@ -1220,8 +1161,8 @@ class OpenSIPSJS extends UA {
             this._removeCallStatus(session.id)
             this._removeCallMetrics(session.id)
 
-            if (!Object.keys(this.state.extendedCalls).length) {
-                this.isMuted = false
+            if (!Object.keys(this.extendedCalls).length) {
+                this.setIsMuted(false)
             }
         })
         session.on('confirmed', (event: IncomingAckEvent | OutgoingAckEvent) => {
@@ -1375,18 +1316,19 @@ class OpenSIPSJS extends UA {
     }
 
     public setMuteWhenJoin (value: boolean) {
-        this.muteWhenJoin = value
+        this.muteWhenJoinEnabled = value
+        this.emit('changeMuteWhenJoin', value)
     }
 
     public setMicrophoneInputLevel (value: number) {
-        this.state.microphoneInputLevel = value
+        this.microphoneInputLevelValue = value
         this.roomReconfigure(this.currentActiveRoomId)
     }
 
     public setSpeakerVolume (value: number) {
-        this.state.speakerVolume = value
+        this.speakerVolumeValue = value
 
-        Object.values(this.state.extendedCalls).forEach((call) => {
+        Object.values(this.extendedCalls).forEach((call) => {
             if (call.audioTag) {
                 call.audioTag.volume = value
             }
@@ -1394,34 +1336,53 @@ class OpenSIPSJS extends UA {
     }
 
     public setAutoAnswer (value: boolean) {
-        this.state.isAutoAnswer = value
+        this.isAutoAnswer = value
+    }
+
+    private setSelectedInputDevice (deviceId: string) {
+        localStorage.setItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE, deviceId)
+
+        this.selectedMediaDevices.input = deviceId
+        this.emit('changeActiveInputMediaDevice', deviceId)
+    }
+
+    private setSelectedOutputDevice (deviceId: string) {
+        localStorage.setItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE, deviceId)
+
+        this.selectedMediaDevices.output = deviceId
+        this.emit('changeActiveOutputMediaDevice', deviceId)
+    }
+
+    private setIsMSRPInitializing (value: boolean) {
+        this.isMSRPInitializingValue = value
+        this.emit('isMSRPInitializingChanged', value)
     }
 
     private _setCallMetrics (value: any) {
         const metrics = { ...value }
         delete metrics['callId']
 
-        this.state.callMetrics = {
-            ...this.state.callMetrics,
+        this.callMetrics = {
+            ...this.callMetrics,
             [value.callId]: metrics
         }
 
-        this.emit('changeCallMetrics', this.state.callMetrics)
+        this.emit('changeCallMetrics', this.callMetrics)
     }
 
     private _removeCallMetrics (callId: string) {
-        const callMetricsCopy = { ...this.state.callMetrics }
+        const callMetricsCopy = { ...this.callMetrics }
         delete callMetricsCopy[callId]
 
-        this.state.callMetrics = {
+        this.callMetrics = {
             ...callMetricsCopy,
         }
 
-        this.emit('changeCallMetrics', this.state.callMetrics)
+        this.emit('changeCallMetrics', this.callMetrics)
     }
 
     private _getCallQuality (call: ICall) {
-        const metrics = new WebRTCMetrics(this.state.metricConfig)
+        const metrics = new WebRTCMetrics(this.metricConfig)
         const probe = metrics.createProbe(call.connection, {
             cid: call._id
         })
@@ -1466,7 +1427,7 @@ class OpenSIPSJS extends UA {
     }
 
     private async _triggerAddStream (event: MediaEvent, call: ICall) {
-        this.isMuted = this.muteWhenJoin
+        this.setIsMuted(this.muteWhenJoin)
 
         const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
         const processedStream = processAudioVolume(stream, this.microphoneInputLevel)
@@ -1520,10 +1481,10 @@ class OpenSIPSJS extends UA {
         session.on('active', () => {
             this.addMessageSession(session)
             session.sendMSRP(body)
-            this.isMSRPInitializing = false
+            this.setIsMSRPInitializing(false)
         })
 
-        this.isMSRPInitializing = true
+        this.setIsMSRPInitializing(true)
 
         // if (this.currentActiveRoomId !== undefined) {
         //     this.callChangeRoom({
@@ -1536,7 +1497,7 @@ class OpenSIPSJS extends UA {
     }
 
     public sendMSRP (msrpSessionId: string, body: string) {
-        const msrpSession = activeMessages[msrpSessionId]
+        const msrpSession = this.extendedMessages[msrpSessionId]
         if (!msrpSession) {
             throw new Error(`MSRP session with id ${msrpSessionId} doesn't exist!`)
         }
@@ -1545,9 +1506,9 @@ class OpenSIPSJS extends UA {
     }
 
     public async callChangeRoom ({ callId, roomId }: { callId: string, roomId: number }) {
-        const oldRoomId = this.state.extendedCalls[callId].roomId
+        const oldRoomId = this.extendedCalls[callId].roomId
 
-        this.state.extendedCalls[callId].roomId = roomId
+        this.extendedCalls[callId].roomId = roomId
 
         await this.setCurrentActiveRoomId(roomId)
 

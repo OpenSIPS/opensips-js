@@ -678,7 +678,7 @@ muteWhenJoinInputEl?.addEventListener(
         event.preventDefault()
 
         const target = event.target as HTMLInputElement
-        openSIPSJS.muteWhenJoin = target.checked
+        openSIPSJS.setMuteWhenJoin(target.checked)
 
     })
 
