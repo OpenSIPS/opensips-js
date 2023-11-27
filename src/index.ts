@@ -35,7 +35,7 @@ import {
     IRoomUpdate,
     IOpenSIPSJSOptions,
     TriggerListenerOptions, CustomLoggerType
-} from "@/types/rtc";
+} from '@/types/rtc'
 
 import {
     IMessage,
@@ -177,9 +177,9 @@ class OpenSIPSJS extends UA {
         return this.state.isAutoAnswer
     }
 
-    public set autoAnswer (value: boolean) {
+    /*public set autoAnswer (value: boolean) {
         this.state.isAutoAnswer = value
-    }
+    }*/
 
     public get callAddingInProgress () {
         return this._callAddingInProgress
@@ -219,7 +219,7 @@ class OpenSIPSJS extends UA {
         return this.state.speakerVolume
     }
 
-    public set speakerVolume (value) {
+    /*public set speakerVolume (value) {
         this.state.speakerVolume = value
 
         Object.values(this.state.extendedCalls).forEach((call) => {
@@ -227,16 +227,16 @@ class OpenSIPSJS extends UA {
                 call.audioTag.volume = value
             }
         })
-    }
+    }*/
 
     public get microphoneInputLevel () {
         return this.state.microphoneInputLevel
     }
 
-    public set microphoneInputLevel (value: number) {
+    /*public set microphoneInputLevel (value: number) {
         this.state.microphoneInputLevel = value
         this.roomReconfigure(this.currentActiveRoomId)
-    }
+    }*/
 
 
     public get getActiveCalls () {
@@ -367,6 +367,8 @@ class OpenSIPSJS extends UA {
             ...this.state.callTime,
             [value.callId]: time
         }
+
+        this.emit('changeCallTime', this.state.callTime)
     }
 
     public removeCallTime (callId: string) {
@@ -376,6 +378,8 @@ class OpenSIPSJS extends UA {
         this.state.callTime = {
             ...callTimeCopy,
         }
+
+        this.emit('changeCallTime', this.state.callTime)
     }
 
     private setTimeInterval (callId: string, interval: IntervalType) {
@@ -1374,6 +1378,25 @@ class OpenSIPSJS extends UA {
         this.muteWhenJoin = value
     }
 
+    public setMicrophoneInputLevel (value: number) {
+        this.state.microphoneInputLevel = value
+        this.roomReconfigure(this.currentActiveRoomId)
+    }
+
+    public setSpeakerVolume (value: number) {
+        this.state.speakerVolume = value
+
+        Object.values(this.state.extendedCalls).forEach((call) => {
+            if (call.audioTag) {
+                call.audioTag.volume = value
+            }
+        })
+    }
+
+    public setAutoAnswer (value: boolean) {
+        this.state.isAutoAnswer = value
+    }
+
     private _setCallMetrics (value: any) {
         const metrics = { ...value }
         delete metrics['callId']
@@ -1382,6 +1405,8 @@ class OpenSIPSJS extends UA {
             ...this.state.callMetrics,
             [value.callId]: metrics
         }
+
+        this.emit('changeCallMetrics', this.state.callMetrics)
     }
 
     private _removeCallMetrics (callId: string) {
@@ -1391,6 +1416,8 @@ class OpenSIPSJS extends UA {
         this.state.callMetrics = {
             ...callMetricsCopy,
         }
+
+        this.emit('changeCallMetrics', this.state.callMetrics)
     }
 
     private _getCallQuality (call: ICall) {
