@@ -96,6 +96,10 @@ export class MSRPSession extends EventEmitter {
 
     sendMSRP(message: string): void
 
+    _sendOk(message: string): void
+
+    _sendReport(message: string): void
+
     terminate(options?: any): void
 
     on<T extends keyof MSRPSessionEventMap>(type: T, listener: MSRPSessionEventMap[T]): this;
