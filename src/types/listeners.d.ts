@@ -1,7 +1,7 @@
 import { ICall, RoomChangeEmitType, ICallStatus } from '@/types/rtc'
 import { UAEventMap } from 'jssip/lib/UA'
 import MSRPMessage from '@/lib/msrp/message'
-import { ITimeData } from "@/helpers/time.helper";
+import { ITimeData } from '@/helpers/time.helper'
 
 export type readyListener = (value: boolean) => void
 export type changeActiveCallsListener = (event: { [key: string]: ICall }) => void
