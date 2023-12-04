@@ -1,5 +1,6 @@
-import { ICall, StreamMediaType, MediaEvent } from '@/types/rtc'
+import { ICall, StreamMediaType, MediaEvent, CustomLoggerType } from '@/types/rtc'
 import { Writeable } from '@/types/generic'
+import { IMessage } from '@/types/msrp'
 
 type ICallKey = keyof ICall
 const CALL_KEYS_TO_INCLUDE: Array<ICallKey> = [
@@ -27,9 +28,29 @@ const CALL_KEYS_TO_INCLUDE: Array<ICallKey> = [
     'localMuted',
     'autoAnswer'
 ]
+type IMessageKey = keyof IMessage
+const MESSAGE_KEYS_TO_INCLUDE: Array<IMessageKey> = [
+    //'roomId',
+    '_cancel_reason',
+    '_contact',
+    'direction',
+    '_end_time',
+    '_eventsCount',
+    '_from_tag',
+    '_id',
+    '_is_canceled',
+    '_is_confirmed',
+    '_late_sdp',
+    'status',
+    'start_time',
+    '_remote_identity',
+    'target_addr'
+]
 
 
 export type ICallSimplified = Writeable<Pick<ICall, typeof CALL_KEYS_TO_INCLUDE[number]>>
+export type IMessageSimplified = Writeable<Pick<IMessage, typeof MESSAGE_KEYS_TO_INCLUDE[number]>>
+
 export function simplifyCallObject (call: ICall): ICallSimplified {
     const simplified: Partial<ICallSimplified> = {}
 
@@ -42,6 +63,18 @@ export function simplifyCallObject (call: ICall): ICallSimplified {
     simplified.localHold = call._localHold
 
     return simplified as ICallSimplified
+}
+
+export function simplifyMessageObject (call: IMessage): IMessageSimplified {
+    const simplified: Partial<IMessageSimplified> = {}
+
+    MESSAGE_KEYS_TO_INCLUDE.forEach(key => {
+        if (call[key] !== undefined) {
+            simplified[key] = call[key]
+        }
+    })
+
+    return simplified as IMessageSimplified
 }
 
 export function processAudioVolume (stream: MediaStream, volume: number) {
@@ -66,4 +99,14 @@ export function syncStream (event: MediaEvent, call: ICall, outputDevice: string
     audio.volume = volume
     audio.play()
     call.audioTag = audio
+}
+
+export function isLoggerCompatible (logger: CustomLoggerType) {
+    if (logger
+      && typeof logger.log === 'function'
+      && typeof logger.warn === 'function'
+      && typeof logger.error === 'function'
+    ) {
+        return true
+    }
 }

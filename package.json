@@ -1,6 +1,6 @@
 {
   "name": "@voicenter-team/opensips-js",
-  "version": "1.0.21",
+  "version": "1.0.22",
   "description": "The JS package for opensips",
   "default": "src/index.ts",
   "main": "build/index.js",
@@ -49,7 +49,7 @@
   "dependencies": {
     "@types/mime": "^3.0.1",
     "generate-unique-id": "^2.0.1",
-    "jssip": "^3.10.0",
+    "jssip": "3.10.0",
     "loglevel": "^1.8.1",
     "mime": "^3.0.0",
     "p-iteration": "^1.1.8"

@@ -1,10 +1,15 @@
 import OpenSIPSJS, { IRoom } from '../src/index'
-import { RTCSessionEvent } from 'jssip/lib/UA'
+import { MSRPSessionEvent, RTCSessionEvent } from 'jssip/lib/UA'
 import { ICall, RoomChangeEmitType } from '../src/types/rtc'
 import { runIndicator } from '../src/helpers/volume.helper'
 import { SendMessageOptions } from 'jssip/lib/Message'
+import { IMessage, MSRPSessionExtended } from '../src/types/msrp'
+import MSRPMessage from '../src/lib/msrp/message'
+import { IndexedDBService } from './helpers/IndexedDBService'
+import { getUIDFromSession } from './helpers'
 
 let openSIPSJS = null
+let msrpHistoryDb = null
 let addCallToCurrentRoom = false
 
 /* DOM Elements */
@@ -41,6 +46,7 @@ const activeCallsCounterEl = document.getElementById('activeCallsCounter')
 const roomSelectEl = document.getElementById('roomSelect') as HTMLSelectElement
 
 const roomsContainerEl = document.getElementById('roomsContainer')
+const messagesContainerEl = document.getElementById('messagesContainer')
 
 /* Helpers */
 
@@ -97,7 +103,7 @@ const calculateVolumeLevel = (sessions: { [key: string]: ICall }) => {
     }
 }
 
-const calculateActiveCallsNumber = (sessions: { [key: string]: ICall }) => {
+const calculateActiveCallsNumber = (sessions: { [key: string]: ICall | IMessage }) => {
     const counter = Object.keys(sessions).length
     activeCallsCounterEl.innerText = `${counter}`
 }
@@ -148,6 +154,7 @@ const updateRoomListOptions = (roomList: { [key: number]: IRoom }) => {
         roomsContainerEl.appendChild(roomEl)
 
         upsertRoomData(room, openSIPSJS.getActiveCalls)
+        //upsertRoomData(room, openSIPSJS.getActiveMessages)
     })
 }
 
@@ -183,7 +190,6 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
             openSIPSJS.callTerminate(call._id)
         })
         listItemEl.appendChild(terminateButtonEl)
-
 
         const transferButtonEl = document.createElement('button') as HTMLButtonElement
         transferButtonEl.innerText = 'Transfer'
@@ -232,7 +238,6 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
             listItemEl.appendChild(answerButtonEl)
         }
 
-
         /* New functional */
         const callMoveSelectEl = document.createElement('select') as HTMLSelectElement
 
@@ -262,6 +267,101 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
 
         ulListEl.appendChild(listItemEl)
     })
+}
+
+const upsertMSRPMessagesData = (sessions: { [p: string]: IMessage }) => {
+    messagesContainerEl.querySelectorAll('.messageWrapper').forEach(el => el.remove())
+
+    const msrpTargetLabelEl = document.getElementById('msrpTargetLabel')
+    if (msrpTargetLabelEl) {
+        if (Object.keys(sessions).length) {
+            msrpTargetLabelEl.style.display = 'none'
+        } else {
+            msrpTargetLabelEl.style.display = 'inline'
+        }
+    }
+
+
+    Object.values(sessions).forEach(async (session) => {
+        const messageEl = document.createElement('div')
+        messageEl.setAttribute('id', `message-${session._id}`)
+        messageEl.setAttribute('key', `${session._id}`)
+        messageEl.classList.add('messageWrapper')
+
+        const messageIdEl = document.createElement('b')
+        messageIdEl.innerText = `Message ${session._id}`
+        messageEl.appendChild(messageIdEl)
+
+        // TODO: not working cause session don't have _is_confirmed prop
+        if (session.direction !== 'outgoing' && !session._is_confirmed) {
+            const answerButtonEl = document.createElement('button') as HTMLButtonElement
+            answerButtonEl.innerText = 'AnswerMsg'
+            answerButtonEl.addEventListener('click', (event) => {
+                event.preventDefault()
+                openSIPSJS.msrpAnswer(session._id)
+                messageEl.removeChild(answerButtonEl)
+                answerButtonEl.disabled = true
+                answerButtonEl.style.display = 'none'
+                //answerButtonEl.remove()
+            })
+            messageEl?.appendChild(answerButtonEl)
+        }
+
+        const terminateMsgButtonEl = document.createElement('button') as HTMLButtonElement
+        terminateMsgButtonEl.innerText = 'Hangup'
+        terminateMsgButtonEl.addEventListener('click', (event) => {
+            event.preventDefault()
+            openSIPSJS.messageTerminate(session._id)
+        })
+        messageEl.appendChild(terminateMsgButtonEl)
+
+        const msgHistoryEl = document.createElement('div')
+        msgHistoryEl.setAttribute('id', `history-${session._id}`)
+        msgHistoryEl.classList.add('history-wrapper')
+        messageEl.appendChild(msgHistoryEl)
+
+        messagesContainerEl.appendChild(messageEl)
+
+        const uid = getUIDFromSession(session)
+        if (uid) {
+            const records = await msrpHistoryDb.getData(uid)
+            msgHistoryEl.querySelectorAll('.history-message').forEach(el => el.remove())
+            records.forEach((record) => {
+                upsertNewMSRPMessage({ message: record, session: session })
+            })
+        }
+
+    })
+}
+
+const upsertNewMSRPMessage = ({ message, session }: { message: MSRPMessage, session: MSRPSessionExtended }, saveToStorage = false) => {
+    if (saveToStorage) {
+        const uid = getUIDFromSession(session)
+        msrpHistoryDb.saveData(message, uid)
+    }
+
+    const historyWrapper = document.getElementById(`history-${session._id}`)
+
+    if (!historyWrapper) {
+        return
+    }
+
+    const msgWrapperEl = document.createElement('div')
+    if (message.direction === 'outgoing') {
+        msgWrapperEl.classList.add('message-right')
+    } else {
+        msgWrapperEl.classList.add('message-left')
+    }
+
+    const msgEl = document.createElement('p')
+    msgEl.innerText = message.body
+    msgEl.classList.add('history-message')
+
+    msgWrapperEl.appendChild(msgEl)
+    historyWrapper.appendChild(msgWrapperEl)
+
+    // Scroll to the newest message
+    historyWrapper.scrollTop = historyWrapper.scrollHeight
 }
 
 /* DOMContentLoaded Listener */
@@ -329,19 +429,29 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
 
                 muteContainerEl.querySelector('button').setAttribute('disabled', 'true')
                 addToCurrentRoomInputEl.checked = false
+                msrpHistoryDb = new IndexedDBService('msrpHistory', 6)
+                msrpHistoryDb.connect()
             })
             .on('changeActiveCalls', (sessions) => {
                 calculateDtmfButtonDisability(sessions)
                 calculateMuteButtonDisability(sessions)
                 calculateVolumeLevel(sessions)
                 calculateActiveCallsNumber(sessions)
-
                 Object.values(openSIPSJS.getActiveRooms).forEach((room: IRoom) => {
                     upsertRoomData(room, sessions)
                 })
             })
+            .on('changeActiveMessages', (sessions: { [p: string]: IMessage }) => {
+                upsertMSRPMessagesData(sessions)
+            })
             .on('newRTCSession', ({ session }: RTCSessionEvent) => {
                 console.warn('e', session)
+            })
+            .on('newMSRPSession', ({ session }: MSRPSessionEvent) => {
+                console.warn('e', session)
+            })
+            .on('newMSRPMessage', (msg: { message: MSRPMessage, session: MSRPSessionExtended }) => {
+                upsertNewMSRPMessage(msg, true)
             })
             .on('callAddingInProgressChanged', (value) => {
                 if (!callAddingIndicatorEl) {
@@ -507,12 +617,18 @@ sendMessageFormEl?.addEventListener(
             return
         }
 
+        const activeMSRPSessionLength = Object.keys(openSIPSJS.getActiveMessages).length
+
         const formData = new FormData(form)
-        const target = formData.get('target')
+        let target
+        if (!activeMSRPSessionLength) {
+            target = formData.get('target')
+        }
+
         const message = formData.get('message')
         const extraHeaders = formData.get('extraHeaders')
 
-        if (typeof target !== 'string' || target.length === 0) {
+        if (!activeMSRPSessionLength && (typeof target !== 'string' || target.length === 0)) {
             alert('Please provide a valid string!')
 
             return
@@ -524,11 +640,17 @@ sendMessageFormEl?.addEventListener(
             optionsObj.extraHeaders = extraHeaders.split(',')
         }
 
-        openSIPSJS.sendMessage(
-            target,
-            message,
-            optionsObj
-        )
+        if (activeMSRPSessionLength) {
+            const msrpSession = Object.values(openSIPSJS.getActiveMessages)[0] as IMessage
+            openSIPSJS.sendMSRP(msrpSession._id, message)
+        } else {
+            openSIPSJS.initMSRP(
+                target,
+                message,
+                optionsObj
+            )
+        }
+
     }
 )
 
@@ -556,7 +678,7 @@ muteWhenJoinInputEl?.addEventListener(
         event.preventDefault()
 
         const target = event.target as HTMLInputElement
-        openSIPSJS.muteWhenJoin = target.checked
+        openSIPSJS.setMuteWhenJoin(target.checked)
 
     })
 
@@ -625,3 +747,4 @@ roomSelectEl?.addEventListener(
         const roomId = isNaN(parsedValue) ? undefined: parsedValue
         await openSIPSJS.setCurrentActiveRoomId(roomId)
     })
+

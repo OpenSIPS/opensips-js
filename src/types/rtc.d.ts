@@ -68,6 +68,7 @@ export interface RTCSessionExtended extends RTCSession {
     _status: number
     _remote_identity: RemoteIdentityCallType
     answer(options?: AnswerOptionsExtended): void
+    init_icncoming(request)
 }
 
 export interface ICall extends RTCSessionExtended {
@@ -130,6 +131,14 @@ export interface TriggerListenerOptions {
     listenerType: string
     session: RTCSessionExtended
     event?:  ListenerEventType
+}
+type CommonLogMethodType = (...args: unknown[]) => void
+
+export interface CustomLoggerType {
+    log: CommonLogMethodType
+    warn: CommonLogMethodType
+    error: CommonLogMethodType
+    debug: CommonLogMethodType
 }
 
 /* UA */

@@ -17,15 +17,15 @@
         <form id="loginToAppForm" class="login-form">
             <label>
                 Username:
-                <input type="text" name="username">
+                <input type="text" name="username" value="">
             </label>
             <label>
                 Password:
-                <input type="text" name="password">
+                <input type="text" name="password" value="">
             </label>
             <label>
                 Domain:
-                <input type="text" name="domain">
+                <input type="text" name="domain" value="">
             </label>
             <button type="submit">
                 Register
@@ -59,24 +59,6 @@
         </div>
 
         <br>
-
-        <form id="sendMessageForm">
-            <label>
-                Your target:
-                <input type="text" name="target">
-            </label>
-            <label>
-                Your Message:
-                <input type="text" name="message">
-            </label>
-            <label>
-                Extra Headers (comma separated):
-                <textarea name="extraHeaders"></textarea>
-            </label>
-            <button type="submit">
-                Send message
-            </button>
-        </form>
 
         <form id="makeCallForm">
             <label>
@@ -150,6 +132,25 @@
         <br>
 
         <div id="roomsContainer"></div>
+
+        <form id="sendMessageForm">
+          <label id="msrpTargetLabel">
+            Your target:
+            <input type="text" name="target">
+          </label>
+          <label>
+            Your Message:
+            <input type="text" name="message">
+          </label>
+          <label>
+            Extra Headers (comma separated):
+            <textarea name="extraHeaders"></textarea>
+          </label>
+          <button type="submit">
+            Send message
+          </button>
+        </form>
+        <div id="messagesContainer"></div>
 
     </div>
 <script src="./index.ts" type="module"></script>

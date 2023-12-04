@@ -1,11 +1,15 @@
 import { ICall, RoomChangeEmitType, ICallStatus } from '@/types/rtc'
 import { UAEventMap } from 'jssip/lib/UA'
+import MSRPMessage from '@/lib/msrp/message'
+import { ITimeData } from '@/helpers/time.helper'
 
 export type readyListener = (value: boolean) => void
 export type changeActiveCallsListener = (event: { [key: string]: ICall }) => void
+export type changeActiveMessagesListener = (event: { [key: string]: IMessage }) => void
 export type TestEventListener = (event: { test: string }) => void
 export type ActiveRoomListener = (event: number | undefined) => void
 export type CallAddingProgressListener = (callId: string | undefined) => void
+export type MSRPInitializingListener = (sessionId: string | undefined) => void
 export type RoomDeletedListener = (roomId: number) => void
 export type changeActiveInputMediaDeviceListener = (event: string) => void
 export type changeActiveOutputMediaDeviceListener = (event: string) => void
@@ -17,14 +21,22 @@ export type changeOriginalStreamListener = (value: MediaStream) => void
 export type addRoomListener = (value: RoomChangeEmitType) => void
 export type updateRoomListener = (value: RoomChangeEmitType) => void
 export type removeRoomListener = (value: RoomChangeEmitType) => void
+export type IncomingMSRPSessionListener = (event: IncomingMSRPSessionEvent) => void;
+export type OutgoingMSRPSessionListener = (event: OutgoingMSRPSessionEvent) => void;
+export type MSRPSessionListener = IncomingMSRPSessionListener | OutgoingMSRPSessionListener;
+export type MSRPMessageListener = MSRPMessage;
 export type changeCallStatusListener = (event: { [key: string]: ICallStatus }) => void
+export type changeCallTimeListener = (event: { [key: string]: ITimeData }) => void
+export type changeCallMetricsListener = (event: { [key: string]: any }) => void
 
 export interface OpenSIPSEventMap extends UAEventMap {
     ready: readyListener
     changeActiveCalls: changeActiveCallsListener
+    changeActiveMessages: changeActiveMessagesListener
     callConfirmed: TestEventListener
     currentActiveRoomChanged: ActiveRoomListener
     callAddingInProgressChanged: CallAddingProgressListener
+    isMSRPInitializingChanged: MSRPInitializingListener
     roomDeleted: RoomDeletedListener
     changeActiveInputMediaDevice: changeActiveInputMediaDeviceListener
     changeActiveOutputMediaDevice: changeActiveOutputMediaDeviceListener
@@ -37,6 +49,10 @@ export interface OpenSIPSEventMap extends UAEventMap {
     updateRoom: updateRoomListener
     removeRoom: removeRoomListener
     changeCallStatus: changeCallStatusListener
+    changeCallTime: changeCallTimeListener
+    changeCallMetrics: changeCallMetricsListener
+    newMSRPSession: MSRPSessionListener
+    newMSRPMessage: MSRPMessageListener
 }
 
 export type ListenersKeyType = keyof OpenSIPSEventMap
