@@ -12,16 +12,16 @@ import Transactions from 'jssip/lib/Transactions'
 
 const C = {
     // RTCSession states.
-    STATUS_NULL               : 0,
-    STATUS_INVITE_SENT        : 1,
-    STATUS_1XX_RECEIVED       : 2,
-    STATUS_INVITE_RECEIVED    : 3,
-    STATUS_WAITING_FOR_ANSWER : 4,
-    STATUS_ANSWERED           : 5,
-    STATUS_WAITING_FOR_ACK    : 6,
-    STATUS_CANCELED           : 7,
-    STATUS_TERMINATED         : 8,
-    STATUS_CONFIRMED          : 9
+    STATUS_NULL: 0,
+    STATUS_INVITE_SENT: 1,
+    STATUS_1XX_RECEIVED: 2,
+    STATUS_INVITE_RECEIVED: 3,
+    STATUS_WAITING_FOR_ANSWER: 4,
+    STATUS_ANSWERED: 5,
+    STATUS_WAITING_FOR_ACK: 6,
+    STATUS_CANCELED: 7,
+    STATUS_TERMINATED: 8,
+    STATUS_CONFIRMED: 9
 }
 
 export class MSRPSession extends EventEmitter
@@ -48,9 +48,9 @@ export class MSRPSession extends EventEmitter
         this.target_addr = []
         this.my_addr = []
         this.credentials = {
-            'username' : ua._configuration.authorization_user,
-            'ha1'      : ua._configuration.ha1,
-            'realm'    : ua._configuration.realm
+            username: ua._configuration.authorization_user,
+            ha1: ua._configuration.ha1,
+            realm: ua._configuration.realm
         }
         this._request = null
 
@@ -59,10 +59,10 @@ export class MSRPSession extends EventEmitter
         this.message = ''
 
         this._timers = {
-            ackTimer          : null,
-            expiresTimer      : null,
-            invite2xxTimer    : null,
-            userNoAnswerTimer : null
+            ackTimer: null,
+            expiresTimer: null,
+            invite2xxTimer: null,
+            userNoAnswerTimer: null
         }
 
         this._direction = null
@@ -73,13 +73,13 @@ export class MSRPSession extends EventEmitter
         this._tones = null
 
         this._sessionTimers = {
-            enabled        : this._ua.configuration.session_timers,
-            refreshMethod  : this._ua.configuration.session_timers_refresh_method,
-            defaultExpires : JsSIP_C.SESSION_EXPIRES,
-            currentExpires : null,
-            running        : false,
-            refresher      : false,
-            timer          : null // A setTimeout.
+            enabled: this._ua.configuration.session_timers,
+            refreshMethod: this._ua.configuration.session_timers_refresh_method,
+            defaultExpires: JsSIP_C.SESSION_EXPIRES,
+            currentExpires: null,
+            running: false,
+            refresher: false,
+            timer: null // A setTimeout.
         }
     }
 
@@ -324,7 +324,11 @@ export class MSRPSession extends EventEmitter
         {
             const _challenge = this.parseAuth(msgObj.getHeader('WWW-Authenticate'))
             const digestAuthentication = new DigestAuthentication(this.credentials)
-            digestAuthentication.authenticate({ method: 'AUTH', ruri: `msrp://${this._ua._configuration.realm}:2856;ws`, body: null }, _challenge, Utils.createRandomToken(12))
+            digestAuthentication.authenticate({
+                method: 'AUTH',
+                ruri: `msrp://${this._ua._configuration.realm}:2856;ws`,
+                body: null 
+            }, _challenge, Utils.createRandomToken(12))
             this.authenticate(digestAuthentication)
         }
         if (this.status === 'auth' && msgObj.code === 200 && this._direction === 'outgoing')
@@ -395,7 +399,7 @@ export class MSRPSession extends EventEmitter
         // extraHeaders.push(`P-Preferred-Identity: ${this._ua._configuration.uri.toString()}`)
 
         extraHeaders.push(`Contact: ${this._ua.contact.toString({
-            outbound : true
+            outbound: true
         })}`)
         extraHeaders.push('Content-Type: application/sdp')
         this._request = new SIPMessage.InitialOutgoingInviteRequest(
@@ -414,20 +418,20 @@ export class MSRPSession extends EventEmitter
 
         this._id = this._request.call_id + this._from_tag
         const request_sender = new RequestSender(this._ua, this._request, {
-            onRequestTimeout : () =>
+            onRequestTimeout: () =>
             {
                 console.log('to')
             },
-            onTransportError : (err) =>
+            onTransportError: (err) =>
             {
                 console.log(err)
             },
             // Update the request on authentication.
-            onAuthenticated : (request) =>
+            onAuthenticated: (request) =>
             {
                 this._request = request
             },
-            onReceiveResponse : (response) =>
+            onReceiveResponse: (response) =>
             {
                 if (response.status_code === 200)
                 {
@@ -623,7 +627,7 @@ export class MSRPSession extends EventEmitter
     {
         this.emit('_failed', {
             originator,
-            message : message || null,
+            message: message || null,
             cause
         })
 
@@ -631,7 +635,7 @@ export class MSRPSession extends EventEmitter
 
         this.emit('failed', {
             originator,
-            message : message || null,
+            message: message || null,
             cause
         })
     }
@@ -775,7 +779,7 @@ export class MSRPSession extends EventEmitter
     {
         this._ua.newMSRPSession(this, {
             originator,
-            session : this,
+            session: this,
             request
         })
     }
@@ -784,7 +788,7 @@ export class MSRPSession extends EventEmitter
     {
         this.emit('progress', {
             originator,
-            response : response || null
+            response: response || null
         })
     }
 

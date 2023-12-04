@@ -222,7 +222,10 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
         let isOnHold = call._localHold
         holdAgentButtonEl.addEventListener('click', (event) => {
             event.preventDefault()
-            openSIPSJS.doCallHold({ callId: call._id, toHold: !isOnHold })
+            openSIPSJS.doCallHold({
+                callId: call._id,
+                toHold: !isOnHold 
+            })
             holdAgentButtonEl.innerText = !isOnHold ? 'UnHold' : 'Hold'
             isOnHold = !isOnHold
         })
@@ -327,7 +330,10 @@ const upsertMSRPMessagesData = (sessions: { [p: string]: IMessage }) => {
             const records = await msrpHistoryDb.getData(uid)
             msgHistoryEl.querySelectorAll('.history-message').forEach(el => el.remove())
             records.forEach((record) => {
-                upsertNewMSRPMessage({ message: record, session: session })
+                upsertNewMSRPMessage({
+                    message: record,
+                    session: session 
+                })
             })
         }
 

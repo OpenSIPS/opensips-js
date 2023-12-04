@@ -1,25 +1,42 @@
 {
-  "compilerOptions": {
-    "baseUrl": ".",
-    "target": "es2016",
-    "module": "commonjs",
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "declaration": true,
-    "strict": true,
-    "allowJs": true,
-    "skipLibCheck": true,
-    "outDir": "./build",
-    "paths": {
-      "~/*": [
-        "*"
-      ],
-      "@/*": [
-        "src/*"
-      ]
-    }
-  },
   "include": [
-    "./src"
-  ]
+    "src/**/*",
+    "src/**/*.d.ts",
+    "docs/**/*",
+  ],
+  "exclude": ["node_modules"],
+  "compilerOptions": {
+    "target": "ES2022" /* Specify ECMAScript target version: 'ES3' (default), 'ES5', 'ES2015', 'ES2016', 'ES2017', 'ES2018', 'ES2019' or 'ESNEXT'. */,
+    "module": "ESNext" /* Specify module code generation: 'none', 'commonjs', 'amd', 'system', 'umd', 'es2015', or 'ESNext'. */,
+    "moduleResolution": "Node",
+    "resolveJsonModule": true,
+    "lib": [
+      "dom",
+      "ESNext"
+    ],
+    "types": [
+      "vite/client",
+      "node"
+    ],
+    "declaration": true, /* Generates corresponding '.d.ts' file. */
+    "esModuleInterop": true,
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ]
+    },
+    "useDefineForClassFields": true,
+    "strict": true,
+    "jsx": "preserve",
+    "sourceMap": true,
+    "isolatedModules": true,
+    "declarationDir": "dist/types",
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "importHelpers": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+  }
 }

@@ -15,14 +15,14 @@ const logger = console
 
 const C = {
     // UA status codes.
-    STATUS_INIT        : 0,
-    STATUS_READY       : 1,
-    STATUS_USER_CLOSED : 2,
-    STATUS_NOT_READY   : 3,
+    STATUS_INIT: 0,
+    STATUS_READY: 1,
+    STATUS_USER_CLOSED: 2,
+    STATUS_NOT_READY: 3,
 
     // UA error codes.
-    CONFIGURATION_ERROR : 1,
-    NETWORK_ERROR       : 2
+    CONFIGURATION_ERROR: 1,
+    NETWORK_ERROR: 2
 }
 
 export interface IncomingMSRPSessionEvent {
@@ -44,10 +44,11 @@ const UAConstructor: typeof UAType = UA as unknown as typeof UAType
 export default class UAExtended extends UAConstructor {
 
     _msrp_sessions: MSRPSession[] = []
-    _transactions = { nist : {},
-        nict : {},
-        ist  : {},
-        ict  : {}
+    _transactions = {
+        nist: {},
+        nict: {},
+        ist: {},
+        ict: {}
     }
 
     constructor (configuration: UAConfiguration) {
@@ -247,7 +248,7 @@ export default class UAExtended extends UAConstructor {
                 case JsSIP_C.NOTIFY:
                     // Receive new sip event.
                     this.emit('sipEvent', {
-                        event : request.event,
+                        event: request.event,
                         request
                     })
                     request.reply(200)
