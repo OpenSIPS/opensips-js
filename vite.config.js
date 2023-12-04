@@ -8,7 +8,7 @@ import dts from 'vite-plugin-dts'
 export default defineConfig({
     build: {
         outDir: 'dist',
-        sourcemap: true,
+        sourcemap: false,
         commonjsOptions: {
             esmExternals: true
         },
@@ -23,15 +23,16 @@ export default defineConfig({
     },
     plugins: [
         dts({
-            rollupTypes: true,
-            copyDtsFiles: true,
-        })
+            rollupTypes: true
+        }),
+        // vue(),
+        // viteSingleFile()
     ],
     resolve: {
         alias: {
             '@': resolve(__dirname, './src'),
         }
-    }
+    },
 
     // plugins: [ vue(), viteSingleFile() ],
     // root: './demo',

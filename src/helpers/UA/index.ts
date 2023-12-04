@@ -10,7 +10,6 @@ import { MSRPSession } from '@/lib/msrp/session'
 
 import { CallOptionsExtended } from '@/types/rtc'
 
-import URI from 'jssip/lib/URI'
 const logger = console
 
 const C = {
