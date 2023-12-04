@@ -327,6 +327,11 @@
   resolved "https://registry.yarnpkg.com/@vitejs/plugin-vue/-/plugin-vue-4.5.0.tgz#b4569fcb1faac054eba4f5efc1aaf4d39f4379e5"
   integrity sha512-a2WSpP8X8HTEww/U00bU4mX1QpLINNuz/2KMNpLsdu3BzOpak3AGI1CJYBTXcc4SPhaD0eNRUp7IyQK405L5dQ==
 
+"@voicenter-team/eslint-config-ts@^1.0.21":
+  version "1.0.21"
+  resolved "https://registry.yarnpkg.com/@voicenter-team/eslint-config-ts/-/eslint-config-ts-1.0.21.tgz#1edde2f141cbfb7fb8364cf595935eff212d64bd"
+  integrity sha512-yAPUv9cTr8PvCyGbIPEQIlDoB2Ak/tt1dwjf44pIbREcjZyZOQ46lnhCcHeeosghFQxEpJ1DEAo7qBJtRSw05Q==
+
 "@vue/compiler-core@3.2.25":
   version "3.2.25"
   resolved "https://registry.yarnpkg.com/@vue/compiler-core/-/compiler-core-3.2.25.tgz#3fa88debc97a89a513e1d9b771e0802b9a006734"
@@ -993,10 +998,10 @@ json-stable-stringify-without-jsonify@^1.0.1:
   resolved "https://registry.yarnpkg.com/json-stable-stringify-without-jsonify/-/json-stable-stringify-without-jsonify-1.0.1.tgz#9db7b59496ad3f3cfef30a75142d2d930ad72651"
   integrity sha512-Bdboy+l7tA3OGW6FjyFHWkP5LuByj1Tk33Ljyq0axyzdk9//JSi2u3fP1QSmd1KNwq6VOKYGlAu87CisVir6Pw==
 
-jssip@^3.10.0:
-  version "3.10.1"
-  resolved "https://registry.yarnpkg.com/jssip/-/jssip-3.10.1.tgz#eccecf2cfabfed5a5578e3bb4f69b0451ccf6ec0"
-  integrity sha512-V82JW6fZF02VInHMKgTO9oEXbkZwqezGj9SNaQPh+btriC16FfSPsRBnD+i9IhU9C86JA9le6Z8AZirYnbKi2g==
+jssip@3.10.0:
+  version "3.10.0"
+  resolved "https://registry.yarnpkg.com/jssip/-/jssip-3.10.0.tgz#ed61e189c756e5974adfdb212b3e0e3e74ac1e7a"
+  integrity sha512-iJj+bhnNl0S296sUDc2ZjIbAetnelzZ92aWARyW01oKZ0X8t+5aGrYfJdMFliLFm8hxMcnkep3vmSRGe/yRjsA==
   dependencies:
     "@types/debug" "^4.1.7"
     "@types/events" "^3.0.0"
