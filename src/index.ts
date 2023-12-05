@@ -1247,7 +1247,7 @@ class OpenSIPSJS extends UA {
         }*/
 
         // stop timers on ended and failed
-        session.on('ended', (event: Event) => {
+        session.on('ended', (event: any) => {
             this._triggerMSRPListener({ listenerType: CALL_EVENT_LISTENER_TYPE.CALL_ENDED, session, event })
             const s = this.getActiveMessages[session.id]
             this._activeMessageListRemove(s)
@@ -1263,7 +1263,7 @@ class OpenSIPSJS extends UA {
             console.log('event newMSRPSessionCallback active', session)
             //this._triggerMSRPListener({ listenerType: CALL_EVENT_LISTENER_TYPE.CALL_PROGRESS, session, event })
         })*/
-        session.on('failed', (event: Event) => {
+        session.on('failed', (event: any) => {
             this._triggerMSRPListener({ listenerType: CALL_EVENT_LISTENER_TYPE.CALL_FAILED, session, event })
 
             /*if (session.id === this.callAddingInProgress) {
@@ -1482,7 +1482,6 @@ class OpenSIPSJS extends UA {
     }
 
     public initMSRP (target: string, body: string, options: any) {
-
         this.checkInitialized()
 
         if (target.length === 0) {

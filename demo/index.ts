@@ -393,11 +393,14 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
         return
     }
 
+    const urlParams = new URLSearchParams(window.location.search)
     const formData = new FormData(form)
 
-    const username = formData.get('username')
-    const password = formData.get('password')
-    const domain = formData.get('domain')
+    const username = formData.get('username') || urlParams.get('username')
+
+    const password = formData.get('password') || urlParams.get('password')
+
+    const domain = formData.get('domain') || urlParams.get('domain')
 
     if (!username || !password || !domain) {
         alert('Fill up all required fields')
@@ -448,7 +451,7 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
                 console.warn('e', session)
             })
             .on('newMSRPSession', ({ session }: MSRPSessionEvent) => {
-                console.warn('e', session)
+                console.trace('e', session)
             })
             .on('newMSRPMessage', (msg: { message: MSRPMessage, session: MSRPSessionExtended }) => {
                 upsertNewMSRPMessage(msg, true)

@@ -1,4 +1,4 @@
-export function getUIDFromSession (session) {
+export function getUIDFromSession (session: any) {
     return session.target_addr[0].match(/msrp:\/\/(.*?)\./)[1]
 }
 
