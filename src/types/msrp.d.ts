@@ -17,15 +17,16 @@ export interface IMessage extends MSRPSessionExtended {
     localMuted?: boolean
     localHold?: boolean
     audioTag?: StreamMediaType
+    terminate()
 }
 
 
 export interface MSRPSessionExtended extends MSRPSession {
     id: string
-    _automaticHold: boolean
+    status: string
+    start_time: Date
+    direction: string
     _id: string
-    _localHold: boolean
-    _audioMuted: boolean
     _cancel_reason: string
     _contact: string
     _end_time: Date
@@ -34,12 +35,13 @@ export interface MSRPSessionExtended extends MSRPSession {
     _is_canceled: boolean
     _is_confirmed: boolean
     _late_sdp: string
-    _videoMuted: boolean
     _status: number
     _remote_identity: string
     target_addr: Array<string>
     answer(options?: any): void
     _init_incomeing()
+    sendMSRP(body: any)
+    on<T extends keyof MSRPSessionEventMap>(type: T, listener: MSRPSessionEventMap[T]): this;
 }
 
 export interface TriggerMSRPListenerOptions {

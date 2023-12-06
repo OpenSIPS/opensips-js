@@ -58,6 +58,8 @@ export class MSRPSession extends EventEmitter
         this.target = ''
         this.message = ''
 
+        this._connectionPromiseQueue = Promise.resolve()
+
         this._timers = {
             ackTimer: null,
             expiresTimer: null,
@@ -114,6 +116,7 @@ export class MSRPSession extends EventEmitter
         }
         this.target = target
         this._connection = new WebSocket(`ws://${this._ua._configuration.realm}:2856`, 'msrp')
+        // MSRP WebSocket connection
         this._connection.binaryType = 'arraybuffer'
         this._connection.onopen = (event) =>
         {
@@ -139,6 +142,15 @@ export class MSRPSession extends EventEmitter
 
     answer ()
     {
+        const request = this._request
+
+        if (!this._createDialog(request, 'UAS'))
+        {
+            request.reply(500, 'Error creating dialog')
+
+            return
+        }
+        this._status = C.STATUS_ANSWERED
         this.connect()
     }
 
@@ -157,6 +169,7 @@ export class MSRPSession extends EventEmitter
 
     terminate (options = {})
     {
+        console.log('terminate', this)
         const cause = options.cause || JsSIP_C.causes.BYE
         const extraHeaders = Utils.cloneArray(options.extraHeaders)
         const body = options.body
@@ -285,6 +298,7 @@ export class MSRPSession extends EventEmitter
                 }
                 else
                 {
+                    console.log('here it is')
                     this.sendRequest(JsSIP_C.BYE, {
                         extraHeaders,
                         body
@@ -417,13 +431,16 @@ export class MSRPSession extends EventEmitter
         this._newMSRPSession('local', this._request)
 
         this._id = this._request.call_id + this._from_tag
+        console.log('dialog be', this._dialog)
         const request_sender = new RequestSender(this._ua, this._request, {
             onRequestTimeout: () =>
             {
+                this.onRequestTimeout()
                 console.log('to')
             },
             onTransportError: (err) =>
             {
+                this.onTransportError()
                 console.log(err)
             },
             // Update the request on authentication.
@@ -433,6 +450,8 @@ export class MSRPSession extends EventEmitter
             },
             onReceiveResponse: (response) =>
             {
+                this._receiveInviteResponse(response)
+                console.log('dialog af', this._dialog)
                 if (response.status_code === 200)
                 {
                     response.parseSDP(true)
@@ -445,6 +464,194 @@ export class MSRPSession extends EventEmitter
             }
         })
         request_sender.send()
+        this._status = C.STATUS_INVITE_SENT
+    }
+
+    _receiveInviteResponse (response)
+    {
+        console.log('resp0000000000000', response)
+        // Handle 2XX retransmissions and responses from forked requests.
+        if (this._dialog && (response.status_code >=200 && response.status_code <=299))
+        {
+            console.log('200000000000000')
+            /*
+             * If it is a retransmission from the endpoint that established
+             * the dialog, send an ACK
+             */
+            if (this._dialog.id.call_id === response.call_id &&
+                this._dialog.id.local_tag === response.from_tag &&
+                this._dialog.id.remote_tag === response.to_tag)
+            {
+                this.sendRequest(JsSIP_C.ACK)
+
+                return
+            }
+
+            // If not, send an ACK  and terminate.
+            else
+            {
+                const dialog = new Dialog(this, response, 'UAC')
+
+                if (dialog.error !== undefined)
+                {
+                    console.log(dialog.error)
+
+                    return
+                }
+
+                this.sendRequest(JsSIP_C.ACK)
+                this.sendRequest(JsSIP_C.BYE)
+
+                return
+            }
+
+        }
+
+        // Proceed to cancellation if the user requested.
+        if (this._is_canceled)
+        {
+            if (response.status_code >= 100 && response.status_code < 200)
+            {
+                this._request.cancel(this._cancel_reason)
+            }
+            else if (response.status_code >= 200 && response.status_code < 299)
+            {
+                this._acceptAndTerminate(response)
+            }
+
+            return
+        }
+
+        if (this._status !== C.STATUS_INVITE_SENT && this._status !== C.STATUS_1XX_RECEIVED)
+        {
+            return
+        }
+        console.log('start Switch')
+        switch (true)
+        {
+            case /^100$/.test(response.status_code):
+                this._status = C.STATUS_1XX_RECEIVED
+                break
+
+            case /^1[0-9]{2}$/.test(response.status_code):
+            {
+                // Do nothing with 1xx responses without To tag.
+                if (!response.to_tag)
+                {
+                    console.log('1xx response received without to tag')
+                    break
+                }
+
+                // Create Early Dialog if 1XX comes with contact.
+                if (response.hasHeader('contact'))
+                {
+                    // An error on dialog creation will fire 'failed' event.
+                    if (!this._createDialog(response, 'UAC', true))
+                    {
+                        break
+                    }
+                }
+
+                this._status = C.STATUS_1XX_RECEIVED
+
+                if (!response.body)
+                {
+                    this._progress('remote', response)
+                    break
+                }
+
+                const e = { originator: 'remote', type: 'answer', sdp: response.body }
+
+                console.log('emit "sdp"')
+                this.emit('sdp', e)
+
+                const answer = new RTCSessionDescription({ type: 'answer', sdp: e.sdp })
+
+                this._connectionPromiseQueue = this._connectionPromiseQueue
+                    .then(() => this._connection.setRemoteDescription(answer))
+                    .then(() => this._progress('remote', response))
+                    .catch((error) =>
+                    {
+                        console.log('emit "peerconnection:setremotedescriptionfailed" [error:%o]', error)
+
+                        this.emit('peerconnection:setremotedescriptionfailed', error)
+                    })
+                break
+            }
+
+            case /^2[0-9]{2}$/.test(response.status_code):
+            { console.log('maybe here???')
+                this._status = C.STATUS_CONFIRMED
+
+                if (!response.body)
+                {
+                    this._acceptAndTerminate(response, 400, JsSIP_C.causes.MISSING_SDP)
+                    this._failed('remote', response, JsSIP_C.causes.BAD_MEDIA_DESCRIPTION)
+                    break
+                }
+
+                // An error on dialog creation will fire 'failed' event.
+                if (!this._createDialog(response, 'UAC'))
+                {
+                    break
+                }
+
+                const e = { originator: 'remote', type: 'answer', sdp: response.body }
+
+                console.log('emit "sdp"')
+                this.emit('sdp', e)
+
+                const answer = new RTCSessionDescription({ type: 'answer', sdp: e.sdp })
+
+                this._connectionPromiseQueue = this._connectionPromiseQueue
+                    .then(() =>
+                    {
+                        // Be ready for 200 with SDP after a 180/183 with SDP.
+                        // We created a SDP 'answer' for it, so check the current signaling state.
+                        if (this._connection.signalingState === 'stable')
+                        {
+                            return this._connection.createOffer(this._rtcOfferConstraints)
+                                .then((offer) => this._connection.setLocalDescription(offer))
+                                .catch((error) =>
+                                {
+                                    this._acceptAndTerminate(response, 500, error.toString())
+                                    this._failed('local', response, JsSIP_C.causes.WEBRTC_ERROR)
+                                })
+                        }
+                    })
+                    .then(() =>
+                    {
+                        // console.log(this._connection)
+                        // this._connection.setRemoteDescription(answer)
+                        //     .then(() =>
+                        //     {
+                        // Handle Session Timers.
+                        this._handleSessionTimersInIncomingResponse(response)
+
+                        this._accepted('remote', response)
+                        this.sendRequest(JsSIP_C.ACK)
+                        this._confirmed('local', null)
+                        // })
+                        // .catch((error) =>
+                        // {
+                        //     this._acceptAndTerminate(response, 488, 'Not Acceptable Here')
+                        //     this._failed('remote', response, JsSIP_C.causes.BAD_MEDIA_DESCRIPTION)
+                        //
+                        //     console.log('emit "peerconnection:setremotedescriptionfailed" [error:%o]', error)
+                        //
+                        //     this.emit('peerconnection:setremotedescriptionfailed', error)
+                        // })
+                    })
+                break
+            }
+
+            default:
+            {
+                const cause = Utils.sipErrorCause(response.status_code)
+
+                this._failed('remote', response, cause)
+            }
+        }
     }
 
     sendMSRP (message)
@@ -801,6 +1008,260 @@ export class MSRPSession extends EventEmitter
                 return true
             default:
                 return false
+        }
+    }
+
+    _accepted (originator, message)
+    {
+        console.log('session accepted')
+
+        this._start_time = new Date()
+
+        console.log('emit "accepted"')
+
+        this.emit('accepted', {
+            originator,
+            response : message || null
+        })
+    }
+
+    _confirmed (originator, ack)
+    {
+        console.log('session confirmed')
+
+        this._is_confirmed = true
+
+        console.log('emit "confirmed"')
+
+        this.emit('confirmed', {
+            originator,
+            ack : ack || null
+        })
+    }
+
+    _ended (originator, message, cause)
+    {
+        console.log('session ended')
+
+        this._end_time = new Date()
+
+        this._close()
+
+        console.log('emit "ended"')
+
+        this.emit('ended', {
+            originator,
+            message : message || null,
+            cause
+        })
+    }
+
+    _handleSessionTimersInIncomingResponse (response)
+    {
+        if (!this._sessionTimers.enabled) { return }
+
+        let session_expires_refresher
+
+        if (response.session_expires &&
+            response.session_expires >= JsSIP_C.MIN_SESSION_EXPIRES)
+        {
+            this._sessionTimers.currentExpires = response.session_expires
+            session_expires_refresher = response.session_expires_refresher || 'uac'
+        }
+        else
+        {
+            this._sessionTimers.currentExpires = this._sessionTimers.defaultExpires
+            session_expires_refresher = 'uac'
+        }
+
+        this._sessionTimers.refresher = (session_expires_refresher === 'uac')
+        this._runSessionTimer()
+    }
+
+    receiveRequest (request)
+    {
+        console.log('receiveRequest()')
+
+        if (request.method === JsSIP_C.CANCEL)
+        {
+            /* RFC3261 15 States that a UAS may have accepted an invitation while a CANCEL
+            * was in progress and that the UAC MAY continue with the session established by
+            * any 2xx response, or MAY terminate with BYE. JsSIP does continue with the
+            * established session. So the CANCEL is processed only if the session is not yet
+            * established.
+            */
+
+            /*
+            * Terminate the whole session in case the user didn't accept (or yet send the answer)
+            * nor reject the request opening the session.
+            */
+            if (this._status === C.STATUS_WAITING_FOR_ANSWER ||
+                this._status === C.STATUS_ANSWERED)
+            {
+                this._status = C.STATUS_CANCELED
+                this._request.reply(487)
+                this._failed('remote', request, JsSIP_C.causes.CANCELED)
+            }
+        }
+        else
+        {
+            // Requests arriving here are in-dialog requests.
+            switch (request.method)
+            {
+                case JsSIP_C.ACK:
+                    if (this._status !== C.STATUS_WAITING_FOR_ACK)
+                    {
+                        return
+                    }
+
+                    // Update signaling status.
+                    this._status = C.STATUS_CONFIRMED
+
+                    clearTimeout(this._timers.ackTimer)
+                    clearTimeout(this._timers.invite2xxTimer)
+
+                    if (this._late_sdp)
+                    {
+                        if (!request.body)
+                        {
+                            this.terminate({
+                                cause       : JsSIP_C.causes.MISSING_SDP,
+                                status_code : 400
+                            })
+                            break
+                        }
+
+                        const e = { originator: 'remote', type: 'answer', sdp: request.body }
+
+                        console.log('emit "sdp"')
+                        this.emit('sdp', e)
+
+                        const answer = new RTCSessionDescription({ type: 'answer', sdp: e.sdp })
+
+                        this._connectionPromiseQueue = this._connectionPromiseQueue
+                            .then(() => this._connection.setRemoteDescription(answer))
+                            .then(() =>
+                            {
+                                if (!this._is_confirmed)
+                                {
+                                    this._confirmed('remote', request)
+                                }
+                            })
+                            .catch((error) =>
+                            {
+                                this.terminate({
+                                    cause       : JsSIP_C.causes.BAD_MEDIA_DESCRIPTION,
+                                    status_code : 488
+                                })
+
+                                console.log('emit "peerconnection:setremotedescriptionfailed" [error:%o]', error)
+                                this.emit('peerconnection:setremotedescriptionfailed', error)
+                            })
+                    }
+                    else
+                    if (!this._is_confirmed)
+                    {
+                        this._confirmed('remote', request)
+                    }
+
+                    break
+                case JsSIP_C.BYE:
+                    if (this._status === C.STATUS_CONFIRMED ||
+                        this._status === C.STATUS_WAITING_FOR_ACK)
+                    {
+                        request.reply(200)
+                        this._ended('remote', request, JsSIP_C.causes.BYE)
+                    }
+                    else if (this._status === C.STATUS_INVITE_RECEIVED ||
+                        this._status === C.STATUS_WAITING_FOR_ANSWER)
+                    {
+                        request.reply(200)
+                        this._request.reply(487, 'BYE Received')
+                        this._ended('remote', request, JsSIP_C.causes.BYE)
+                    }
+                    else
+                    {
+                        request.reply(403, 'Wrong Status')
+                    }
+                    break
+                case JsSIP_C.INVITE:
+                    if (this._status === C.STATUS_CONFIRMED)
+                    {
+                        if (request.hasHeader('replaces'))
+                        {
+                            this._receiveReplaces(request)
+                        }
+                        else
+                        {
+                            this._receiveReinvite(request)
+                        }
+                    }
+                    else
+                    {
+                        request.reply(403, 'Wrong Status')
+                    }
+                    break
+                case JsSIP_C.INFO:
+                    if (this._status === C.STATUS_1XX_RECEIVED ||
+                        this._status === C.STATUS_WAITING_FOR_ANSWER ||
+                        this._status === C.STATUS_ANSWERED ||
+                        this._status === C.STATUS_WAITING_FOR_ACK ||
+                        this._status === C.STATUS_CONFIRMED)
+                    {
+                        const contentType = request.hasHeader('Content-Type') ?
+                            request.getHeader('Content-Type').toLowerCase() : undefined
+
+                        if (contentType && (contentType.match(/^application\/dtmf-relay/i)))
+                        {
+                            new RTCSession_DTMF(this).init_incoming(request)
+                        }
+                        else if (contentType !== undefined)
+                        {
+                            new RTCSession_Info(this).init_incoming(request)
+                        }
+                        else
+                        {
+                            request.reply(415)
+                        }
+                    }
+                    else
+                    {
+                        request.reply(403, 'Wrong Status')
+                    }
+                    break
+                case JsSIP_C.UPDATE:
+                    if (this._status === C.STATUS_CONFIRMED)
+                    {
+                        this._receiveUpdate(request)
+                    }
+                    else
+                    {
+                        request.reply(403, 'Wrong Status')
+                    }
+                    break
+                case JsSIP_C.REFER:
+                    if (this._status === C.STATUS_CONFIRMED)
+                    {
+                        this._receiveRefer(request)
+                    }
+                    else
+                    {
+                        request.reply(403, 'Wrong Status')
+                    }
+                    break
+                case JsSIP_C.NOTIFY:
+                    if (this._status === C.STATUS_CONFIRMED)
+                    {
+                        this._receiveNotify(request)
+                    }
+                    else
+                    {
+                        request.reply(403, 'Wrong Status')
+                    }
+                    break
+                default:
+                    request.reply(501)
+            }
         }
     }
 

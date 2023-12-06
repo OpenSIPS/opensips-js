@@ -3,7 +3,8 @@ import {
     IncomingAckEvent,
     IncomingEvent,
     OutgoingAckEvent,
-    OutgoingEvent
+    OutgoingEvent,
+    EndEvent
 } from 'jssip/lib/RTCSession'
 import { RTCSessionEvent, UAConfiguration, UAEventMap } from 'jssip/lib/UA'
 import { MSRPSessionEvent } from '@/helpers/UA'
@@ -1207,7 +1208,7 @@ class OpenSIPSJS extends UA {
         }*/
 
         // stop timers on ended and failed
-        session.on('ended', (event: Event) => {
+        session.on('ended', (event: EndEvent) => {
             this.triggerMSRPListener({
                 listenerType: CALL_EVENT_LISTENER_TYPE.CALL_ENDED,
                 session,
@@ -1217,7 +1218,7 @@ class OpenSIPSJS extends UA {
             this.activeMessageListRemove(s)
         })
 
-        session.on('failed', (event: Event) => {
+        session.on('failed', (event: EndEvent) => {
             this.triggerMSRPListener({
                 listenerType: CALL_EVENT_LISTENER_TYPE.CALL_FAILED,
                 session,
@@ -1236,8 +1237,8 @@ class OpenSIPSJS extends UA {
             this.updateMSRPSession(session as IMessage)
         })
 
-        session.on('newMessage', (msg: MSRPMessage) => {
-            this.addMSRPMessage(msg, session)
+        session.on('newMessage', (msg: unknown) => {
+            this.addMSRPMessage(msg as MSRPMessage, session)
         })
 
         this.addMessageSession(session)
@@ -1452,7 +1453,6 @@ class OpenSIPSJS extends UA {
     }
 
     public initMSRP (target: string, body: string, options: any) {
-
         this.checkInitialized()
 
         if (target.length === 0) {
