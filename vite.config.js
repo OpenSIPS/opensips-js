@@ -12,6 +12,7 @@ export default defineConfig({
         commonjsOptions: {
             esmExternals: true
         },
+        skipDiagnostics: false,
         lib: {
             entry: resolve(__dirname, 'src/index.ts'),
             formats: [ 'es', 'cjs', 'umd', 'iife' ],
@@ -23,18 +24,14 @@ export default defineConfig({
     },
     plugins: [
         dts({
-            rollupTypes: true
-        }),
-        // vue(),
-        // viteSingleFile()
+            rollupTypes: true,
+            copyDtsFiles: true
+        })
     ],
     resolve: {
         alias: {
             '@': resolve(__dirname, './src'),
         }
     },
-
-    // plugins: [ vue(), viteSingleFile() ],
-    // root: './demo',
-    // base: '',
+    base: './',
 })

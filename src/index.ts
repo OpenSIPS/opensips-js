@@ -334,7 +334,7 @@ class OpenSIPSJS extends UA {
     public setMetricsConfig (config: WebrtcMetricsConfigType)  {
         this.metricConfig = {
             ...this.metricConfig,
-            ...config 
+            ...config
         }
     }
 
@@ -404,15 +404,15 @@ class OpenSIPSJS extends UA {
     public async callMove (callId: string, roomId: number) {
         this.updateCallStatus({
             callId,
-            isMoving: true 
+            isMoving: true
         })
         await this.callChangeRoom({
             callId,
-            roomId 
+            roomId
         })
         this.updateCallStatus({
             callId,
-            isMoving: false 
+            isMoving: false
         })
     }
 
@@ -443,7 +443,7 @@ class OpenSIPSJS extends UA {
 
         this.emit('updateRoom', {
             room: newRoomData,
-            roomList: this.activeRooms 
+            roomList: this.activeRooms
         })
     }
 
@@ -507,7 +507,7 @@ class OpenSIPSJS extends UA {
         }
         this.emit('newMSRPMessage', {
             message: value,
-            session: session 
+            session: session
         })
     }
 
@@ -559,7 +559,7 @@ class OpenSIPSJS extends UA {
 
         this.emit('addRoom', {
             room: value,
-            roomList: this.activeRooms 
+            roomList: this.activeRooms
         })
     }
 
@@ -640,7 +640,7 @@ class OpenSIPSJS extends UA {
 
         this.emit('removeRoom', {
             room: roomToRemove,
-            roomList: this.activeRooms 
+            roomList: this.activeRooms
         })
     }
 
@@ -705,14 +705,14 @@ class OpenSIPSJS extends UA {
                 this.doCallHold({
                     callId: callsInRoom[0].id,
                     toHold: true,
-                    automatic: true 
+                    automatic: true
                 })
             }
         } else if (callsInRoom.length === 1 && this.currentActiveRoomId === roomId) {
             if (callsInRoom[0].isOnHold().local && callsInRoom[0]._automaticHold) {
                 this.doCallHold({
                     callId: callsInRoom[0].id,
-                    toHold: false 
+                    toHold: false
                 })
             }
 
@@ -741,7 +741,7 @@ class OpenSIPSJS extends UA {
             if (call._localHold) {
                 this.doCallHold({
                     callId: call._id,
-                    toHold: false 
+                    toHold: false
                 })
             }
         })
@@ -852,7 +852,7 @@ class OpenSIPSJS extends UA {
 
         this.updateCallStatus({
             callId,
-            isTransferring: true 
+            isTransferring: true
         })
 
         call.refer(`sip:${target}@${this.sipDomain}`)
@@ -873,11 +873,11 @@ class OpenSIPSJS extends UA {
         // TODO: Check all call.id for working in the same way as call._id
         this.updateCallStatus({
             callId: firstCall._id,
-            isMerging: true 
+            isMerging: true
         })
         this.updateCallStatus({
             callId: secondCall._id,
-            isMerging: true 
+            isMerging: true
         })
 
         firstCall.refer(secondCall.remote_identity.uri.toString(), { replaces: secondCall })
@@ -905,7 +905,7 @@ class OpenSIPSJS extends UA {
             const updatedTime = setupTime(callTime)
             this.setCallTime({
                 callId,
-                ...updatedTime 
+                ...updatedTime
             })
         }, 1000)
 
@@ -1115,7 +1115,7 @@ class OpenSIPSJS extends UA {
         if (this.isDND) {
             session.terminate({
                 status_code: 486,
-                reason_phrase: 'Do Not Disturb' 
+                reason_phrase: 'Do Not Disturb'
             })
             return
         }
@@ -1126,7 +1126,7 @@ class OpenSIPSJS extends UA {
             this.triggerListener({
                 listenerType: CALL_EVENT_LISTENER_TYPE.CALL_ENDED,
                 session,
-                event 
+                event
             })
             const s = this.getActiveCalls[session.id]
 
@@ -1147,7 +1147,7 @@ class OpenSIPSJS extends UA {
             this.triggerListener({
                 listenerType: CALL_EVENT_LISTENER_TYPE.CALL_PROGRESS,
                 session,
-                event 
+                event
             })
         })
         session.on('failed', (event) => {
@@ -1155,7 +1155,7 @@ class OpenSIPSJS extends UA {
             this.triggerListener({
                 listenerType: CALL_EVENT_LISTENER_TYPE.CALL_FAILED,
                 session,
-                event 
+                event
             })
 
             if (session.id === this.callAddingInProgress) {
@@ -1181,7 +1181,7 @@ class OpenSIPSJS extends UA {
             this.triggerListener({
                 listenerType: CALL_EVENT_LISTENER_TYPE.CALL_CONFIRMED,
                 session,
-                event 
+                event
             })
             this.updateCall(session as ICall)
 
@@ -1211,7 +1211,7 @@ class OpenSIPSJS extends UA {
             this.triggerMSRPListener({
                 listenerType: CALL_EVENT_LISTENER_TYPE.CALL_ENDED,
                 session,
-                event 
+                event
             })
             const s = this.getActiveMessages[session.id]
             this.activeMessageListRemove(s)
@@ -1221,7 +1221,7 @@ class OpenSIPSJS extends UA {
             this.triggerMSRPListener({
                 listenerType: CALL_EVENT_LISTENER_TYPE.CALL_FAILED,
                 session,
-                event 
+                event
             })
 
             const s = this.getActiveMessages[session.id]
@@ -1231,7 +1231,7 @@ class OpenSIPSJS extends UA {
             this.triggerMSRPListener({
                 listenerType: CALL_EVENT_LISTENER_TYPE.CALL_CONFIRMED,
                 session,
-                event 
+                event
             })
             this.updateMSRPSession(session as IMessage)
         })

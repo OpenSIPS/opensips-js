@@ -1,5 +1,5 @@
-import { UA } from './UA'
-import { EventEmitter, Listener } from 'events'
+import { UA } from 'jssip'
+import { EventEmitter } from 'events'
 import {
     CallListener,
     ConfirmedListener,
@@ -20,7 +20,10 @@ import {
     RTCPeerConnectionDeprecated,
     OnHoldResult,
     MediaConstraints
-} from './RTCSession'
+} from 'jssip/lib/RTCSession'
+
+type UAType = typeof UA
+type Listener = (event: unknown) => void
 
 export interface MSRPSessionEventMap {
     'peerconnection': PeerConnectionListener;
@@ -67,14 +70,14 @@ declare enum SessionStatus {
 }
 
 export class MSRPSession extends EventEmitter {
-    _ua: UA
+    _ua: UAType
     id: any
     credentials: any
     status: string
     target: string
     message: string
 
-    constructor(ua: UA)
+    constructor(ua: UAType)
 
     get direction(): SessionDirection;
 

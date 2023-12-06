@@ -1,5 +1,4 @@
 import { Transport } from 'jssip/lib/Transport'
-import { UAExtended } from '@/helpers/UA/index'
 import { AnswerOptions, MSRPSessionEventMap } from '@/lib/msrp/session'
 import { Socket, WeightedSocket } from 'jssip/lib/Socket'
 
