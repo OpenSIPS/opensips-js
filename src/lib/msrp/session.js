@@ -12,16 +12,16 @@ import Transactions from 'jssip/lib/Transactions'
 
 const C = {
     // RTCSession states.
-    STATUS_NULL: 0,
-    STATUS_INVITE_SENT: 1,
-    STATUS_1XX_RECEIVED: 2,
-    STATUS_INVITE_RECEIVED: 3,
-    STATUS_WAITING_FOR_ANSWER: 4,
-    STATUS_ANSWERED: 5,
-    STATUS_WAITING_FOR_ACK: 6,
-    STATUS_CANCELED: 7,
-    STATUS_TERMINATED: 8,
-    STATUS_CONFIRMED: 9
+    STATUS_NULL               : 0,
+    STATUS_INVITE_SENT        : 1,
+    STATUS_1XX_RECEIVED       : 2,
+    STATUS_INVITE_RECEIVED    : 3,
+    STATUS_WAITING_FOR_ANSWER : 4,
+    STATUS_ANSWERED           : 5,
+    STATUS_WAITING_FOR_ACK    : 6,
+    STATUS_CANCELED           : 7,
+    STATUS_TERMINATED         : 8,
+    STATUS_CONFIRMED          : 9
 }
 
 export class MSRPSession extends EventEmitter
@@ -48,9 +48,9 @@ export class MSRPSession extends EventEmitter
         this.target_addr = []
         this.my_addr = []
         this.credentials = {
-            username: ua._configuration.authorization_user,
-            ha1: ua._configuration.ha1,
-            realm: ua._configuration.realm
+            'username' : ua._configuration.authorization_user,
+            'ha1'      : ua._configuration.ha1,
+            'realm'    : ua._configuration.realm
         }
         this._request = null
 
@@ -61,10 +61,10 @@ export class MSRPSession extends EventEmitter
         this._connectionPromiseQueue = Promise.resolve()
 
         this._timers = {
-            ackTimer: null,
-            expiresTimer: null,
-            invite2xxTimer: null,
-            userNoAnswerTimer: null
+            ackTimer          : null,
+            expiresTimer      : null,
+            invite2xxTimer    : null,
+            userNoAnswerTimer : null
         }
 
         this._direction = null
@@ -75,14 +75,16 @@ export class MSRPSession extends EventEmitter
         this._tones = null
 
         this._sessionTimers = {
-            enabled: this._ua.configuration.session_timers,
-            refreshMethod: this._ua.configuration.session_timers_refresh_method,
-            defaultExpires: JsSIP_C.SESSION_EXPIRES,
-            currentExpires: null,
-            running: false,
-            refresher: false,
-            timer: null // A setTimeout.
+            enabled        : this._ua.configuration.session_timers,
+            refreshMethod  : this._ua.configuration.session_timers_refresh_method,
+            defaultExpires : JsSIP_C.SESSION_EXPIRES,
+            currentExpires : null,
+            running        : false,
+            refresher      : false,
+            timer          : null // A setTimeout.
         }
+
+        this._msrpKeepAliveTimer = null
     }
 
     /**
@@ -138,6 +140,24 @@ export class MSRPSession extends EventEmitter
             console.log('error')
             this.onerror()
         }
+
+        // this._msrpKeepAliveTimer = setInterval(() => {
+        //     this._sendKeepAlive()
+        // }, 10000)
+    }
+
+    _sendKeepAlive () {
+
+        const msgObj = new Message('')
+        msgObj.method = 'SEND'
+        msgObj.addHeader('To-Path', `${this.my_addr[1]}`)
+        msgObj.addHeader('From-Path', `${this.my_addr[0]}`)
+        msgObj.addHeader('Message-ID', Utils.createRandomToken(10))
+        // msgObj.addHeader('Byte-Range', '1-25/25')
+        // msgObj.addHeader('Content-Type', 'text/plain')
+        // msgObj.body = ''
+        this._connection.send(msgObj.toString())
+
     }
 
     answer ()
@@ -167,8 +187,74 @@ export class MSRPSession extends EventEmitter
             `a=path: ${msgObj.getHeader('Use-Path')} msrp://${this._ua._configuration.authorization_user}.${this._ua._configuration.realm}:2856/${this.auth_id};ws\n`)
     }
 
+    inviteParty (msgObj)
+    {
+        const requestParams = {}
+        const extraHeaders = []
+
+        requestParams.to_uri   = new URI('sip', this.target,                      this._ua._configuration.realm)
+        requestParams.from_uri = new URI('sip', this._ua._configuration.uri.user, this._ua._configuration.uri.host)
+        // extraHeaders.push(`P-Preferred-Identity: ${this._ua._configuration.uri.toString()}`)
+
+        extraHeaders.push(`Contact: ${this._ua.contact.toString({
+            outbound : true
+        })}`)
+        extraHeaders.push('Content-Type: application/sdp')
+        this._request = new SIPMessage.InitialOutgoingInviteRequest(
+            new URI('sip', this.target, this._ua._configuration.realm).clone(),
+            this._ua,
+            requestParams,
+            extraHeaders,
+            'v=0\n' +
+            `o=- 4232740119537112802 2 IN IP4 ${this.my_ip}\n` +
+            `c=IN IP4 ${this.my_ip}\n` +
+            't=0 0\n' +
+            'm=message 2856 TCP/TLS/MSRP *\n' +
+            'a=accept-types:text/plain text/html\n' +
+            `a=path:${msgObj.getHeader('Use-Path')} msrp://${this._ua._configuration.authorization_user}.${this._ua._configuration.realm}:2856/${this.auth_id};ws\n`)
+        this._newMSRPSession('local', this._request)
+
+        this._id = this._request.call_id + this._from_tag
+        console.log('dialog be', this._dialog)
+        const request_sender = new RequestSender(this._ua, this._request, {
+            onRequestTimeout : () =>
+            {
+                this.onRequestTimeout()
+                console.log('to')
+            },
+            onTransportError : (err) =>
+            {
+                this.onTransportError()
+                console.log(err)
+            },
+            // Update the request on authentication.
+            onAuthenticated : (request) =>
+            {
+                this._request = request
+            },
+            onReceiveResponse : (response) =>
+            {
+                this._receiveInviteResponse(response)
+                console.log('dialog af', this._dialog)
+                if (response.status_code === 200)
+                {
+                    response.parseSDP(true)
+                    this._status = C.STATUS_CONFIRMED
+                    this.target_addr = response.sdp.media[0].invalid[1].value.replaceAll('path:', '').split(' ').reverse()
+                    this.status = 'active'
+                    this.emit('active')
+                    this.emit('confirmed')
+                }
+            }
+        })
+        request_sender.send()
+        this._status = C.STATUS_INVITE_SENT
+    }
+
     terminate (options = {})
     {
+        // clearInterval(this._msrpKeepAliveTimer)
+
         console.log('terminate', this)
         const cause = options.cause || JsSIP_C.causes.BYE
         const extraHeaders = Utils.cloneArray(options.extraHeaders)
@@ -338,11 +424,7 @@ export class MSRPSession extends EventEmitter
         {
             const _challenge = this.parseAuth(msgObj.getHeader('WWW-Authenticate'))
             const digestAuthentication = new DigestAuthentication(this.credentials)
-            digestAuthentication.authenticate({
-                method: 'AUTH',
-                ruri: `msrp://${this._ua._configuration.realm}:2856;ws`,
-                body: null 
-            }, _challenge, Utils.createRandomToken(12))
+            digestAuthentication.authenticate({ method: 'AUTH', ruri: `msrp://${this._ua._configuration.realm}:2856;ws`, body: null }, _challenge, Utils.createRandomToken(12))
             this.authenticate(digestAuthentication)
         }
         if (this.status === 'auth' && msgObj.code === 200 && this._direction === 'outgoing')
@@ -401,70 +483,6 @@ export class MSRPSession extends EventEmitter
     onerror (e)
     {
         console.log(e)
-    }
-
-    inviteParty (msgObj)
-    {
-        const requestParams = {}
-        const extraHeaders = []
-
-        requestParams.to_uri   = new URI('sip', this.target,                      this._ua._configuration.realm)
-        requestParams.from_uri = new URI('sip', this._ua._configuration.uri.user, this._ua._configuration.uri.host)
-        // extraHeaders.push(`P-Preferred-Identity: ${this._ua._configuration.uri.toString()}`)
-
-        extraHeaders.push(`Contact: ${this._ua.contact.toString({
-            outbound: true
-        })}`)
-        extraHeaders.push('Content-Type: application/sdp')
-        this._request = new SIPMessage.InitialOutgoingInviteRequest(
-            new URI('sip', this.target, this._ua._configuration.realm).clone(),
-            this._ua,
-            requestParams,
-            extraHeaders,
-            'v=0\n' +
-            `o=- 4232740119537112802 2 IN IP4 ${this.my_ip}\n` +
-            `c=IN IP4 ${this.my_ip}\n` +
-            't=0 0\n' +
-            'm=message 2856 TCP/TLS/MSRP *\n' +
-            'a=accept-types:text/plain text/html\n' +
-            `a=path:${msgObj.getHeader('Use-Path')} msrp://${this._ua._configuration.authorization_user}.${this._ua._configuration.realm}:2856/${this.auth_id};ws\n`)
-        this._newMSRPSession('local', this._request)
-
-        this._id = this._request.call_id + this._from_tag
-        console.log('dialog be', this._dialog)
-        const request_sender = new RequestSender(this._ua, this._request, {
-            onRequestTimeout: () =>
-            {
-                this.onRequestTimeout()
-                console.log('to')
-            },
-            onTransportError: (err) =>
-            {
-                this.onTransportError()
-                console.log(err)
-            },
-            // Update the request on authentication.
-            onAuthenticated: (request) =>
-            {
-                this._request = request
-            },
-            onReceiveResponse: (response) =>
-            {
-                this._receiveInviteResponse(response)
-                console.log('dialog af', this._dialog)
-                if (response.status_code === 200)
-                {
-                    response.parseSDP(true)
-                    this._status = C.STATUS_CONFIRMED
-                    this.target_addr = response.sdp.media[0].invalid[1].value.replaceAll('path:', '').split(' ').reverse()
-                    this.status = 'active'
-                    this.emit('active')
-                    this.emit('confirmed')
-                }
-            }
-        })
-        request_sender.send()
-        this._status = C.STATUS_INVITE_SENT
     }
 
     _receiveInviteResponse (response)
@@ -777,10 +795,10 @@ export class MSRPSession extends EventEmitter
 
         // Set userNoAnswerTimer.
         this._timers.userNoAnswerTimer = setTimeout(() =>
-        {
-            request.reply(408)
-            this._failed('local', null, JsSIP_C.causes.NO_ANSWER)
-        }, this._ua.configuration.no_answer_timeout
+            {
+                request.reply(408)
+                this._failed('local', null, JsSIP_C.causes.NO_ANSWER)
+            }, this._ua.configuration.no_answer_timeout
         )
 
         /* Set expiresTimer
@@ -789,13 +807,13 @@ export class MSRPSession extends EventEmitter
         if (expires)
         {
             this._timers.expiresTimer = setTimeout(() =>
-            {
-                if (this._status === C.STATUS_WAITING_FOR_ANSWER)
                 {
-                    request.reply(487)
-                    this._failed('system', null, JsSIP_C.causes.EXPIRES)
-                }
-            }, expires
+                    if (this._status === C.STATUS_WAITING_FOR_ANSWER)
+                    {
+                        request.reply(487)
+                        this._failed('system', null, JsSIP_C.causes.EXPIRES)
+                    }
+                }, expires
             )
         }
 
@@ -834,7 +852,7 @@ export class MSRPSession extends EventEmitter
     {
         this.emit('_failed', {
             originator,
-            message: message || null,
+            message : message || null,
             cause
         })
 
@@ -842,7 +860,7 @@ export class MSRPSession extends EventEmitter
 
         this.emit('failed', {
             originator,
-            message: message || null,
+            message : message || null,
             cause
         })
     }
@@ -986,7 +1004,7 @@ export class MSRPSession extends EventEmitter
     {
         this._ua.newMSRPSession(this, {
             originator,
-            session: this,
+            session : this,
             request
         })
     }
@@ -995,7 +1013,7 @@ export class MSRPSession extends EventEmitter
     {
         this.emit('progress', {
             originator,
-            response: response || null
+            response : response || null
         })
     }
 
@@ -1211,11 +1229,7 @@ export class MSRPSession extends EventEmitter
                         const contentType = request.hasHeader('Content-Type') ?
                             request.getHeader('Content-Type').toLowerCase() : undefined
 
-                        if (contentType && (contentType.match(/^application\/dtmf-relay/i)))
-                        {
-                            new RTCSession_DTMF(this).init_incoming(request)
-                        }
-                        else if (contentType !== undefined)
+                        if (contentType !== undefined)
                         {
                             new RTCSession_Info(this).init_incoming(request)
                         }
@@ -1265,5 +1279,46 @@ export class MSRPSession extends EventEmitter
         }
     }
 
-}
+    onTransportError ()
+    {
+        console.log('onTransportError()')
 
+        if (this._status !== C.STATUS_TERMINATED)
+        {
+            this.terminate({
+                status_code   : 500,
+                reason_phrase : JsSIP_C.causes.CONNECTION_ERROR,
+                cause         : JsSIP_C.causes.CONNECTION_ERROR
+            })
+        }
+    }
+
+    onRequestTimeout ()
+    {
+        console.log('onRequestTimeout()')
+
+        if (this._status !== C.STATUS_TERMINATED)
+        {
+            this.terminate({
+                status_code   : 408,
+                reason_phrase : JsSIP_C.causes.REQUEST_TIMEOUT,
+                cause         : JsSIP_C.causes.REQUEST_TIMEOUT
+            })
+        }
+    }
+
+    onDialogError ()
+    {
+        console.log('onDialogError()')
+
+        if (this._status !== C.STATUS_TERMINATED)
+        {
+            this.terminate({
+                status_code   : 500,
+                reason_phrase : JsSIP_C.causes.DIALOG_ERROR,
+                cause         : JsSIP_C.causes.DIALOG_ERROR
+            })
+        }
+    }
+
+}
