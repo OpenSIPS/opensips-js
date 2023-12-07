@@ -829,6 +829,7 @@ class OpenSIPSJS extends UA {
 
         if (call._status !== 8) {
             call.terminate()
+            //this.removeMMSRPSession(call._id)
         }
     }
 

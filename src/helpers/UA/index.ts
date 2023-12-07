@@ -70,7 +70,7 @@ export default class UAExtended extends UAConstructor {
     newMSRPSession (session: MSRPSession, data: object)
     {
         // Listening for message history update
-        session.on('msgHistoryUpdate', (obj : []) => {
+        session.on('msgHistoryUpdate', (obj) => {
             console.log(obj)
         })
 

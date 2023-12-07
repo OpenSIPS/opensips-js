@@ -1,6 +1,7 @@
-import OpenSIPSJS, { IRoom } from '../src/index'
-import { MSRPSessionEvent, RTCSessionEvent } from 'jssip/lib/UA'
-import { ICall, RoomChangeEmitType } from '../src/types/rtc'
+import OpenSIPSJS from '../src/index'
+import { /*MSRPSessionEvent,*/ RTCSessionEvent } from 'jssip/lib/UA'
+import { MSRPSessionEvent } from '../src/helpers/UA'
+import { ICall, IRoom, RoomChangeEmitType } from '../src/types/rtc'
 import { runIndicator } from '../src/helpers/volume.helper'
 import { SendMessageOptions } from 'jssip/lib/Message'
 import { IMessage, MSRPSessionExtended } from '../src/types/msrp'
@@ -224,7 +225,7 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
             event.preventDefault()
             openSIPSJS.doCallHold({
                 callId: call._id,
-                toHold: !isOnHold 
+                toHold: !isOnHold
             })
             holdAgentButtonEl.innerText = !isOnHold ? 'UnHold' : 'Hold'
             isOnHold = !isOnHold
@@ -295,8 +296,7 @@ const upsertMSRPMessagesData = (sessions: { [p: string]: IMessage }) => {
         messageIdEl.innerText = `Message ${session._id}`
         messageEl.appendChild(messageIdEl)
 
-        // TODO: not working cause session don't have _is_confirmed prop
-        if (session.direction !== 'outgoing' && !session._is_confirmed) {
+        if (session.direction !== 'outgoing' && session.status !== 'active') {
             const answerButtonEl = document.createElement('button') as HTMLButtonElement
             answerButtonEl.innerText = 'AnswerMsg'
             answerButtonEl.addEventListener('click', (event) => {
@@ -332,7 +332,7 @@ const upsertMSRPMessagesData = (sessions: { [p: string]: IMessage }) => {
             records.forEach((record) => {
                 upsertNewMSRPMessage({
                     message: record,
-                    session: session 
+                    session: session
                 })
             })
         }

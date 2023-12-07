@@ -440,6 +440,7 @@ export class MSRPSession extends EventEmitter
             this.my_addr.push(msgObj.getHeader('Use-Path'))
             this.status = 'active'
             this.acceptParty(msgObj)
+            this.emit('confirmed')
         }
         else if (msgObj.method === 'SEND')
         {
