@@ -91,9 +91,9 @@ export class MSRPSession extends EventEmitter {
 
     unmute(options?: MediaConstraints): void;
 
-    init_incoming(request)
+    init_incoming(request: any): void;
 
-    isEnded()
+    isEnded(): boolean;
 
     connect(target?:string): void
 

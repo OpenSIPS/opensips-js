@@ -1,6 +1,8 @@
 import { Transport } from 'jssip/lib/Transport'
-import { AnswerOptions, MSRPSessionEventMap } from '@/lib/msrp/session'
+import { MSRPSessionEventMap } from '@/lib/msrp/session'
 import { Socket, WeightedSocket } from 'jssip/lib/Socket'
+import { IncomingRequest } from 'jssip/lib/SIPMessage'
+import { AnswerOptions } from 'jssip/lib/RTCSession'
 
 declare module 'jssip' {
     export class UA {
@@ -22,12 +24,12 @@ declare module 'jssip' {
 
     export class Message {
         constructor(ua)
-        init_incoming(request)
+        init_incoming(request: IncomingRequest): void
     }
 
     export class Options {
         constructor(ua)
-        init_incoming(request)
+        init_incoming(request: IncomingRequest): void
     }
 
     export interface MSRPOptions extends AnswerOptions {
@@ -63,7 +65,7 @@ declare module 'jssip' {
         extra_headers?: string[];
     }
     export class RTCSessiono {
-        init_incoming(request)
+        init_incoming(request: IncomingRequest): void
         constructor(ua)
     }
 }
