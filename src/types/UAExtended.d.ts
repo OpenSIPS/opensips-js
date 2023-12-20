@@ -1,8 +1,11 @@
 import { Transport } from 'jssip/lib/Transport'
-import { MSRPSessionEventMap } from '@/lib/msrp/session'
+import { MSRPSession, MSRPSessionEventMap } from '@/lib/msrp/session'
 import { Socket, WeightedSocket } from 'jssip/lib/Socket'
 import { IncomingRequest } from 'jssip/lib/SIPMessage'
-import { AnswerOptions } from 'jssip/lib/RTCSession'
+import { AnswerOptions, RTCSession } from 'jssip/lib/RTCSession'
+import Dialog from 'jssip/lib/Dialog'
+import { CallOptions } from 'jssip/lib/UA'
+type DialogType = typeof Dialog
 
 declare module 'jssip' {
     export class UA {
@@ -17,18 +20,18 @@ declare module 'jssip' {
         protected _configuration: any
         protected _contact: any
 
-        _findDialog(call_id, from, to)
-        _findSession(request)
-        call(target, options)
+        _findDialog(call_id: string, from: string, to: string): DialogType
+        _findSession(request): MSRPSession
+        call(target: string, options: CallOptions): RTCSession
     }
 
     export class Message {
-        constructor(ua)
+        constructor(ua: UA)
         init_incoming(request: IncomingRequest): void
     }
 
     export class Options {
-        constructor(ua)
+        constructor(ua: UA)
         init_incoming(request: IncomingRequest): void
     }
 
@@ -66,7 +69,7 @@ declare module 'jssip' {
     }
     export class RTCSessiono {
         init_incoming(request: IncomingRequest): void
-        constructor(ua)
+        constructor(ua: UA)
     }
 }
 

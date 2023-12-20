@@ -8,7 +8,9 @@ module.exports = {
     ignorePatterns: [
         'src/helpers/webrtcmetrics/',
     ],
-    rules: {},
+    rules: {
+        'space-before-blocks': 'off'
+    },
     env: {
         es2021: true,
         browser: true,

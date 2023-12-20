@@ -21,7 +21,8 @@ import {
     OnHoldResult,
     MediaConstraints, RTCSession
 } from 'jssip/lib/RTCSession'
-import { CallOptionsExtended } from '@/types/rtc'
+//import { CallOptionsExtended } from '@/types/rtc'
+import { CallOptions } from 'jssip/lib/UA'
 
 type UAType = typeof UA
 type Listener = (event: unknown) => void
@@ -80,7 +81,7 @@ export interface UAExtendedInterface extends UA {
     }
 
     //new (configuration: UAConfiguration): void
-    call (target: string, options?: CallOptionsExtended): RTCSession
+    call (target: string, options?: CallOptions): RTCSession
     newMSRPSession (session: MSRPSession, data: object): void
     destroyMSRPSession (session: MSRPSession): void
     receiveRequest (request: any): void

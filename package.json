@@ -10,6 +10,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc --project tsconfig.json && tsc-alias -p tsconfig.json",
+    "build-no-check": "tsc --noEmit --skipLibCheck --project tsconfig.json && tsc-alias -p tsconfig.json",
     "dev": "vite",
     "vite-build": "vite build",
     "docs-build": "yarn run vite-build && cd docs && yarn && yarn run build",
