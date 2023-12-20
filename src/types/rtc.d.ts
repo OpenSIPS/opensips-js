@@ -1,5 +1,3 @@
-import { MediaStreamConstraints } from 'lib.dom.d.ts'
-import { Partial } from 'lib.es5.d.ts'
 import {
     AnswerOptions,
     EndEvent,
@@ -7,8 +5,13 @@ import {
     IncomingEvent,
     OutgoingAckEvent,
     OutgoingEvent,
-    RTCSession, RTCSessionEventMap,
+    RTCSession,
+    RTCSessionEventMap,
+    MediaConstraints
 } from 'jssip/lib/RTCSession'
+import {
+    IncomingRequest
+} from 'jssip/lib/SIPMessage'
 import { UAConfiguration } from 'jssip/lib/UA'
 
 export type IntervalType = ReturnType<typeof setInterval>
@@ -39,8 +42,15 @@ export interface StreamMediaType extends HTMLAudioElement {
     setSinkId (id: string): Promise<void>
 }
 
+type ExactConstraints = {
+    audio?: {
+        deviceId: {exact: string}
+    }
+    video?: boolean;
+}
+
 export interface AnswerOptionsExtended extends AnswerOptions {
-    mediaConstraints?: MediaStreamConstraints
+    mediaConstraints?: MediaConstraints | ExactConstraints
 }
 
 export interface RemoteIdentityCallType {
@@ -68,7 +78,7 @@ export interface RTCSessionExtended extends RTCSession {
     _status: number
     _remote_identity: RemoteIdentityCallType
     answer(options?: AnswerOptionsExtended): void
-    init_icncoming(request)
+    init_icncoming(request: IncomingRequest): void
 }
 
 export interface ICall extends RTCSessionExtended {

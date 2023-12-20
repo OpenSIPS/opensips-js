@@ -1,4 +1,4 @@
-import { UA } from 'jssip'
+import { UA, MSRPOptions } from 'jssip'
 import { EventEmitter } from 'events'
 import {
     CallListener,
@@ -19,8 +19,9 @@ import {
     SessionDirection,
     RTCPeerConnectionDeprecated,
     OnHoldResult,
-    MediaConstraints
+    MediaConstraints, RTCSession
 } from 'jssip/lib/RTCSession'
+import { CallOptionsExtended } from '@/types/rtc'
 
 type UAType = typeof UA
 type Listener = (event: unknown) => void
@@ -69,15 +70,34 @@ declare enum SessionStatus {
     STATUS_CONFIRMED = 9
 }
 
+export interface UAExtendedInterface extends UA {
+    //_msrp_sessions: MSRPSession[]
+    _transactions: {
+        nist: object,
+        nict: object,
+        ist: object,
+        ict: object
+    }
+
+    //new (configuration: UAConfiguration): void
+    call (target: string, options?: CallOptionsExtended): RTCSession
+    newMSRPSession (session: MSRPSession, data: object): void
+    destroyMSRPSession (session: MSRPSession): void
+    receiveRequest (request: any): void
+    startMSRP (target: string, options: MSRPOptions): MSRPSession
+    terminateMSRPSessions (options: object): void
+    stop (): void
+}
+
 export class MSRPSession extends EventEmitter {
-    _ua: UAType
+    _ua: UAExtendedInterface
     id: any
     credentials: any
     status: string
     target: string
     message: string
 
-    constructor(ua: UAType)
+    constructor(ua: UAExtendedInterface)
 
     get direction(): SessionDirection;
 
@@ -91,9 +111,9 @@ export class MSRPSession extends EventEmitter {
 
     unmute(options?: MediaConstraints): void;
 
-    init_incoming(request)
+    init_incoming(request: any): void;
 
-    isEnded()
+    isEnded(): boolean;
 
     connect(target?:string): void
 
