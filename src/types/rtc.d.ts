@@ -42,8 +42,15 @@ export interface StreamMediaType extends HTMLAudioElement {
     setSinkId (id: string): Promise<void>
 }
 
+type ExactConstraints = {
+    audio?: {
+        deviceId: {exact: string}
+    }
+    video?: boolean;
+}
+
 export interface AnswerOptionsExtended extends AnswerOptions {
-    mediaConstraints?: MediaConstraints
+    mediaConstraints?: MediaConstraints | ExactConstraints
 }
 
 export interface RemoteIdentityCallType {

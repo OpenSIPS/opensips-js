@@ -6,7 +6,7 @@ import { Originator, RTCSession } from 'jssip/lib/RTCSession'
 import Transactions from 'jssip/lib/Transactions'
 import { IncomingRequest } from 'jssip/lib/SIPMessage'
 
-import { MSRPSession } from '@/lib/msrp/session'
+import { MSRPSession, UAExtendedInterface } from '@/lib/msrp/session'
 
 import { CallOptionsExtended } from '@/types/rtc'
 
@@ -40,7 +40,7 @@ export type MSRPSessionEvent = IncomingMSRPSessionEvent | OutgoingMSRPSessionEve
 
 const UAConstructor: typeof UAType = UA as unknown as typeof UAType
 
-export default class UAExtended extends UAConstructor {
+export default class UAExtended extends UAConstructor implements UAExtendedInterface {
 
     _msrp_sessions: MSRPSession[] = []
     _transactions = {
@@ -293,7 +293,7 @@ export default class UAExtended extends UAConstructor {
         }
     }
 
-    startMSRP (target: string, options: MSRPOptions)
+    startMSRP (target: string, options: MSRPOptions): MSRPSession
     {
         logger.debug('startMSRP()', options)
 
