@@ -67,8 +67,7 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
     /**
      * new MSRPSession
      */
-    newMSRPSession (session: MSRPSession, data: object)
-    {
+    newMSRPSession (session: MSRPSession, data: object) {
         // Listening for message history update
         session.on('msgHistoryUpdate', (obj) => {
             console.log(obj)
@@ -81,22 +80,18 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
     /**
      * MSRPSession destroyed.
      */
-    destroyMSRPSession (session: MSRPSession)
-    {
+    destroyMSRPSession (session: MSRPSession) {
         delete this._msrp_sessions[session.id]
     }
 
-    receiveRequest (request: any)
-    {
+    receiveRequest (request: any) {
         const method = request.method
         console.log('-----------')
         // Check that request URI points to us.
         if (request.ruri.user !== this._configuration.uri.user &&
-            request.ruri.user !== this._contact.uri.user)
-        {
+            request.ruri.user !== this._contact.uri.user) {
             logger.debug('Request-URI does not point to us')
-            if (request.method !== JsSIP_C.ACK)
-            {
+            if (request.method !== JsSIP_C.ACK) {
                 request.reply_sl(404)
             }
 
@@ -104,28 +99,23 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         }
 
         // Check request URI scheme.
-        if (request.ruri.scheme === JsSIP_C.SIPS)
-        {
+        if (request.ruri.scheme === JsSIP_C.SIPS) {
             request.reply_sl(416)
 
             return
         }
 
         // Check transaction.
-        if (Transactions.checkTransaction(this, request))
-        {
+        if (Transactions.checkTransaction(this, request)) {
             return
         }
 
         // Create the server transaction.
-        if (method === JsSIP_C.INVITE)
-        {
+        if (method === JsSIP_C.INVITE) {
             /* eslint-disable no-new */
             new Transactions.InviteServerTransaction(this, this._transport, request)
             /* eslint-enable no-new */
-        }
-        else if (method !== JsSIP_C.ACK && method !== JsSIP_C.CANCEL)
-        {
+        } else if (method !== JsSIP_C.ACK && method !== JsSIP_C.CANCEL) {
             /* eslint-disable no-new */
             new Transactions.NonInviteServerTransaction(this, this._transport, request)
             /* eslint-enable no-new */
@@ -136,10 +126,8 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
          * received within a dialog (for example, an OPTIONS request).
          * They are processed as if they had been received outside the dialog.
          */
-        if (method === JsSIP_C.OPTIONS)
-        {
-            if (this.listeners('newOptions').length === 0)
-            {
+        if (method === JsSIP_C.OPTIONS) {
+            if (this.listeners('newOptions').length === 0) {
                 request.reply(200)
 
                 return
@@ -148,11 +136,8 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
             const message = new Options(this)
 
             message.init_incoming(request)
-        }
-        else if (method === JsSIP_C.MESSAGE)
-        {
-            if (this.listeners('newMessage').length === 0)
-            {
+        } else if (method === JsSIP_C.MESSAGE) {
+            if (this.listeners('newMessage').length === 0) {
                 request.reply(405)
 
                 return
@@ -160,12 +145,9 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
             const message = new Message(this)
 
             message.init_incoming(request)
-        }
-        else if (method === JsSIP_C.INVITE)
-        {
+        } else if (method === JsSIP_C.INVITE) {
             // Initial INVITE.
-            if (!request.to_tag && this.listeners('newRTCSession').length === 0)
-            {
+            if (!request.to_tag && this.listeners('newRTCSession').length === 0) {
                 request.reply(405)
 
                 return
@@ -176,38 +158,26 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         let session
 
         // Initial Request.
-        if (!request.to_tag)
-        {
-            switch (method)
-            {
+        if (!request.to_tag) {
+            switch (method) {
                 case JsSIP_C.INVITE:
-                    if (window.RTCPeerConnection)
-                    { // TODO
-                        if (request.hasHeader('replaces'))
-                        {
+                    if (window.RTCPeerConnection) { // TODO
+                        if (request.hasHeader('replaces')) {
                             const replaces = request.replaces
 
                             dialog = this._findDialog(
                                 replaces.call_id, replaces.from_tag, replaces.to_tag)
-                            if (dialog)
-                            {
+                            if (dialog) {
                                 session = dialog.owner
-                                if (!session.isEnded())
-                                {
+                                if (!session.isEnded()) {
                                     session.receiveRequest(request)
-                                }
-                                else
-                                {
+                                } else {
                                     request.reply(603)
                                 }
-                            }
-                            else
-                            {
+                            } else {
                                 request.reply(481)
                             }
-                        }
-                        else
-                        {
+                        } else {
                             if(request.body.search(/MSRP/ig)) {
                                 session = new MSRPSession(this)
                                 session.init_incoming(request)
@@ -216,9 +186,7 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
                                 session.init_incoming(request)
                             }
                         }
-                    }
-                    else
-                    {
+                    } else {
                         logger.warn('INVITE received but WebRTC is not supported')
                         request.reply(488)
                     }
@@ -229,12 +197,9 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
                     break
                 case JsSIP_C.CANCEL:
                     session = this._findSession(request)
-                    if (session)
-                    {
+                    if (session) {
                         session.receiveRequest(request)
-                    }
-                    else
-                    {
+                    } else {
                         logger.debug('received CANCEL request for a non existent session')
                     }
                     break
@@ -256,45 +221,31 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
                     request.reply(405)
                     break
             }
-        }
-        // In-dialog request.
-        else
-        {
+        } else { // In-dialog request.
             dialog = this._findDialog(request.call_id, request.from_tag, request.to_tag)
 
-            if (dialog)
-            {
+            if (dialog) {
                 dialog.receiveRequest(request)
-            }
-            else if (method === JsSIP_C.NOTIFY)
-            {
+            } else if (method === JsSIP_C.NOTIFY) {
                 session = this._findSession(request)
-                if (session)
-                {
+                if (session) {
                     session.receiveRequest(request)
-                }
-                else
-                {
+                } else {
                     logger.debug('received NOTIFY request for a non existent subscription')
                     request.reply(481, 'Subscription does not exist')
                 }
+            } else if (method !== JsSIP_C.ACK) {
+                /* RFC3261 12.2.2
+                 * Request with to tag, but no matching dialog found.
+                 * Exception: ACK for an Invite request for which a dialog has not
+                 * been created.
+                 */
+                request.reply(481)
             }
-
-            /* RFC3261 12.2.2
-             * Request with to tag, but no matching dialog found.
-             * Exception: ACK for an Invite request for which a dialog has not
-             * been created.
-             */
-            else
-                if (method !== JsSIP_C.ACK)
-                {
-                    request.reply(481)
-                }
         }
     }
 
-    startMSRP (target: string, options: MSRPOptions): MSRPSession
-    {
+    startMSRP (target: string, options: MSRPOptions): MSRPSession {
         logger.debug('startMSRP()', options)
 
         const session = new MSRPSession(this)
@@ -303,8 +254,7 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
     }
 
 
-    terminateMSRPSessions (options: object)
-    {
+    terminateMSRPSessions (options: object) {
         logger.debug('terminateSessions()')
 
         for (const idx in this._msrp_sessions) {
@@ -314,8 +264,7 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         }
     }
 
-    stop ()
-    {
+    stop () {
         logger.debug('stop()')
 
         // Remove dynamic settings.
