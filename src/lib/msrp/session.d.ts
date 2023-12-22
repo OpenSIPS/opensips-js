@@ -1,4 +1,4 @@
-import { UA, MSRPOptions } from 'jssip'
+import { UA } from 'jssip'
 import { EventEmitter } from 'events'
 import {
     CallListener,
@@ -19,13 +19,22 @@ import {
     SessionDirection,
     RTCPeerConnectionDeprecated,
     OnHoldResult,
-    MediaConstraints, RTCSession
+    MediaConstraints,
+    RTCSession,
+    AnswerOptions
 } from 'jssip/lib/RTCSession'
 //import { CallOptionsExtended } from '@/types/rtc'
 import { CallOptions } from 'jssip/lib/UA'
 
 type UAType = typeof UA
 type Listener = (event: unknown) => void
+
+export interface MSRPOptions extends AnswerOptions {
+    eventHandlers?: Partial<MSRPSessionEventMap>
+    anonymous?: boolean;
+    fromUserName?: string;
+    fromDisplayName?: string;
+}
 
 export interface MSRPSessionEventMap {
     'peerconnection': PeerConnectionListener;

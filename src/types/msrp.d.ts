@@ -9,7 +9,7 @@ import { EndEvent,
     OutgoingEvent,
     SessionDirection } from 'jssip/lib/RTCSession'
 
-import { StreamMediaType, HTTPRequestType } from '@/types/rtc'
+import { StreamMediaType } from '@/types/rtc'
 
 export type ListenerEventType = EndEvent | IncomingEvent | OutgoingEvent | IncomingAckEvent | OutgoingAckEvent
 

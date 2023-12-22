@@ -453,12 +453,6 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
             .on('changeActiveMessages', (sessions: { [p: string]: IMessage }) => {
                 upsertMSRPMessagesData(sessions)
             })
-            .on('newRTCSession', ({ session }: RTCSessionEvent) => {
-                console.warn('e', session)
-            })
-            .on('newMSRPSession', ({ session }: MSRPSessionEvent) => {
-                console.trace('e', session)
-            })
             .on('newMSRPMessage', (msg: { message: MSRPMessage, session: MSRPSessionExtended }) => {
                 upsertNewMSRPMessage(msg, true)
             })

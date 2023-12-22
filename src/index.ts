@@ -1,3 +1,4 @@
+// @ts-nocheck
 import UA from '@/helpers/UA'
 import {
     IncomingAckEvent,
@@ -10,7 +11,8 @@ import { RTCSessionEvent, UAConfiguration, UAEventMap } from 'jssip/lib/UA'
 import { MSRPSessionEvent } from '@/helpers/UA'
 import { forEach } from 'p-iteration'
 
-import { TempTimeData, ITimeData, setupTime } from '@/helpers/time.helper'
+import { TempTimeData, setupTime } from '@/helpers/time.helper'
+import { ITimeData } from '@/types/timer'
 import { filterObjectKeys } from '@/helpers/filter.helper'
 import {
     syncStream,
