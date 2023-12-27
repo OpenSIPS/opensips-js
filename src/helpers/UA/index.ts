@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Options, Message, RTCSessiono, UA as UAType  } from 'jssip'
 
 import UA, { UAConfiguration } from 'jssip/lib/UA'
@@ -63,6 +62,7 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
     }
 
     call (target: string, options?: CallOptionsExtended): RTCSession {
+        // @ts-ignore
         return super.call(target, options)
     }
 

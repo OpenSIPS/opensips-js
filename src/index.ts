@@ -1,4 +1,3 @@
-// @ts-nocheck
 import UA from '@/helpers/UA'
 import {
     IncomingAckEvent,
