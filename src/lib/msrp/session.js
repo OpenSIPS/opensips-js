@@ -9,6 +9,7 @@ import { EventEmitter } from 'events'
 import Dialog from 'jssip/lib/Dialog'
 import Exceptions from 'jssip/lib/Exceptions'
 import Transactions from 'jssip/lib/Transactions'
+import RTCSession_Info from 'jssip/lib/RTCSession/Info'
 
 const C = {
     // RTCSession states.
