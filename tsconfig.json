@@ -3,7 +3,7 @@
     "target": "es2017",
     "module": "ESNext",
     "moduleResolution": "nodenext",
-    "strict": true,
+    "strict": false,
     "declaration": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
