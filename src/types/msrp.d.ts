@@ -10,6 +10,9 @@ import { EndEvent,
     SessionDirection } from 'jssip/lib/RTCSession'
 
 import { StreamMediaType } from '@/types/rtc'
+import MSRPMessage from '@/lib/msrp/message'
+
+export { MSRPMessage }
 
 export type ListenerEventType = EndEvent | IncomingEvent | OutgoingEvent | IncomingAckEvent | OutgoingAckEvent
 

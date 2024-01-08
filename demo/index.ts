@@ -1,6 +1,4 @@
 import OpenSIPSJS from '../src/index'
-import { /*MSRPSessionEvent,*/ RTCSessionEvent } from 'jssip/lib/UA'
-import { MSRPSessionEvent } from '../src/helpers/UA'
 import { ICall, IRoom, RoomChangeEmitType } from '../src/types/rtc'
 import { runIndicator } from '../src/helpers/volume.helper'
 import { SendMessageOptions } from 'jssip/lib/Message'

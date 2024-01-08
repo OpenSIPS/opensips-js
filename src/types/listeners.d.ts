@@ -6,6 +6,11 @@ import MSRPMessage from '@/lib/msrp/message'
 import { ITimeData } from '@/types/timer'
 import { IncomingMSRPSessionEvent, OutgoingMSRPSessionEvent } from '@/helpers/UA'
 
+export type MSRPMessageEventType = {
+    message: MSRPMessage,
+    session: MSRPSessionExtended
+}
+
 export type readyListener = (value: boolean) => void
 export type changeActiveCallsListener = (event: { [key: string]: ICall }) => void
 export type changeActiveMessagesListener = (event: { [key: string]: IMessage }) => void
@@ -27,7 +32,7 @@ export type removeRoomListener = (value: RoomChangeEmitType) => void
 export type IncomingMSRPSessionListener = (event: IncomingMSRPSessionEvent) => void;
 export type OutgoingMSRPSessionListener = (event: OutgoingMSRPSessionEvent) => void;
 export type MSRPSessionListener = IncomingMSRPSessionListener | OutgoingMSRPSessionListener;
-export type MSRPMessageListener = (event: { message: MSRPMessage, session: MSRPSessionExtended }) => void;
+export type MSRPMessageListener = (event: MSRPMessageEventType) => void;
 export type changeCallStatusListener = (event: { [key: string]: ICallStatus }) => void
 export type changeCallTimeListener = (event: { [key: string]: ITimeData }) => void
 export type changeCallMetricsListener = (event: { [key: string]: any }) => void

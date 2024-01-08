@@ -110,7 +110,7 @@ export class MSRPSession extends EventEmitter{
         // MSRP WebSocket connection
         this._connection.binaryType = 'arraybuffer'
         this._connection.onopen = (event) => {
-            console.log('open')
+            console.log('open', event)
             this.onopen()
         }
         this._connection.onclose = (event) => {
@@ -122,7 +122,7 @@ export class MSRPSession extends EventEmitter{
             this.onmessage(msg)
         }
         this._connection.onerror = (event) => {
-            console.log('error')
+            console.log('error', event)
             this.onerror()
         }
 
@@ -388,7 +388,7 @@ export class MSRPSession extends EventEmitter{
             digestAuthentication.authenticate({
                 method: 'AUTH',
                 ruri: `msrp://${this._ua._configuration.realm}:2856;ws`,
-                body: null 
+                body: null
             }, _challenge, Utils.createRandomToken(12))
             this.authenticate(digestAuthentication)
         }
@@ -433,6 +433,7 @@ export class MSRPSession extends EventEmitter{
             const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3})/
             const ipMatch = ice.candidate.candidate.match(ipRegex)
             this.my_ip = ipMatch && ipMatch[1]
+            // eslint-disable-next-line @typescript-eslint/no-empty-function
             pc.onicecandidate = () => {}
             this.authenticate(null)
         }
@@ -457,10 +458,8 @@ export class MSRPSession extends EventEmitter{
                 this.sendRequest(JsSIP_C.ACK)
 
                 return
-            }
-
-            // If not, send an ACK  and terminate.
-            else {
+            } else {
+                // If not, send an ACK  and terminate.
                 const dialog = new Dialog(this, response, 'UAC')
 
                 if (dialog.error !== undefined) {
@@ -523,7 +522,7 @@ export class MSRPSession extends EventEmitter{
                 const e = {
                     originator: 'remote',
                     type: 'answer',
-                    sdp: response.body 
+                    sdp: response.body
                 }
 
                 console.log('emit "sdp"')
@@ -531,7 +530,7 @@ export class MSRPSession extends EventEmitter{
 
                 const answer = new RTCSessionDescription({
                     type: 'answer',
-                    sdp: e.sdp 
+                    sdp: e.sdp
                 })
 
                 this._connectionPromiseQueue = this._connectionPromiseQueue
@@ -564,15 +563,15 @@ export class MSRPSession extends EventEmitter{
                 const e = {
                     originator: 'remote',
                     type: 'answer',
-                    sdp: response.body 
+                    sdp: response.body
                 }
 
                 console.log('emit "sdp"')
                 this.emit('sdp', e)
 
-                const answer = new RTCSessionDescription({
+                new RTCSessionDescription({
                     type: 'answer',
-                    sdp: e.sdp 
+                    sdp: e.sdp
                 })
 
                 this._connectionPromiseQueue = this._connectionPromiseQueue
@@ -910,10 +909,8 @@ export class MSRPSession extends EventEmitter{
                     return true
                 }
             }
-        }
-
-        // Confirmed Dialog.
-        else {
+        } else {
+            // Confirmed Dialog.
             this._from_tag = message.from_tag
             this._to_tag = message.to_tag
 
@@ -1075,7 +1072,7 @@ export class MSRPSession extends EventEmitter{
                         const e = {
                             originator: 'remote',
                             type: 'answer',
-                            sdp: request.body 
+                            sdp: request.body
                         }
 
                         console.log('emit "sdp"')
@@ -1083,7 +1080,7 @@ export class MSRPSession extends EventEmitter{
 
                         const answer = new RTCSessionDescription({
                             type: 'answer',
-                            sdp: e.sdp 
+                            sdp: e.sdp
                         })
 
                         this._connectionPromiseQueue = this._connectionPromiseQueue

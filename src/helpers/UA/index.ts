@@ -62,6 +62,7 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
     }
 
     call (target: string, options?: CallOptionsExtended): RTCSession {
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore
         return super.call(target, options)
     }
