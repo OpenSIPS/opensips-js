@@ -3,7 +3,6 @@ import { MSRPSession, MSRPSessionEventMap, DialogType } from '@/lib/msrp/session
 import { Socket, WeightedSocket } from 'jssip/lib/Socket'
 import { IncomingRequest } from 'jssip/lib/SIPMessage'
 import { AnswerOptions, RTCSession } from 'jssip/lib/RTCSession'
-//import { CallOptions } from 'jssip/lib/UA'
 import { CallOptionsExtended } from '@/types/rtc'
 
 declare module 'jssip' {

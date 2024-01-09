@@ -23,8 +23,6 @@ import {
     RTCSession,
     AnswerOptions
 } from 'jssip/lib/RTCSession'
-//import { CallOptionsExtended } from '@/types/rtc'
-//import { CallOptions } from 'jssip/lib/UA'
 import { CallOptionsExtended } from '@/types/rtc'
 
 type UAType = typeof UA
@@ -90,7 +88,6 @@ export interface UAExtendedInterface extends UA {
         ict: object
     }
 
-    //new (configuration: UAConfiguration): void
     call (target: string, options?: CallOptionsExtended): RTCSession
     newMSRPSession (session: MSRPSession, data: object): void
     destroyMSRPSession (session: MSRPSession): void
