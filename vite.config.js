@@ -1,16 +1,55 @@
-import { fileURLToPath, URL } from 'url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { viteSingleFile } from 'vite-plugin-singlefile'
+import { resolve } from 'path'
+import dts from 'vite-plugin-dts'
 
 // https://vitejs.dev/config/
-export default defineConfig({
-    plugins: [ vue(), viteSingleFile() ],
-    root: './demo',
-    base: '',
-    resolve: {
-        alias: [
-            { find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) }
-        ],
+export default defineConfig(({ command }) => {
+    if (command === 'serve') {
+        return {
+            plugins: [ vue(), viteSingleFile() ],
+            root: './demo',
+            base: '',
+            resolve: {
+                alias: {
+                    '@': resolve(__dirname, './src'),
+                }
+            }
+        }
+    } else {
+        // command === 'vite-build'
+        return {
+            build: {
+                outDir: 'dist',
+                sourcemap: false,
+                commonjsOptions: {
+                    esmExternals: true
+                },
+                skipDiagnostics: false,
+                lib: {
+                    entry: resolve(__dirname, 'src/index.ts'),
+                    formats: [ 'es', 'cjs', 'umd', 'iife' ],
+                    name: 'OpensipsJS',
+                    fileName: (format) => {
+                        return `opensips-js.${format}.js`
+                    },
+                }
+            },
+            plugins: [
+                dts({
+                    rollupTypes: true,
+                    copyDtsFiles: true
+                }),
+                vue(),
+                viteSingleFile()
+            ],
+            resolve: {
+                alias: {
+                    '@': resolve(__dirname, './src'),
+                }
+            },
+            base: './',
+        }
     }
 })

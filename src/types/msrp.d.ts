@@ -1,14 +1,18 @@
 import {
-    AnswerOptions,
-    EndEvent,
+    MSRPSession,
+    MSRPSessionEventMap
+} from '@/lib/msrp/session'
+import { EndEvent,
     IncomingAckEvent,
     IncomingEvent,
     OutgoingAckEvent,
     OutgoingEvent,
-    MSRPSession, MSRPSessionEventMap
-} from '@/lib/msrp/session'
+    SessionDirection } from 'jssip/lib/RTCSession'
 
 import { StreamMediaType } from '@/types/rtc'
+import MSRPMessage from '@/lib/msrp/message'
+
+export { MSRPMessage }
 
 export type ListenerEventType = EndEvent | IncomingEvent | OutgoingEvent | IncomingAckEvent | OutgoingAckEvent
 
@@ -17,15 +21,16 @@ export interface IMessage extends MSRPSessionExtended {
     localMuted?: boolean
     localHold?: boolean
     audioTag?: StreamMediaType
+    terminate(): void
 }
 
 
 export interface MSRPSessionExtended extends MSRPSession {
     id: string
-    _automaticHold: boolean
+    status: string
+    start_time: Date
+    direction: SessionDirection
     _id: string
-    _localHold: boolean
-    _audioMuted: boolean
     _cancel_reason: string
     _contact: string
     _end_time: Date
@@ -34,12 +39,13 @@ export interface MSRPSessionExtended extends MSRPSession {
     _is_canceled: boolean
     _is_confirmed: boolean
     _late_sdp: string
-    _videoMuted: boolean
     _status: number
     _remote_identity: string
     target_addr: Array<string>
     answer(options?: any): void
-    _init_incomeing()
+    _init_incomeing(): void
+    sendMSRP(body: string): void
+    on<T extends keyof MSRPSessionEventMap>(type: T, listener: MSRPSessionEventMap[T]): this;
 }
 
 export interface TriggerMSRPListenerOptions {

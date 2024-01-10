@@ -52,7 +52,7 @@ export type ICallSimplified = Writeable<Pick<ICall, typeof CALL_KEYS_TO_INCLUDE[
 export type IMessageSimplified = Writeable<Pick<IMessage, typeof MESSAGE_KEYS_TO_INCLUDE[number]>>
 
 export function simplifyCallObject (call: ICall): ICallSimplified {
-    const simplified: Partial<ICallSimplified> = {}
+    const simplified: Partial<{ [key in keyof ICallSimplified]: ICallSimplified[keyof ICallSimplified] }> = {}
 
     CALL_KEYS_TO_INCLUDE.forEach(key => {
         if (call[key] !== undefined) {
@@ -66,7 +66,7 @@ export function simplifyCallObject (call: ICall): ICallSimplified {
 }
 
 export function simplifyMessageObject (call: IMessage): IMessageSimplified {
-    const simplified: Partial<IMessageSimplified> = {}
+    const simplified: Partial<{ [key in keyof IMessageSimplified]: IMessageSimplified[keyof IMessageSimplified] }> = {}
 
     MESSAGE_KEYS_TO_INCLUDE.forEach(key => {
         if (call[key] !== undefined) {

@@ -1,15 +1,19 @@
 {
   "name": "@voicenter-team/opensips-js",
-  "version": "1.0.22",
+  "version": "1.0.42",
   "description": "The JS package for opensips",
   "default": "src/index.ts",
-  "main": "build/index.js",
-  "types": "build/index.d.ts",
+  "jsdelivr": "dist/opensips-js.umd.js",
+  "main": "dist/opensips-js.cjs.js",
+  "module": "dist/opensips-js.es.js",
+  "unpkg": "dist/opensips-js.umd.js",
+  "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc --project tsconfig.json && tsc-alias -p tsconfig.json",
+    "build": "yarn run vite-build",
+    "build-no-check": "tsc --noEmit --skipLibCheck --project tsconfig.json && tsc-alias -p tsconfig.json",
     "dev": "vite",
-    "demo-build": "vite build",
-    "docs-build": "yarn run demo-build && cd docs && yarn && yarn run build",
+    "vite-build": "vite build",
+    "docs-build": "yarn run vite-build && cd docs && yarn && yarn run build",
     "test": "echo \"Error: no test specified\" && exit 1",
     "ts-check": "tsc --noEmit",
     "lint": "eslint . --ext .js,.jsx,.cjs,.mjs,.ts --fix --ignore-path .gitignore"
@@ -43,7 +47,8 @@
     "regenerator-runtime": "^0.13.11",
     "tsc-alias": "^1.8.6",
     "typescript": "^4.9.5",
-    "vite": "4.3.9",
+    "vite": "4.4.11",
+    "vite-plugin-dts": "3.5.3",
     "vite-plugin-singlefile": "^0.13.5",
     "vue": "3.2.25"
   },
@@ -56,7 +61,7 @@
     "p-iteration": "^1.1.8"
   },
   "files": [
-    "build",
+    "dist",
     "src/types"
   ]
 }

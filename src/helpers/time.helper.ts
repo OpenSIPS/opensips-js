@@ -1,10 +1,4 @@
-export interface ITimeData {
-    callId: string
-    hours: number
-    minutes: number
-    seconds: number
-    formatted: string
-}
+import { ITimeData } from '@/types/timer'
 
 export type TempTimeData = Omit<ITimeData, 'callId'> & {
     callId: string | undefined

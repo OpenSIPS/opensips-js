@@ -1,5 +1,5 @@
-import { UA } from './UA'
-import { EventEmitter, Listener } from 'events'
+import { UA } from 'jssip'
+import { EventEmitter } from 'events'
 import {
     CallListener,
     ConfirmedListener,
@@ -19,8 +19,21 @@ import {
     SessionDirection,
     RTCPeerConnectionDeprecated,
     OnHoldResult,
-    MediaConstraints
-} from './RTCSession'
+    MediaConstraints,
+    RTCSession,
+    AnswerOptions
+} from 'jssip/lib/RTCSession'
+import { CallOptionsExtended } from '@/types/rtc'
+
+type UAType = typeof UA
+type Listener = (event: unknown) => void
+
+export interface MSRPOptions extends AnswerOptions {
+    eventHandlers?: Partial<MSRPSessionEventMap>
+    anonymous?: boolean;
+    fromUserName?: string;
+    fromDisplayName?: string;
+}
 
 export interface MSRPSessionEventMap {
     'peerconnection': PeerConnectionListener;
@@ -66,15 +79,33 @@ declare enum SessionStatus {
     STATUS_CONFIRMED = 9
 }
 
+export interface UAExtendedInterface extends UA {
+    //_msrp_sessions: MSRPSession[]
+    _transactions: {
+        nist: object,
+        nict: object,
+        ist: object,
+        ict: object
+    }
+
+    call (target: string, options?: CallOptionsExtended): RTCSession
+    newMSRPSession (session: MSRPSession, data: object): void
+    destroyMSRPSession (session: MSRPSession): void
+    receiveRequest (request: any): void
+    startMSRP (target: string, options: MSRPOptions): MSRPSession
+    terminateMSRPSessions (options: object): void
+    stop (): void
+}
+
 export class MSRPSession extends EventEmitter {
-    _ua: UA
+    _ua: UAExtendedInterface
     id: any
     credentials: any
     status: string
     target: string
     message: string
 
-    constructor(ua: UA)
+    constructor(ua: UAExtendedInterface)
 
     get direction(): SessionDirection;
 
@@ -88,9 +119,9 @@ export class MSRPSession extends EventEmitter {
 
     unmute(options?: MediaConstraints): void;
 
-    init_incoming(request)
+    init_incoming(request: any): void;
 
-    isEnded()
+    isEnded(): boolean;
 
     connect(target?:string): void
 
@@ -102,5 +133,12 @@ export class MSRPSession extends EventEmitter {
 
     terminate(options?: any): void
 
+    receiveRequest(request: unknown): void
+
     on<T extends keyof MSRPSessionEventMap>(type: T, listener: MSRPSessionEventMap[T]): this;
+}
+
+export interface DialogType {
+    owner: MSRPSession
+    receiveRequest(request: any): void
 }

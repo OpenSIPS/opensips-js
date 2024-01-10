@@ -1,25 +1,20 @@
 {
   "compilerOptions": {
-    "baseUrl": ".",
-    "target": "es2016",
-    "module": "commonjs",
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
+    "target": "es2017",
+    "module": "ESNext",
+    "moduleResolution": "nodenext",
+    "strict": false,
     "declaration": true,
-    "strict": true,
-    "allowJs": true,
+    "esModuleInterop": true,
     "skipLibCheck": true,
-    "outDir": "./build",
+    "forceConsistentCasingInFileNames": true,
+    "outDir": "./dist",
+    "rootDir": ".",
+    "baseUrl": ".",
     "paths": {
-      "~/*": [
-        "*"
-      ],
-      "@/*": [
-        "src/*"
-      ]
+      "@/*": ["./src/*"]
     }
   },
-  "include": [
-    "./src"
-  ]
+  "include": ["src/*.ts", "src/*.d.ts","src/**/*.ts", "src/**/*.d.ts", "src/**/**/*.ts", "src/**/**/*.d.ts", "src/types/*.d.ts"],
+  "exclude": ["node_modules", "dist"]
 }
