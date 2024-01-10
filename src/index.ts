@@ -10,7 +10,8 @@ import { RTCSessionEvent, UAConfiguration, UAEventMap } from 'jssip/lib/UA'
 import { MSRPSessionEvent } from '@/helpers/UA'
 import { forEach } from 'p-iteration'
 
-import { TempTimeData, ITimeData, setupTime } from '@/helpers/time.helper'
+import { TempTimeData, setupTime } from '@/helpers/time.helper'
+import { ITimeData } from '@/types/timer'
 import { filterObjectKeys } from '@/helpers/filter.helper'
 import {
     syncStream,
@@ -285,6 +286,13 @@ class OpenSIPSJS extends UA {
 
         await this.setMicrophone(defaultMicrophone)
         await this.setSpeaker(defaultSpeaker)
+
+        navigator.mediaDevices.ondevicechange = async () => {
+            await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
+            const devices = await navigator.mediaDevices.enumerateDevices()
+
+            this.setAvailableMediaDevices(devices)
+        }
     }
 
     public setCallTime (value: ITimeData) {
@@ -1479,7 +1487,7 @@ class OpenSIPSJS extends UA {
         msrpSession.sendMSRP(body)
     }
 
-    public async callChangeRoom ({ callId, roomId }: { callId: string, roomId: number }) {
+    private async callChangeRoom ({ callId, roomId }: { callId: string, roomId: number }) {
         const oldRoomId = this.extendedCalls[callId].roomId
 
         this.extendedCalls[callId].roomId = roomId

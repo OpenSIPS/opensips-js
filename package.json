@@ -1,6 +1,6 @@
 {
   "name": "@voicenter-team/opensips-js",
-  "version": "1.0.33",
+  "version": "1.0.42",
   "description": "The JS package for opensips",
   "default": "src/index.ts",
   "jsdelivr": "dist/opensips-js.umd.js",
@@ -9,7 +9,8 @@
   "unpkg": "dist/opensips-js.umd.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc --project tsconfig.json && tsc-alias -p tsconfig.json",
+    "build": "yarn run vite-build",
+    "build-no-check": "tsc --noEmit --skipLibCheck --project tsconfig.json && tsc-alias -p tsconfig.json",
     "dev": "vite",
     "vite-build": "vite build",
     "docs-build": "yarn run vite-build && cd docs && yarn && yarn run build",
