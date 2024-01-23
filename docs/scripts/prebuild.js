@@ -27,15 +27,28 @@ function generateMdContent () {
 }
 
 try {
+    console.log('##########prebuild.js##########')
+
+    console.log('Will check if demo html file exists...', demoMdFilePath)
+
     if (fs.existsSync(demoHtmlBuildPath)) {
+        console.log('Demo html file exists.')
         //file exists
         const fileContent = fs.readFileSync(demoHtmlBuildPath).toString()
+        console.log('Demo html file content:', fileContent.length)
         const demoComponentContent = generateComponentContent(fileContent)
+        console.log('Demo component content:', demoComponentContent.length)
         const demoMdContent = generateMdContent()
+        console.log('Demo md content:', demoMdContent.length)
 
         fs.writeFileSync(demoViewComponentPath, demoComponentContent)
+        console.log('Demo component file generated in', demoViewComponentPath)
         fs.writeFileSync(demoMdFilePath, demoMdContent)
+        console.log('Demo md file generated in', demoMdFilePath)
         fs.copyFileSync(readmePath, indexMdFilePath)
+        console.log('Readme file copied from', readmePath, 'to', indexMdFilePath)
+    } else {
+        console.log('Demo html file does not exist.')
     }
 } catch(err) {
     console.error(err)
