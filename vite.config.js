@@ -4,6 +4,11 @@ import { viteSingleFile } from 'vite-plugin-singlefile'
 import { resolve } from 'path'
 import dts from 'vite-plugin-dts'
 
+// 'lib' | 'demo'
+const target = process.env.TARGET ?? 'lib'
+
+console.log('TARGET:', target)
+
 // https://vitejs.dev/config/
 export default defineConfig(({ command }) => {
     if (command === 'serve') {
@@ -17,8 +22,19 @@ export default defineConfig(({ command }) => {
                 }
             }
         }
-    } else {
-        // command === 'vite-build'
+    } else if (target === 'demo') {
+        return {
+            plugins: [
+                viteSingleFile()
+            ],
+            resolve: {
+                alias: {
+                    '@': resolve(__dirname, './src'),
+                }
+            },
+            root: resolve(__dirname, './demo')
+        }
+    } else if (target === 'lib') {
         return {
             build: {
                 outDir: 'dist',

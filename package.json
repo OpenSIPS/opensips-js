@@ -9,11 +9,10 @@
   "unpkg": "dist/opensips-js.umd.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "yarn run vite-build",
-    "build-no-check": "tsc --noEmit --skipLibCheck --project tsconfig.json && tsc-alias -p tsconfig.json",
     "dev": "vite",
-    "vite-build": "vite build",
-    "docs-build": "yarn run vite-build && cd docs && yarn && yarn run build",
+    "build": "cross-env TARGET=lib vite build",
+    "build-demo": "cross-env TARGET=demo vite build",
+    "docs-build": "yarn run build-demo && cd docs && yarn && yarn run build",
     "test": "echo \"Error: no test specified\" && exit 1",
     "ts-check": "tsc --noEmit",
     "lint": "eslint . --ext .js,.jsx,.cjs,.mjs,.ts --fix --ignore-path .gitignore"
@@ -40,6 +39,7 @@
     "@typescript-eslint/parser": "^5.53.0",
     "@vitejs/plugin-vue": "^4.2.3",
     "@voicenter-team/eslint-config-ts": "^1.0.21",
+    "cross-env": "^7.0.3",
     "dotenv": "^16.0.3",
     "eslint": "^8.35.0",
     "pre-commit": "^1.2.2",

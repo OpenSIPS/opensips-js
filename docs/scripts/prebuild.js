@@ -26,6 +26,15 @@ function generateMdContent () {
 `
 }
 
+/**
+ * 1. Install root dependencies.
+ * 2. Build demo
+ * 3. Go to docs folder
+ * 4. Install docs dependencies
+ * 5. Docs prebuild script to generate demo component and demo md file
+ * 6. Build docs
+ */
+
 try {
     console.log('##########prebuild.js##########')
 
