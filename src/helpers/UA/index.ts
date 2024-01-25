@@ -1,8 +1,8 @@
-import { Options, Message, RTCSessiono, UA as UAType  } from 'jssip'
+import { Options, Message, UA as UAType  } from 'jssip'
 
 import UA, { UAConfiguration } from 'jssip/lib/UA'
 import * as JsSIP_C from 'jssip/lib/Constants'
-import { Originator, RTCSession } from 'jssip/lib/RTCSession'
+import RTCSessionConstructor, { Originator, RTCSession } from 'jssip/lib/RTCSession'
 import Transactions from 'jssip/lib/Transactions'
 import { IncomingRequest } from 'jssip/lib/SIPMessage'
 
@@ -181,11 +181,11 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
                                 request.reply(481)
                             }
                         } else {
-                            if(request.body.search(/MSRP/ig)) {
+                            if(request.body.search(/MSRP/ig) > -1) {
                                 session = new MSRPSession(this)
                                 session.init_incoming(request)
                             } else {
-                                session = new RTCSessiono(this)
+                                session = new RTCSessionConstructor(this)
                                 session.init_incoming(request)
                             }
                         }
