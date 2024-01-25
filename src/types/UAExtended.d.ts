@@ -66,10 +66,6 @@ declare module 'jssip' {
         user_agent?: string;
         extra_headers?: string[];
     }
-    export class RTCSessiono {
-        init_incoming(request: IncomingRequest): void
-        constructor(ua: UA)
-    }
 
     /*export class Dialog {
 
