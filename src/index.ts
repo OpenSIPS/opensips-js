@@ -377,6 +377,8 @@ class OpenSIPSJS extends UA {
         } else {
             call.unhold()
         }
+
+        this.updateCall(call)
     }
 
     private cancelAllOutgoingUnanswered () {
@@ -406,8 +408,6 @@ class OpenSIPSJS extends UA {
         //this.cancelAllOutgoingUnanswered()
         call.answer(this.sipOptions)
         this.updateMSRPSession(call)
-        // TODO: maybe would be better to move to the top
-        //this.setCurrentActiveRoomId(call.roomId)
     }
 
     public async callMove (callId: string, roomId: number) {
@@ -1119,7 +1119,7 @@ class OpenSIPSJS extends UA {
         this.removeMMSRPSession(call._id)
     }
 
-    private newRTCSessionCallback (event: RTCSessionEvent) {
+    private async newRTCSessionCallback (event: RTCSessionEvent) {
         const session = event.session as RTCSessionExtended
 
         if (this.isDND) {
@@ -1200,7 +1200,7 @@ class OpenSIPSJS extends UA {
             }
         })
 
-        this.addCall(event)
+        await this.addCall(event)
 
         if (session.direction === 'outgoing') {
             const roomId = this.getActiveCalls[session.id].roomId
@@ -1337,6 +1337,7 @@ class OpenSIPSJS extends UA {
         Object.values(this.extendedCalls).forEach((call) => {
             if (call.audioTag) {
                 call.audioTag.volume = value
+                this.updateCall(call)
             }
         })
     }
@@ -1491,6 +1492,9 @@ class OpenSIPSJS extends UA {
         const oldRoomId = this.extendedCalls[callId].roomId
 
         this.extendedCalls[callId].roomId = roomId
+
+        const call = this.extendedCalls[callId]
+        this.updateCall(call)
 
         await this.setCurrentActiveRoomId(roomId)
 
