@@ -21,6 +21,7 @@ import {
     isLoggerCompatible
 } from '@/helpers/audio.helper'
 import WebRTCMetrics from '@/helpers/webrtcmetrics/metrics'
+import VUMeter from '@/helpers/VUMeter'
 
 import { WebrtcMetricsConfigType, Probe, ProbeMetricInType, MetricAudioData, MediaDeviceType } from '@/types/webrtcmetrics'
 import { ListenersKeyType, ListenerCallbackFnType } from '@/types/listeners'
@@ -63,6 +64,7 @@ class OpenSIPSJS extends UA {
 
     private readonly options: IOpenSIPSJSOptions
     private logger: CustomLoggerType = console
+    private VUMeter: VUMeter
 
     /* Events */
     private readonly newRTCSessionEventName: ListenersKeyType = 'newRTCSession'
@@ -102,7 +104,8 @@ class OpenSIPSJS extends UA {
         refreshEvery: 1000
     }
 
-    private originalStreamValue: MediaStream | null = null
+    private activeStreamValue: MediaStream | null = null
+    private initialStreamValue: MediaStream | null = null
     private currentActiveRoomIdValue: number | undefined
     private isCallAddingInProgress: string | undefined
     private isMSRPInitializingValue: boolean | undefined
@@ -121,6 +124,9 @@ class OpenSIPSJS extends UA {
         super(configuration)
 
         this.options = options
+        this.VUMeter = new VUMeter({
+            onChangeFunction: this.emitVolumeChange.bind(this)
+        })
 
         if (logger && isLoggerCompatible(logger)) {
             this.logger = logger
@@ -252,8 +258,8 @@ class OpenSIPSJS extends UA {
         return this.selectedMediaDevices.output
     }
 
-    public get originalStream () {
-        return this.originalStreamValue
+    public get activeStream () {
+        return this.activeStreamValue
     }
 
     private setAvailableMediaDevices (devices: Array<MediaDeviceInfo>) {
@@ -272,7 +278,9 @@ class OpenSIPSJS extends UA {
         this.selectedMediaDevices.input = localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE) || 'default'
         this.selectedMediaDevices.output = localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
 
-        await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
+        const tempStream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
+        tempStream.getTracks().forEach(track => track.stop())
+
         const devices = await navigator.mediaDevices.enumerateDevices()
 
         this.setAvailableMediaDevices(devices)
@@ -340,6 +348,13 @@ class OpenSIPSJS extends UA {
         this.removeCallTime(callId)
     }
 
+    private emitVolumeChange (callId: string, volume: number) {
+        this.emit('changeCallVolume', {
+            callId,
+            volume
+        })
+    }
+
     public setMetricsConfig (config: WebrtcMetricsConfigType)  {
         this.metricConfig = {
             ...this.metricConfig,
@@ -364,6 +379,8 @@ class OpenSIPSJS extends UA {
     public doMute (value: boolean) {
         const activeRoomId = this.currentActiveRoomId
         this.setIsMuted(value)
+
+        this.initialStreamValue.getTracks().forEach(track => track.enabled = !value)
         //this.isMuted = value
         this.roomReconfigure(activeRoomId)
     }
@@ -572,6 +589,13 @@ class OpenSIPSJS extends UA {
         })
     }
 
+    private getActiveStream () {
+        const processedStream = processAudioVolume(this.initialStreamValue, this.microphoneInputLevel)
+        processedStream.getTracks().forEach(track => track.enabled = !this.isMuted)
+        this.setActiveStream(processedStream)
+        return processedStream
+    }
+
     public async setMicrophone (dId: string) {
         if (!this.getInputDeviceList.find(({ deviceId }) => deviceId === dId)) {
             return
@@ -579,25 +603,17 @@ class OpenSIPSJS extends UA {
 
         this.setSelectedInputDevice(dId)
 
-        let stream: MediaStream // = null
-
-        try {
-            stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
-        } catch (err) {
-            console.error(err)
-        }
-
         if (Object.keys(this.getActiveCalls).length === 0) {
             return
         }
 
+        await this.setupStream()
+
         const callsInCurrentRoom = Object.values(this.extendedCalls).filter(call => call.roomId === this.currentActiveRoomId)
 
         if (callsInCurrentRoom.length === 1) {
-            Object.values(callsInCurrentRoom).forEach(call => {
-                const processedStream = processAudioVolume(stream, this.microphoneInputLevel)
-                processedStream.getTracks().forEach(track => track.enabled = !this.isMuted)
-                this.setOriginalStream(processedStream)
+            Object.values(callsInCurrentRoom).forEach(async (call) => {
+                const processedStream = this.getActiveStream()
                 call.connection.getSenders()[0].replaceTrack(processedStream.getTracks()[0])
                 this.updateCall(call)
             })
@@ -606,9 +622,29 @@ class OpenSIPSJS extends UA {
         }
     }
 
-    private setOriginalStream (value: MediaStream) {
-        this.originalStreamValue = value
-        this.emit('changeOriginalStream', value)
+    private setActiveStream (value: MediaStream/*, initialStream: MediaStream*/) {
+        /*if (this.activeStreamValue) {
+            this.stopVUMeter('origin')
+            this.activeStreamValue.getTracks().forEach((t) => {
+                t.stop()
+            })
+        }*/
+
+        /*if (this.initialStreamValue) {
+            this.initialStreamValue.getTracks().forEach((t) => {
+                t.stop()
+            })
+        }*/
+
+        if (this.activeStream) {
+            this.stopVUMeter('origin')
+        }
+
+        this.setupVUMeter(value, 'origin')
+
+        this.activeStreamValue = value
+        //this.initialStreamValue = initialStream
+        this.emit('changeActiveStream', value)
     }
 
     public async setSpeaker (dId: string) {
@@ -725,18 +761,8 @@ class OpenSIPSJS extends UA {
                 })
             }
 
-            let stream: MediaStream | undefined
-
-            try {
-                stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
-            } catch (err) {
-                console.error(err)
-            }
-
-            if (stream && callsInRoom[0].connection && callsInRoom[0].connection.getSenders()[0]) {
-                const processedStream = processAudioVolume(stream, this.microphoneInputLevel)
-                processedStream.getTracks().forEach(track => track.enabled = !this.muted)
-                this.setOriginalStream(processedStream)
+            if (callsInRoom[0].connection && callsInRoom[0].connection.getSenders()[0]) {
+                const processedStream = this.getActiveStream()
                 await callsInRoom[0].connection.getSenders()[0].replaceTrack(processedStream.getTracks()[0])
                 this.muteReconfigure(callsInRoom[0])
             }
@@ -792,10 +818,8 @@ class OpenSIPSJS extends UA {
 
             if (sessions[0].roomId === this.currentActiveRoomId) {
                 // Mixing your voice with all the received audio
-                const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
-                const processedStream = processAudioVolume(stream, this.microphoneInputLevel)
-                processedStream.getTracks().forEach(track => track.enabled = !this.isMuted)
-                this.setOriginalStream(processedStream)
+                //const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
+                const processedStream = this.getActiveStream()
                 const sourceStream = audioContext.createMediaStreamSource(processedStream)
 
                 // stream.getTracks().forEach(track => track.enabled = !getters.isMuted) // TODO: Fix this
@@ -1110,7 +1134,16 @@ class OpenSIPSJS extends UA {
     }
 
     private activeCallListRemove (call: ICall) {
-        const callRoomIdToConfigure = this.extendedCalls[call._id].roomId
+        const session = this.extendedCalls[call._id]
+        this.stopVUMeter('origin')
+
+        // TODO: try without it
+        session.connection.getSenders().forEach((sender) => {
+            console.log('SENDER', sender.track)
+            sender.track.stop()
+        })
+
+        const callRoomIdToConfigure = session.roomId
         this.removeCall(call._id)
         this.roomReconfigure(callRoomIdToConfigure)
     }
@@ -1132,6 +1165,7 @@ class OpenSIPSJS extends UA {
 
         // stop timers on ended and failed
         session.on('ended', (event) => {
+            this.stopVUMeter(session.id)
             this.logger.log('Session ended for', session._remote_identity?._uri?._user)
             this.triggerListener({
                 listenerType: CALL_EVENT_LISTENER_TYPE.CALL_ENDED,
@@ -1150,6 +1184,8 @@ class OpenSIPSJS extends UA {
 
             if (!Object.keys(this.extendedCalls).length) {
                 this.setIsMuted(false)
+                this.initialStreamValue.getTracks().forEach((track) => track.stop())
+                this.initialStreamValue = null
             }
         })
         session.on('progress', (event: IncomingEvent | OutgoingEvent) => {
@@ -1161,6 +1197,7 @@ class OpenSIPSJS extends UA {
             })
         })
         session.on('failed', (event) => {
+            this.stopVUMeter(session.id)
             this.logger.log('Session failed for', session._remote_identity?._uri?._user)
             this.triggerListener({
                 listenerType: CALL_EVENT_LISTENER_TYPE.CALL_FAILED,
@@ -1184,6 +1221,8 @@ class OpenSIPSJS extends UA {
 
             if (!Object.keys(this.extendedCalls).length) {
                 this.setIsMuted(false)
+                this.initialStreamValue.getTracks().forEach((track) => track.stop())
+                this.initialStreamValue = null
             }
         })
         session.on('confirmed', (event: IncomingAckEvent | OutgoingAckEvent) => {
@@ -1419,18 +1458,43 @@ class OpenSIPSJS extends UA {
         metrics.startAllProbes()
     }
 
+    private setupVUMeter (stream: MediaStream, deviceId: string) {
+        this.VUMeter.start(stream, deviceId)
+    }
+
+    private stopVUMeter (deviceId: string) {
+        console.log('stopVUMeter', deviceId)
+        this.VUMeter.stop(deviceId)
+    }
+
+    async setupStream () {
+        const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
+
+        if (this.initialStreamValue) {
+            this.initialStreamValue.getTracks().forEach((track) => track.stop())
+            this.initialStreamValue = null
+        }
+        this.initialStreamValue = stream
+    }
+
+
+
     private async triggerAddStream (event: MediaEvent, call: ICall) {
         this.setIsMuted(this.muteWhenJoin)
 
-        const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
-        const processedStream = processAudioVolume(stream, this.microphoneInputLevel)
+        if (!this.initialStreamValue) {
+            await this.setupStream()
+        }
+
+        const processedStream = processAudioVolume(this.initialStreamValue, this.microphoneInputLevel)
         const muteMicro = this.isMuted || this.muteWhenJoin
 
         processedStream.getTracks().forEach(track => track.enabled = !muteMicro)
-        this.setOriginalStream(processedStream)
+        this.setActiveStream(processedStream)
         await call.connection.getSenders()[0].replaceTrack(processedStream.getTracks()[0])
 
         syncStream(event, call, this.selectedOutputDevice, this.speakerVolume)
+        this.setupVUMeter(event.stream, call._id)
         this.getCallQuality(call)
         this.updateCall(call)
     }

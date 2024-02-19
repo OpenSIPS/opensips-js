@@ -1,21 +1,30 @@
 import { IntervalType } from '@/types/rtc'
+import audioContext from '@/helpers/audioContext'
 
 const height = 20
 const lineWidth = 4
-let interval: IntervalType | undefined = undefined
+
+let intervals: { [key: string]: IntervalType | undefined } = {}
 
 export const runIndicator = (stream: MediaStream, deviceId: string) => {
     if (stream && stream.getTracks().length) {
-        //console.log('RUN INDICATOR IF')
-        getVolumeLevelBar(stream, deviceId)
+        requestAnimationFrame(() => getVolumeLevelBar(stream, deviceId))
     } else {
-        //console.log('RUN INDICATOR ELSE')
-        clearVolumeInterval()
+        clearVolumeInterval(deviceId)
     }
 }
 
-export const clearVolumeInterval = () => {
-    clearInterval(interval)
+export const clearVolumeInterval = (deviceId: string) => {
+    clearInterval(intervals[deviceId])
+    delete intervals[deviceId]
+}
+
+export const clearAllIntervals = () => {
+    Object.keys(intervals).forEach((deviceId) => {
+        clearInterval(intervals[deviceId])
+    })
+
+    intervals = {}
 }
 
 const getMaxSmallIndicatorHeight = (value: number) => {
@@ -24,10 +33,8 @@ const getMaxSmallIndicatorHeight = (value: number) => {
 }
 
 const getVolumeLevelBar = (stream: MediaStream, deviceId: string) => {
-    //console.log('IN GET VOLUME LEVEL BAR')
-    //console.log('TRACKS LENGTH', stream.getTracks().length)
-    clearInterval(interval)
-    const audioContext = new AudioContext()
+    clearVolumeInterval(deviceId)
+
     const analyser = audioContext.createAnalyser()
     const microphone = audioContext.createMediaStreamSource(stream)
     const javascriptNode = audioContext.createScriptProcessor(2048, 1, 1)
@@ -53,7 +60,7 @@ const getVolumeLevelBar = (stream: MediaStream, deviceId: string) => {
 
     const canvasContext = canvas.getContext('2d')
 
-    interval = setInterval(() => {
+    intervals[deviceId] = setInterval(() => {
         if (!canvasContext) {
             return
         }
@@ -68,7 +75,6 @@ const getVolumeLevelBar = (stream: MediaStream, deviceId: string) => {
         }
 
         const average = values / length
-        //console.log('average', average)
 
         canvasContext.fillStyle = 'blue' //getComputedStyle(document.body).getPropertyValue('--primary-actions')
         const halfValue = average / 2
