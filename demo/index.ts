@@ -6,6 +6,7 @@ import { IMessage, MSRPSessionExtended } from '../src/types/msrp'
 import MSRPMessage from '../src/lib/msrp/message'
 import { IndexedDBService } from './helpers/IndexedDBService'
 import { getUIDFromSession } from './helpers'
+import { ChangeVolumeEventType } from '../src/types/listeners'
 
 let openSIPSJS = null
 let msrpHistoryDb = null
@@ -77,7 +78,7 @@ const calculateMuteButtonDisability = (sessions: { [key: string]: ICall }) => {
     }
 }
 
-const calculateVolumeLevel = (sessions: { [key: string]: ICall }) => {
+const calculateAgentVolumeLevel = (sessions: { [key: string]: ICall }) => {
     const volumeContainer = document.getElementById('volume-level-agent-voice-level')
 
     if (!Object.keys(sessions).length && volumeContainer) {
@@ -219,9 +220,9 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
         holdAgentButtonEl.innerText = call._localHold ? 'UnHold' : 'Hold'
         holdAgentButtonEl.classList.add('holdAgent')
         let isOnHold = call._localHold
-        holdAgentButtonEl.addEventListener('click', (event) => {
+        holdAgentButtonEl.addEventListener('click', async (event) => {
             event.preventDefault()
-            openSIPSJS.doCallHold({
+            await openSIPSJS.doCallHold({
                 callId: call._id,
                 toHold: !isOnHold
             })
@@ -266,6 +267,21 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
             openSIPSJS.callMove(call._id, parseInt(target.value))
         })
         listItemEl.appendChild(callMoveSelectEl)
+
+        const indicatorSpanEl = document.createElement('span')
+        indicatorSpanEl.setAttribute('id', `volume-level-${call._id}`)
+        indicatorSpanEl.classList.add('volume-wrapper')
+
+        const indicatorCanvasEl = document.createElement('canvas')
+        indicatorCanvasEl.setAttribute('id', `canvas-${call._id}`)
+        indicatorCanvasEl.width = 20
+        indicatorCanvasEl.height = 20
+        indicatorSpanEl.appendChild(indicatorCanvasEl)
+        listItemEl.appendChild(indicatorSpanEl)
+
+        if (call.audioTag?.srcObject) {
+            runIndicator(call.audioTag.srcObject, call._id)
+        }
 
         ulListEl.appendChild(listItemEl)
     })
@@ -442,7 +458,7 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
             .on('changeActiveCalls', (sessions) => {
                 calculateDtmfButtonDisability(sessions)
                 calculateMuteButtonDisability(sessions)
-                calculateVolumeLevel(sessions)
+                calculateAgentVolumeLevel(sessions)
                 calculateActiveCallsNumber(sessions)
                 Object.values(openSIPSJS.getActiveRooms).forEach((room: IRoom) => {
                     upsertRoomData(room, sessions)
@@ -532,8 +548,11 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
                 buttonEl.addEventListener('click', muteButtonEventListener)
                 muteContainerEl.appendChild(buttonEl)
             })
-            .on('changeOriginalStream', (value: MediaStream) => {
+            .on('changeActiveStream', (value: MediaStream) => {
                 runIndicator(value, 'agent-voice-level')
+            })
+            .on('changeCallVolume', (data: ChangeVolumeEventType) => {
+                //console.log('DEMO', data.callId, data.volume)
             })
             .on('currentActiveRoomChanged', (id: number | undefined) => {
                 roomsContainerEl.querySelectorAll('.roomWrapper').forEach((el) => {
@@ -699,7 +718,7 @@ inputLevelApplyButtonEl?.addEventListener(
         event.preventDefault()
 
         const value = Number(inputLevelEl.value)
-        openSIPSJS.microphoneInputLevel = value
+        openSIPSJS.setMicrophoneInputLevel(value)
     })
 
 outputLevelApplyButtonEl?.addEventListener(
@@ -708,7 +727,7 @@ outputLevelApplyButtonEl?.addEventListener(
         event.preventDefault()
 
         const value = Number(outputLevelEl.value)
-        openSIPSJS.speakerVolume = value
+        openSIPSJS.setSpeakerVolume(value)
     })
 
 

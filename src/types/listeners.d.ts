@@ -11,6 +11,11 @@ export type MSRPMessageEventType = {
     session: MSRPSessionExtended
 }
 
+export type ChangeVolumeEventType = {
+    callId: string
+    volume: number
+}
+
 export type readyListener = (value: boolean) => void
 export type changeActiveCallsListener = (event: { [key: string]: ICall }) => void
 export type changeActiveMessagesListener = (event: { [key: string]: IMessage }) => void
@@ -25,7 +30,7 @@ export type changeAvailableDeviceListListener = (event: Array<MediaDeviceInfo>) 
 export type changeMuteWhenJoinListener = (value: boolean) => void
 export type changeIsDNDListener = (value: boolean) => void
 export type changeIsMutedListener = (value: boolean) => void
-export type changeOriginalStreamListener = (value: MediaStream) => void
+export type changeActiveStreamListener = (value: MediaStream) => void
 export type addRoomListener = (value: RoomChangeEmitType) => void
 export type updateRoomListener = (value: RoomChangeEmitType) => void
 export type removeRoomListener = (value: RoomChangeEmitType) => void
@@ -36,6 +41,7 @@ export type MSRPMessageListener = (event: MSRPMessageEventType) => void;
 export type changeCallStatusListener = (event: { [key: string]: ICallStatus }) => void
 export type changeCallTimeListener = (event: { [key: string]: ITimeData }) => void
 export type changeCallMetricsListener = (event: { [key: string]: any }) => void
+export type changeCallVolumeListener = (event: ChangeVolumeEventType) => void
 
 export interface OpenSIPSEventMap extends UAEventMap {
     ready: readyListener
@@ -52,13 +58,14 @@ export interface OpenSIPSEventMap extends UAEventMap {
     changeMuteWhenJoin: changeMuteWhenJoinListener
     changeIsDND: changeIsDNDListener
     changeIsMuted: changeIsMutedListener
-    changeOriginalStream: changeOriginalStreamListener
+    changeActiveStream: changeActiveStreamListener
     addRoom: addRoomListener
     updateRoom: updateRoomListener
     removeRoom: removeRoomListener
     changeCallStatus: changeCallStatusListener
     changeCallTime: changeCallTimeListener
     changeCallMetrics: changeCallMetricsListener
+    changeCallVolume: changeCallVolumeListener
     newMSRPMessage: MSRPMessageListener
     newMSRPSession: MSRPSessionListener
 }

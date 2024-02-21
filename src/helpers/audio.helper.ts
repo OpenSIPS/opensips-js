@@ -1,6 +1,7 @@
 import { ICall, StreamMediaType, MediaEvent, CustomLoggerType } from '@/types/rtc'
 import { Writeable } from '@/types/generic'
 import { IMessage } from '@/types/msrp'
+import audioContext from '@/helpers/audioContext'
 
 type ICallKey = keyof ICall
 const CALL_KEYS_TO_INCLUDE: Array<ICallKey> = [
@@ -78,7 +79,6 @@ export function simplifyMessageObject (call: IMessage): IMessageSimplified {
 }
 
 export function processAudioVolume (stream: MediaStream, volume: number) {
-    const audioContext = new AudioContext()
     const audioSource = audioContext.createMediaStreamSource(stream)
     const audioDestination = audioContext.createMediaStreamDestination()
     const gainNode = audioContext.createGain()
