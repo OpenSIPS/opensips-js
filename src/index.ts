@@ -278,8 +278,9 @@ class OpenSIPSJS extends UA {
         this.selectedMediaDevices.input = localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE) || 'default'
         this.selectedMediaDevices.output = localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
 
-        const tempStream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
-        tempStream.getTracks().forEach(track => track.stop())
+        // Ask input media permissions
+        const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
+        stream.getTracks().forEach(track => track.stop())
 
         const devices = await navigator.mediaDevices.enumerateDevices()
 
@@ -381,21 +382,36 @@ class OpenSIPSJS extends UA {
         this.setIsMuted(value)
 
         this.initialStreamValue.getTracks().forEach(track => track.enabled = !value)
-        //this.isMuted = value
         this.roomReconfigure(activeRoomId)
     }
 
-    public doCallHold ({ callId, toHold, automatic }: { callId: string, toHold: boolean, automatic?: boolean }) {
+    public async doCallHold ({ callId, toHold, automatic }: { callId: string, toHold: boolean, automatic?: boolean }) {
         const call = this.extendedCalls[callId]
         call._automaticHold = automatic ?? false
 
-        if (toHold) {
-            call.hold()
-        } else {
-            call.unhold()
-        }
+        const holdPromise = new Promise<void>((resolve) => {
+            const resolveHold = () => {
+                resolve()
+            }
+
+            if (toHold) {
+                call.hold({}, resolveHold)
+            } else {
+                call.unhold({}, resolveHold)
+            }
+        })
+
+        await holdPromise
 
         this.updateCall(call)
+
+        const callsInRoom = Object.values(this.extendedCalls).filter(call =>
+            call.roomId === this.currentActiveRoomId
+            && (toHold ? callId !== call._id: true)
+        )
+        if (callsInRoom.length > 1) {
+            await this.doConference(callsInRoom)
+        }
     }
 
     private cancelAllOutgoingUnanswered () {
@@ -622,20 +638,7 @@ class OpenSIPSJS extends UA {
         }
     }
 
-    private setActiveStream (value: MediaStream/*, initialStream: MediaStream*/) {
-        /*if (this.activeStreamValue) {
-            this.stopVUMeter('origin')
-            this.activeStreamValue.getTracks().forEach((t) => {
-                t.stop()
-            })
-        }*/
-
-        /*if (this.initialStreamValue) {
-            this.initialStreamValue.getTracks().forEach((t) => {
-                t.stop()
-            })
-        }*/
-
+    private setActiveStream (value: MediaStream) {
         if (this.activeStream) {
             this.stopVUMeter('origin')
         }
@@ -643,7 +646,6 @@ class OpenSIPSJS extends UA {
         this.setupVUMeter(value, 'origin')
 
         this.activeStreamValue = value
-        //this.initialStreamValue = initialStream
         this.emit('changeActiveStream', value)
     }
 
@@ -747,7 +749,7 @@ class OpenSIPSJS extends UA {
             this.deleteRoomIfEmpty(roomId)
         } else if (callsInRoom.length === 1 && this.currentActiveRoomId !== roomId) {
             if (!callsInRoom[0].isOnHold().local) {
-                this.doCallHold({
+                await this.doCallHold({
                     callId: callsInRoom[0].id,
                     toHold: true,
                     automatic: true
@@ -755,7 +757,7 @@ class OpenSIPSJS extends UA {
             }
         } else if (callsInRoom.length === 1 && this.currentActiveRoomId === roomId) {
             if (callsInRoom[0].isOnHold().local && callsInRoom[0]._automaticHold) {
-                this.doCallHold({
+                await this.doCallHold({
                     callId: callsInRoom[0].id,
                     toHold: false
                 })
@@ -772,10 +774,10 @@ class OpenSIPSJS extends UA {
     }
 
     private async doConference (sessions: Array<ICall>) {
-        sessions.forEach(call => {
-            if (call._localHold) {
-                this.doCallHold({
-                    callId: call._id,
+        await forEach(sessions, async (session: ICall) => {
+            if (session._localHold) {
+                await this.doCallHold({
+                    callId: session._id,
                     toHold: false
                 })
             }
@@ -792,16 +794,15 @@ class OpenSIPSJS extends UA {
             }
         })
 
-        // Use the Web Audio API to mix the received tracks
-        const audioContext = new AudioContext()
-        const allReceivedMediaStreams = new MediaStream()
-
         // For each call we will build dedicated mix for all other calls
         await forEach(sessions, async (session: ICall) => {
             if (session === null || session === undefined) {
                 return
             }
 
+            // Use the Web Audio API to mix the received tracks
+            const audioContext = new AudioContext()
+            const allReceivedMediaStreams = new MediaStream()
             const mixedOutput = audioContext.createMediaStreamDestination()
 
             session.connection.getReceivers().forEach((receiver:  RTCRtpReceiver) => {
@@ -810,7 +811,6 @@ class OpenSIPSJS extends UA {
 
                     if (receiver.track.id !== track.id) {
                         const sourceStream = audioContext.createMediaStreamSource(new MediaStream([ track ]))
-
                         sourceStream.connect(mixedOutput)
                     }
                 })
@@ -818,7 +818,6 @@ class OpenSIPSJS extends UA {
 
             if (sessions[0].roomId === this.currentActiveRoomId) {
                 // Mixing your voice with all the received audio
-                //const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
                 const processedStream = this.getActiveStream()
                 const sourceStream = audioContext.createMediaStreamSource(processedStream)
 
@@ -844,7 +843,7 @@ class OpenSIPSJS extends UA {
                 receiver.track.enabled = !value
             })
             this.updateCall(call)
-            this.roomReconfigure(call.roomId)
+            //this.roomReconfigure(call.roomId)
         }
     }
 
@@ -1139,7 +1138,6 @@ class OpenSIPSJS extends UA {
 
         // TODO: try without it
         session.connection.getSenders().forEach((sender) => {
-            console.log('SENDER', sender.track)
             sender.track.stop()
         })
 
@@ -1477,10 +1475,8 @@ class OpenSIPSJS extends UA {
         this.initialStreamValue = stream
     }
 
-
-
     private async triggerAddStream (event: MediaEvent, call: ICall) {
-        this.setIsMuted(this.muteWhenJoin)
+        this.setIsMuted(this.muteWhenJoin || this.isMuted)
 
         if (!this.initialStreamValue) {
             await this.setupStream()
