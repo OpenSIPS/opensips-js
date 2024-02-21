@@ -866,7 +866,7 @@ class OpenSIPSJS extends UA {
 
     public callTransfer (callId: string, target: string) {
         if (target.toString().length === 0) {
-            return console.error('Target must be passed')
+            return new Error('Target must be passed')
         }
 
         const call = this.extendedCalls[callId]
@@ -1461,7 +1461,6 @@ class OpenSIPSJS extends UA {
     }
 
     private stopVUMeter (deviceId: string) {
-        console.log('stopVUMeter', deviceId)
         this.VUMeter.stop(deviceId)
     }
 

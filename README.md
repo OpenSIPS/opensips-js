@@ -29,23 +29,23 @@ const openSIPSJS = new OpenSIPSJS({
 Then you will be able to call next methods on openSIPSJS instance:
 
 ### Methods
-- `async setMediaDevices(setDefaults: Boolean = false)` - will set up media devices
-- `async setMicrophone(deviceId: String)` - set passed device as input device for calls
-- `async setSpeaker(deviceId: String)` - set passed device as output device for calls
-- `async setCurrentActiveRoomId(roomId: Number)` - move to the room
-- `doCallHold({callId: Number, toHold: Boolean, automatic: Boolean})` - hold/unhold call by id
-- `doCall(target: String, addToCurrentRoom: Boolean)` - call to the target. If addToCurrentRoom is true then the call will be added to the user's current room
-- `callTerminate(callId: String)` - terminate call
-- `callTransfer({callId: String, target: String})` - transfer call to target
-- `callMerge(roomId: Number)` - merge calls in specific room
-- `callAnswer(callId: String)` - answer the call
-- `setMetricsConfig(config: WebrtcMetricsConfigType)` - set the metric config (used for audio quality indicator)
-- `doMute(muted: Boolean)` - set the agent muteness
-- `setDND(value: Boolean)` - set the agent "Do not disturb" status
-- `async callChangeRoom({callId: String, roomId: Number})` - move call to the room
-- `callMove({callId: String, roomId: Number})` - Same as callChangeRoom. Move call to the specific room
-- `subscribe({type: String, listener: function})` - subscribe to an event. Available events: `new_call`, `ended`, `progress`, `failed`, `confirmed`
-- `removeIListener(type: String)` - remove event listener
+- `setMediaDevices(setDefaults: Boolean = false): Promise<void>` - will set up media devices
+- `setMicrophone(deviceId: String): Promise<void>` - set passed device as input device for calls
+- `setSpeaker(deviceId: String): Promise<void>` - set passed device as output device for calls
+- `setCurrentActiveRoomId(roomId: Number): Promise<void>` - move to the room
+- `doCallHold({callId: Number, toHold: Boolean, automatic: Boolean}): Promise<void>` - hold/unhold call by id
+- `doCall(target: String, addToCurrentRoom: Boolean): void` - call to the target. If addToCurrentRoom is true then the call will be added to the user's current room
+- `callTerminate(callId: String): void` - terminate call
+- `callTransfer({callId: String, target: String}): void` - transfer call to target
+- `callMerge(roomId: Number): void` - merge calls in specific room
+- `callAnswer(callId: String): void` - answer the call
+- `setMetricsConfig(config: WebrtcMetricsConfigType): void` - set the metric config (used for audio quality indicator)
+- `doMute(muted: Boolean): void` - set the agent muteness
+- `setDND(value: Boolean): void` - set the agent "Do not disturb" status
+- `callChangeRoom({callId: String, roomId: Number}): Promise<void>` - move call to the room
+- `callMove({callId: String, roomId: Number}): Promise<void>` - Same as callChangeRoom. Move call to the specific room
+- `subscribe({type: String, listener: function}): void` - subscribe to an event. Available events: `new_call`, `ended`, `progress`, `failed`, `confirmed`
+- `removeIListener(type: String): void` - remove event listener
 
 WebrtcMetricsConfigType
 

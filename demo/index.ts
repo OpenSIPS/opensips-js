@@ -220,9 +220,9 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
         holdAgentButtonEl.innerText = call._localHold ? 'UnHold' : 'Hold'
         holdAgentButtonEl.classList.add('holdAgent')
         let isOnHold = call._localHold
-        holdAgentButtonEl.addEventListener('click', (event) => {
+        holdAgentButtonEl.addEventListener('click', async (event) => {
             event.preventDefault()
-            openSIPSJS.doCallHold({
+            await openSIPSJS.doCallHold({
                 callId: call._id,
                 toHold: !isOnHold
             })
@@ -552,7 +552,7 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
                 runIndicator(value, 'agent-voice-level')
             })
             .on('changeCallVolume', (data: ChangeVolumeEventType) => {
-                console.log('DEMO', data.callId, data.volume)
+                //console.log('DEMO', data.callId, data.volume)
             })
             .on('currentActiveRoomChanged', (id: number | undefined) => {
                 roomsContainerEl.querySelectorAll('.roomWrapper').forEach((el) => {
