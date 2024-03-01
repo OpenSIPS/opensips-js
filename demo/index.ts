@@ -52,7 +52,12 @@ const messagesContainerEl = document.getElementById('messagesContainer')
 
 const muteButtonEventListener = (event: MouseEvent) => {
     event.preventDefault()
-    openSIPSJS.doMute(!openSIPSJS.isMuted)
+
+    if (openSIPSJS.isMuted) {
+        openSIPSJS.unmute()
+    } else {
+        openSIPSJS.mute()
+    }
 }
 
 const calculateDtmfButtonDisability = (sessions: { [key: string]: ICall }) => {
@@ -222,10 +227,13 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
         let isOnHold = call._localHold
         holdAgentButtonEl.addEventListener('click', async (event) => {
             event.preventDefault()
-            await openSIPSJS.doCallHold({
-                callId: call._id,
-                toHold: !isOnHold
-            })
+
+            if (isOnHold) {
+                await openSIPSJS.unhold(call._id)
+            } else {
+                await openSIPSJS.hold(call._id)
+            }
+
             holdAgentButtonEl.innerText = !isOnHold ? 'UnHold' : 'Hold'
             isOnHold = !isOnHold
         })
@@ -619,10 +627,7 @@ makeCallFormEl?.addEventListener(
             return
         }
 
-        openSIPSJS.doCall({
-            target,
-            addToCurrentRoom: addCallToCurrentRoom
-        })
+        openSIPSJS.initCall(target, addCallToCurrentRoom)
     }
 )
 
@@ -765,6 +770,6 @@ roomSelectEl?.addEventListener(
         const target = event.target as HTMLSelectElement
         const parsedValue = parseInt(target.value)
         const roomId = isNaN(parsedValue) ? undefined: parsedValue
-        await openSIPSJS.setCurrentActiveRoomId(roomId)
+        await openSIPSJS.setActiveRoom(roomId)
     })
 

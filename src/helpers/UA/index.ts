@@ -37,6 +37,9 @@ export interface OutgoingMSRPSessionEvent {
     request: IncomingRequest;
 }
 
+const aaa = new UA()
+
+
 export type MSRPSessionEvent = IncomingMSRPSessionEvent | OutgoingMSRPSessionEvent;
 
 const UAConstructor: typeof UAType = UA as unknown as typeof UAType

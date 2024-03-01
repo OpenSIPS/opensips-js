@@ -29,18 +29,19 @@ const openSIPSJS = new OpenSIPSJS({
 Then you will be able to call next methods on openSIPSJS instance:
 
 ### Methods
-- `setMediaDevices(setDefaults: Boolean = false): Promise<void>` - will set up media devices
 - `setMicrophone(deviceId: String): Promise<void>` - set passed device as input device for calls
 - `setSpeaker(deviceId: String): Promise<void>` - set passed device as output device for calls
-- `setCurrentActiveRoomId(roomId: Number): Promise<void>` - move to the room
-- `doCallHold({callId: Number, toHold: Boolean, automatic: Boolean}): Promise<void>` - hold/unhold call by id
-- `doCall(target: String, addToCurrentRoom: Boolean): void` - call to the target. If addToCurrentRoom is true then the call will be added to the user's current room
+- `setActiveRoom(roomId: Number): Promise<void>` - switch to the room
+- `hold(callId: String, automatic: Boolean): Promise<void>` - put call on hold
+- `unhold(callId: String): Promise<void>` - unhold a call
+- `initCall(target: String, addToCurrentRoom: Boolean): void` - call to the target. If addToCurrentRoom is true then the call will be added to the user's current room
 - `callTerminate(callId: String): void` - terminate call
 - `callTransfer({callId: String, target: String}): void` - transfer call to target
 - `callMerge(roomId: Number): void` - merge calls in specific room
 - `callAnswer(callId: String): void` - answer the call
 - `setMetricsConfig(config: WebrtcMetricsConfigType): void` - set the metric config (used for audio quality indicator)
-- `doMute(muted: Boolean): void` - set the agent muteness
+- `mute(): void` - mute the agent
+- `unmute(): void` - unmute the agent
 - `setDND(value: Boolean): void` - set the agent "Do not disturb" status
 - `callChangeRoom({callId: String, roomId: Number}): Promise<void>` - move call to the room
 - `callMove({callId: String, roomId: Number}): Promise<void>` - Same as callChangeRoom. Move call to the specific room
