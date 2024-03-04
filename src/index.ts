@@ -1359,8 +1359,8 @@ class OpenSIPSJS extends UA {
     }
 
     public setMicrophoneSensitivity (value: number) {
-        if (value < 0 || value > 2) {
-            throw new Error('Value should be in range from 0 to 2!')
+        if (value < 0 || value > 1) {
+            throw new Error('Value should be in range from 0 to 1!')
         }
         this.microphoneInputLevelValue = value
         this.roomReconfigure(this.currentActiveRoomId)
