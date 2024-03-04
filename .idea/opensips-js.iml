@@ -9,5 +9,11 @@
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
+    <orderEntry type="module" module-name="vsip" />
+    <orderEntry type="module" module-name="voice-webrtc-test" />
+    <orderEntry type="module" module-name="chrome-extension-client-redesign" />
+    <orderEntry type="module" module-name="vsip-next" />
+    <orderEntry type="module" module-name="opensipsjs-widget" />
+    <orderEntry type="module" module-name="VoicenterEventsSDK" />
   </component>
 </module>

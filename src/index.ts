@@ -33,7 +33,6 @@ import {
     MediaEvent,
     ICallStatusUpdate,
     IRoom,
-    IDoCallParam,
     ICallStatus,
     IRoomUpdate,
     IOpenSIPSJSOptions,
@@ -55,8 +54,8 @@ import { CALL_EVENT_LISTENER_TYPE } from '@/enum/call.event.listener.type'
 const CALL_STATUS_UNANSWERED = 0
 
 const STORAGE_KEYS = {
-    SELECTED_INPUT_DEVICE: 'selectedInputDevice',
-    SELECTED_OUTPUT_DEVICE: 'selectedOutputDevice'
+    SELECTED_INPUT_DEVICE: 'OpensipsJSInputDevice',
+    SELECTED_OUTPUT_DEVICE: 'OpensipsJSOutputDevice'
 }
 
 class OpenSIPSJS extends UA {
@@ -88,7 +87,7 @@ class OpenSIPSJS extends UA {
     private extendedMessages: { [key: string]: IMessage } = {}
     private msrpHistory: { [key: string]: Array<MSRPMessage> } = {}
 
-    private microphoneInputLevelValue = 2 // [0;2]
+    private microphoneInputLevelValue = 1 // [0;1]
     private speakerVolumeValue = 1 // [0;1]
     private availableMediaDevices: Array<MediaDeviceInfo> = []
     private selectedMediaDevices: { [key in MediaDeviceType]: string } = {
@@ -223,13 +222,6 @@ class OpenSIPSJS extends UA {
         return this.availableMediaDevices.filter(device => device.kind === 'audiooutput')
     }
 
-    /*getInputDeviceList: (state) => {
-        return state.availableMediaDevices.filter(device => device.kind === 'audioinput');
-    },
-    getOutputDeviceList: (state) => {
-        return state.availableMediaDevices.filter(device => device.kind === 'audiooutput');
-    }*/
-
     public get getUserMediaConstraints () {
         return {
             audio: {
@@ -239,15 +231,6 @@ class OpenSIPSJS extends UA {
             },
             video: false
         }
-    }
-
-
-    public get getInputDefaultDevice () {
-        return this.getInputDeviceList.find(device => device.deviceId === 'default')
-    }
-
-    public get getOutputDefaultDevice () {
-        return this.getOutputDeviceList.find(device => device.deviceId === 'default')
     }
 
     public get selectedInputDevice () {
@@ -274,9 +257,9 @@ class OpenSIPSJS extends UA {
         this.setAvailableMediaDevices(devices)
     }
 
-    public async setMediaDevices (setDefaults = false) {
-        this.selectedMediaDevices.input = localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE) || 'default'
-        this.selectedMediaDevices.output = localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
+    private async initializeMediaDevices () {
+        const initialInputDevice = localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE) || 'default'
+        const initialOutputDevice = localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
 
         // Ask input media permissions
         const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
@@ -286,22 +269,13 @@ class OpenSIPSJS extends UA {
 
         this.setAvailableMediaDevices(devices)
 
-        const defaultMicrophone = setDefaults
-            ? this.getInputDefaultDevice?.deviceId || ''
-            : ''
-        const defaultSpeaker = setDefaults
-            ? this.getOutputDefaultDevice?.deviceId || ''
-            : ''
+        await this.setMicrophone(initialInputDevice)
+        await this.setSpeaker(initialOutputDevice)
 
-        await this.setMicrophone(defaultMicrophone)
-        await this.setSpeaker(defaultSpeaker)
-
-        navigator.mediaDevices.ondevicechange = async () => {
-            await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
-            const devices = await navigator.mediaDevices.enumerateDevices()
-
-            this.setAvailableMediaDevices(devices)
-        }
+        navigator.mediaDevices.addEventListener('devicechange', async () => {
+            const newDevices = await navigator.mediaDevices.enumerateDevices()
+            this.setAvailableMediaDevices(newDevices)
+        })
     }
 
     public setCallTime (value: ITimeData) {
@@ -377,7 +351,7 @@ class OpenSIPSJS extends UA {
         this.emit('changeIsMuted', value)
     }
 
-    public doMute (value: boolean) {
+    private processMute (value: boolean) {
         const activeRoomId = this.currentActiveRoomId
         this.setIsMuted(value)
 
@@ -385,7 +359,15 @@ class OpenSIPSJS extends UA {
         this.roomReconfigure(activeRoomId)
     }
 
-    public async doCallHold ({ callId, toHold, automatic }: { callId: string, toHold: boolean, automatic?: boolean }) {
+    public mute () {
+        this.processMute(true)
+    }
+
+    public unmute () {
+        this.processMute(false)
+    }
+
+    private async processHold ({ callId, toHold, automatic }: { callId: string, toHold: boolean, automatic?: boolean }) {
         const call = this.extendedCalls[callId]
         call._automaticHold = automatic ?? false
 
@@ -414,21 +396,36 @@ class OpenSIPSJS extends UA {
         }
     }
 
+    public holdCall (callId: string, automatic = false) {
+        return this.processHold({
+            callId,
+            automatic,
+            toHold: true,
+        })
+    }
+
+    public unholdCall (callId: string) {
+        return this.processHold({
+            callId,
+            toHold: false,
+        })
+    }
+
     private cancelAllOutgoingUnanswered () {
         Object.values(this.getActiveCalls).filter(call => {
             return call.direction === 'outgoing'
                 && call.status === CALL_STATUS_UNANSWERED
-        }).forEach(call => this.callTerminate(call._id))
+        }).forEach(call => this.terminateCall(call._id))
     }
 
-    public callAnswer (callId: string) {
+    public answerCall (callId: string) {
         const call = this.extendedCalls[callId]
 
         this.cancelAllOutgoingUnanswered()
         call.answer(this.sipOptions)
         this.updateCall(call)
         // TODO: maybe would be better to move to the top
-        this.setCurrentActiveRoomId(call.roomId)
+        this.setActiveRoom(call.roomId)
 
         call.connection.addEventListener('addstream', async (event: Event) => {
             this.triggerAddStream(event as MediaEvent, call)
@@ -443,12 +440,12 @@ class OpenSIPSJS extends UA {
         this.updateMSRPSession(call)
     }
 
-    public async callMove (callId: string, roomId: number) {
+    public async moveCall (callId: string, roomId: number) {
         this.updateCallStatus({
             callId,
             isMoving: true
         })
-        await this.callChangeRoom({
+        await this.processRoomChange({
             callId,
             roomId
         })
@@ -498,7 +495,7 @@ class OpenSIPSJS extends UA {
         return callInfoHeader && regex.test(callInfoHeader)
     }
 
-    private _addCall (value: ICall, emitEvent = true) {
+    private addCall (value: ICall, emitEvent = true) {
         this.activeCalls = {
             ...this.activeCalls,
             [value._id]: simplifyCallObject(value) as ICall
@@ -606,7 +603,7 @@ class OpenSIPSJS extends UA {
     }
 
     private getActiveStream () {
-        const processedStream = processAudioVolume(this.initialStreamValue, this.microphoneInputLevel)
+        const processedStream = processAudioVolume(this.initialStreamValue, this.microphoneInputLevel * 2)
         processedStream.getTracks().forEach(track => track.enabled = !this.isMuted)
         this.setActiveStream(processedStream)
         return processedStream
@@ -749,18 +746,11 @@ class OpenSIPSJS extends UA {
             this.deleteRoomIfEmpty(roomId)
         } else if (callsInRoom.length === 1 && this.currentActiveRoomId !== roomId) {
             if (!callsInRoom[0].isOnHold().local) {
-                await this.doCallHold({
-                    callId: callsInRoom[0].id,
-                    toHold: true,
-                    automatic: true
-                })
+                await this.holdCall(callsInRoom[0].id, true)
             }
         } else if (callsInRoom.length === 1 && this.currentActiveRoomId === roomId) {
             if (callsInRoom[0].isOnHold().local && callsInRoom[0]._automaticHold) {
-                await this.doCallHold({
-                    callId: callsInRoom[0].id,
-                    toHold: false
-                })
+                await this.unholdCall(callsInRoom[0].id)
             }
 
             if (callsInRoom[0].connection && callsInRoom[0].connection.getSenders()[0]) {
@@ -776,10 +766,7 @@ class OpenSIPSJS extends UA {
     private async doConference (sessions: Array<ICall>) {
         await forEach(sessions, async (session: ICall) => {
             if (session._localHold) {
-                await this.doCallHold({
-                    callId: session._id,
-                    toHold: false
-                })
+                await this.unholdCall(session._id)
             }
         })
 
@@ -834,7 +821,7 @@ class OpenSIPSJS extends UA {
         })
     }
 
-    public muteCaller (callId: string, value: boolean) {
+    private processCallerMute (callId: string, value: boolean) {
         const call = this.extendedCalls[callId]
 
         if (call && call.connection.getReceivers().length) {
@@ -847,7 +834,15 @@ class OpenSIPSJS extends UA {
         }
     }
 
-    public callTerminate (callId: string) {
+    public muteCaller (callId: string) {
+        this.processCallerMute(callId, true)
+    }
+
+    public unmuteCaller (callId: string) {
+        this.processCallerMute(callId, false)
+    }
+
+    public terminateCall (callId: string) {
         const call = this.extendedCalls[callId]
 
         if (call._status !== 8) {
@@ -864,7 +859,7 @@ class OpenSIPSJS extends UA {
         }
     }
 
-    public callTransfer (callId: string, target: string) {
+    public transferCall (callId: string, target: string) {
         if (target.toString().length === 0) {
             return new Error('Target must be passed')
         }
@@ -892,7 +887,7 @@ class OpenSIPSJS extends UA {
         this.updateCall(call)
     }
 
-    public callMerge (roomId: number) {
+    public mergeCall (roomId: number) {
         const callsInRoom = Object.values(this.extendedCalls).filter((call) => call.roomId === roomId)
         if (callsInRoom.length !== 2) return
 
@@ -945,7 +940,7 @@ class OpenSIPSJS extends UA {
         this.setTimeInterval(callId, interval)
     }
 
-    public async setCurrentActiveRoomId (roomId: number | undefined) {
+    public async setActiveRoom (roomId: number | undefined) {
         const oldRoomId = this.currentActiveRoomId
 
         if (roomId === oldRoomId) {
@@ -987,7 +982,7 @@ class OpenSIPSJS extends UA {
         }
     }
 
-    private async addCall (event: RTCSessionEvent) {
+    private async setupCall (event: RTCSessionEvent) {
         const session = event.session as RTCSessionExtended
         const sessionAlreadyInActiveCalls = this.getActiveCalls[session.id]
 
@@ -1043,17 +1038,17 @@ class OpenSIPSJS extends UA {
         call.autoAnswer = doAutoAnswer
 
         if (doAutoAnswer) {
-            this._addCall(call, false)
+            this.addCall(call, false)
         } else {
-            this._addCall(call)
+            this.addCall(call)
         }
 
-        // this._addCall(call)
+        // this.addCall(call)
         this.addCallStatus(session.id)
         this.addRoom(newRoomInfo)
 
         if (doAutoAnswer) {
-            this.callAnswer(call._id)
+            this.answerCall(call._id)
         }
     }
 
@@ -1237,11 +1232,11 @@ class OpenSIPSJS extends UA {
             }
         })
 
-        await this.addCall(event)
+        await this.setupCall(event)
 
         if (session.direction === 'outgoing') {
             const roomId = this.getActiveCalls[session.id].roomId
-            this.setCurrentActiveRoomId(roomId)
+            this.setActiveRoom(roomId)
         }
     }
 
@@ -1353,7 +1348,7 @@ class OpenSIPSJS extends UA {
         this.logger.log('Connecting to', this.options.socketInterfaces[0])
         this.start()
 
-        this.setMediaDevices(true)
+        this.initializeMediaDevices()
 
         return this
     }
@@ -1363,7 +1358,10 @@ class OpenSIPSJS extends UA {
         this.emit('changeMuteWhenJoin', value)
     }
 
-    public setMicrophoneInputLevel (value: number) {
+    public setMicrophoneSensitivity (value: number) {
+        if (value < 0 || value > 1) {
+            throw new Error('Value should be in range from 0 to 1!')
+        }
         this.microphoneInputLevelValue = value
         this.roomReconfigure(this.currentActiveRoomId)
     }
@@ -1481,7 +1479,7 @@ class OpenSIPSJS extends UA {
             await this.setupStream()
         }
 
-        const processedStream = processAudioVolume(this.initialStreamValue, this.microphoneInputLevel)
+        const processedStream = processAudioVolume(this.initialStreamValue, this.microphoneInputLevel * 2)
         const muteMicro = this.isMuted || this.muteWhenJoin
 
         processedStream.getTracks().forEach(track => track.enabled = !muteMicro)
@@ -1494,7 +1492,7 @@ class OpenSIPSJS extends UA {
         this.updateCall(call)
     }
 
-    public doCall ({ target, addToCurrentRoom }: IDoCallParam) {
+    public initCall (target: string, addToCurrentRoom: boolean) {
         this.checkInitialized()
 
         if (target.length === 0) {
@@ -1510,7 +1508,7 @@ class OpenSIPSJS extends UA {
         this.callAddingInProgress = call.id
 
         if (addToCurrentRoom && this.currentActiveRoomId !== undefined) {
-            this.callChangeRoom({
+            this.processRoomChange({
                 callId: call.id,
                 roomId: this.currentActiveRoomId
             })
@@ -1547,7 +1545,7 @@ class OpenSIPSJS extends UA {
         msrpSession.sendMSRP(body)
     }
 
-    private async callChangeRoom ({ callId, roomId }: { callId: string, roomId: number }) {
+    private async processRoomChange ({ callId, roomId }: { callId: string, roomId: number }) {
         const oldRoomId = this.extendedCalls[callId].roomId
 
         this.extendedCalls[callId].roomId = roomId
@@ -1555,7 +1553,7 @@ class OpenSIPSJS extends UA {
         const call = this.extendedCalls[callId]
         this.updateCall(call)
 
-        await this.setCurrentActiveRoomId(roomId)
+        await this.setActiveRoom(roomId)
 
         return Promise.all([
             this.roomReconfigure(oldRoomId),

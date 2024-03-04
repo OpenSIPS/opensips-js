@@ -29,23 +29,49 @@ const openSIPSJS = new OpenSIPSJS({
 Then you will be able to call next methods on openSIPSJS instance:
 
 ### Methods
-- `setMediaDevices(setDefaults: Boolean = false): Promise<void>` - will set up media devices
+- `begin(): OpensipsInstance` - start opensips
+- `initCall(target: String, addToCurrentRoom: Boolean): void` - call to the target. If addToCurrentRoom is true then the call will be added to the user's current room
+- `holdCall(callId: String, automatic?: Boolean): Promise<void>` - put call on hold
+- `unholdCall(callId: String): Promise<void>` - unhold a call
+- `terminateCall(callId: String): void` - terminate call
+- `moveCall(callId: String, roomId: Number): Promise<void>` - Same as callChangeRoom. Move call to the specific room
+- `transferCall(callId: String, target: String): void` - transfer call to target
+- `mergeCall(roomId: Number): void` - merge calls in specific room. Works only for rooms with 2 calls inside
+- `answerCall(callId: String): void` - answer a call
+- `mute(): void` - mute ourself
+- `unmute(): void` - unmute ourself
+- `muteCaller(callId: String): void` - mute caller
+- `unmuteCaller(callId: String): void` - unmute caller
 - `setMicrophone(deviceId: String): Promise<void>` - set passed device as input device for calls
 - `setSpeaker(deviceId: String): Promise<void>` - set passed device as output device for calls
-- `setCurrentActiveRoomId(roomId: Number): Promise<void>` - move to the room
-- `doCallHold({callId: Number, toHold: Boolean, automatic: Boolean}): Promise<void>` - hold/unhold call by id
-- `doCall(target: String, addToCurrentRoom: Boolean): void` - call to the target. If addToCurrentRoom is true then the call will be added to the user's current room
-- `callTerminate(callId: String): void` - terminate call
-- `callTransfer({callId: String, target: String}): void` - transfer call to target
-- `callMerge(roomId: Number): void` - merge calls in specific room
-- `callAnswer(callId: String): void` - answer the call
-- `setMetricsConfig(config: WebrtcMetricsConfigType): void` - set the metric config (used for audio quality indicator)
-- `doMute(muted: Boolean): void` - set the agent muteness
+- `setActiveRoom(roomId: Number): Promise<void>` - switch to the room
+- `setMicrophoneSensitivity(value: Number): void` - set sensitivity of microphone. Value should be in range from 0 to 1
+- `setSpeakerVolume(value: Number): void` - set volume of callers. Value should be in range from 0 to 1
 - `setDND(value: Boolean): void` - set the agent "Do not disturb" status
-- `callChangeRoom({callId: String, roomId: Number}): Promise<void>` - move call to the room
-- `callMove({callId: String, roomId: Number}): Promise<void>` - Same as callChangeRoom. Move call to the specific room
 - `subscribe({type: String, listener: function}): void` - subscribe to an event. Available events: `new_call`, `ended`, `progress`, `failed`, `confirmed`
 - `removeIListener(type: String): void` - remove event listener
+- `on(event: OpensipsEvent, callback): void` - remove event listener
+- `setMetricsConfig(config: WebrtcMetricsConfigType): void` - set the metric config (used for audio quality indicator)
+
+### Opensips Events
+
+| Event      | Callback interface    | Description |
+|----------------|---------|---------------|
+| `ready` | `() => {}`  |   Emitted when opensips is initialized   |
+| `changeActiveCalls`   | `(calls: { [key: string]: ICall }) => {}`  |  Emitted when active calls are changed  |
+| `callAddingInProgressChanged`   | `(callId: string / undefined) => {}`  |  Emitted when any call adding state is changed  |
+| `changeAvailableDeviceList`   | `(devices: Array<MediaDeviceInfo>) => {}`  |  Emitted when the list of available devices is changed  |
+| `changeActiveInputMediaDevice`   | `(deviceId: string) => {}`  |  Emitted when active input device is changed |
+| `changeActiveOutputMediaDevice`   | `(deviceId: string) => {}`  |  Emitted when active output device is changed  |
+| `changeMuteWhenJoin`   | `(value: boolean) => {}`  |  Emitted when mute on join value is changed  |
+| `changeIsDND`   | `(value: boolean) => {}`  |  Emitted when is DND value is changed  |
+| `changeIsMuted`   | `(value: boolean) => {}`  |  Emitted when mute value is changed  |
+| `changeActiveStream`   | `(stream: MediaStream) => {}`  |  Emitted when active stream was changed  |
+| `changeCallVolume`   | `(callId: string, volume: number) => {}`  |  Emits the volume meter's value for each participant   |
+| `currentActiveRoomChanged`   | `(number / undefined) => {}`  |  Emitted when active room is changed  |
+| `addRoom`   | `({room: IRoom, roomList: {[id: number]: IRoom}}) => {}`  |  Emitted when new room was added  |
+| `updateRoom`   | `({room: IRoom, roomList: {[id: number]: IRoom}}) => {}`  |  Emitted when room was updated  |
+| `removeRoom`   | `({room: IRoom, roomList: {[p: number]: IRoom}}) => {}`  |  Emitted when room was deleted  |
 
 WebrtcMetricsConfigType
 

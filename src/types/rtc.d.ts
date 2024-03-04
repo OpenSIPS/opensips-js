@@ -98,11 +98,6 @@ export interface MediaEvent extends Event {
     stream: MediaStream
 }
 
-export interface IDoCallParam {
-    target: string
-    addToCurrentRoom: boolean
-}
-
 export interface IRoom {
     started: Date
     incomingInProgress: boolean
