@@ -33,8 +33,8 @@ Then you will be able to call next methods on openSIPSJS instance:
 - `holdCall(callId: String, automatic?: Boolean): Promise<void>` - put call on hold
 - `unholdCall(callId: String): Promise<void>` - unhold a call
 - `terminateCall(callId: String): void` - terminate call
-- `moveCall({callId: String, roomId: Number}): Promise<void>` - Same as callChangeRoom. Move call to the specific room
-- `transferCall({callId: String, target: String}): void` - transfer call to target
+- `moveCall(callId: String, roomId: Number): Promise<void>` - Same as callChangeRoom. Move call to the specific room
+- `transferCall(callId: String, target: String): void` - transfer call to target
 - `mergeCall(roomId: Number): void` - merge calls in specific room. Works only for rooms with 2 calls inside
 - `answerCall(callId: String): void` - answer a call
 - `mute(): void` - mute ourself
