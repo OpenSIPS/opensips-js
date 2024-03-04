@@ -44,7 +44,8 @@ Then you will be able to call next methods on openSIPSJS instance:
 - `setMicrophone(deviceId: String): Promise<void>` - set passed device as input device for calls
 - `setSpeaker(deviceId: String): Promise<void>` - set passed device as output device for calls
 - `setActiveRoom(roomId: Number): Promise<void>` - switch to the room
-- `setMicrophoneSensitivity(value: Number): void` - set sensitivity of microphone
+- `setMicrophoneSensitivity(value: Number): void` - set sensitivity of microphone. Value should be in range from 0 to 1
+- `setSpeakerVolume(value: Number): void` - set volume of callers. Value should be in range from 0 to 1
 - `setDND(value: Boolean): void` - set the agent "Do not disturb" status
 - `subscribe({type: String, listener: function}): void` - subscribe to an event. Available events: `new_call`, `ended`, `progress`, `failed`, `confirmed`
 - `removeIListener(type: String): void` - remove event listener
