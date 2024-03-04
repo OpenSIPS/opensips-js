@@ -79,6 +79,7 @@ export function simplifyMessageObject (call: IMessage): IMessageSimplified {
 }
 
 export function processAudioVolume (stream: MediaStream, volume: number) {
+    // volume should be in range from 0 to 2
     const audioSource = audioContext.createMediaStreamSource(stream)
     const audioDestination = audioContext.createMediaStreamDestination()
     const gainNode = audioContext.createGain()

@@ -182,7 +182,11 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
         muteAgentButtonEl.addEventListener('click', (event) => {
             event.preventDefault()
             const isMuted = call.localMuted
-            openSIPSJS.muteCaller(call._id, !isMuted)
+            if (isMuted) {
+                openSIPSJS.unmuteCaller(call._id)
+            } else {
+                openSIPSJS.muteCaller(call._id)
+            }
             muteAgentButtonEl.innerText = !isMuted ? 'Unmute' : 'Mute'
         })
         listItemEl.appendChild(muteAgentButtonEl)
@@ -192,7 +196,7 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
         terminateButtonEl.innerText = 'Hangup'
         terminateButtonEl.addEventListener('click', (event) => {
             event.preventDefault()
-            openSIPSJS.callTerminate(call._id)
+            openSIPSJS.terminateCall(call._id)
         })
         listItemEl.appendChild(terminateButtonEl)
 
@@ -204,7 +208,7 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
             const target = prompt('Please enter target:')
 
             if (target !== null || target !== '') {
-                openSIPSJS.callTransfer(call._id, target)
+                openSIPSJS.transferCall(call._id, target)
             }
         })
         listItemEl.appendChild(transferButtonEl)
@@ -215,7 +219,7 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
             mergeButtonEl.innerText = `Merge ${room.roomId}`
             mergeButtonEl.addEventListener('click', (event) => {
                 event.preventDefault()
-                openSIPSJS.callMerge(room.roomId)
+                openSIPSJS.mergeCall(room.roomId)
             })
             listItemEl.appendChild(mergeButtonEl)
         }
@@ -229,9 +233,9 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
             event.preventDefault()
 
             if (isOnHold) {
-                await openSIPSJS.unhold(call._id)
+                await openSIPSJS.unholdCall(call._id)
             } else {
-                await openSIPSJS.hold(call._id)
+                await openSIPSJS.holdCall(call._id)
             }
 
             holdAgentButtonEl.innerText = !isOnHold ? 'UnHold' : 'Hold'
@@ -244,7 +248,7 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
             answerButtonEl.innerText = 'Answer'
             answerButtonEl.addEventListener('click', (event) => {
                 event.preventDefault()
-                openSIPSJS.callAnswer(call._id)
+                openSIPSJS.answerCall(call._id)
             })
             listItemEl.appendChild(answerButtonEl)
         }
@@ -272,7 +276,7 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
             event.preventDefault()
 
             const target = event.target as HTMLSelectElement
-            openSIPSJS.callMove(call._id, parseInt(target.value))
+            openSIPSJS.moveCall(call._id, parseInt(target.value))
         })
         listItemEl.appendChild(callMoveSelectEl)
 
@@ -723,7 +727,7 @@ inputLevelApplyButtonEl?.addEventListener(
         event.preventDefault()
 
         const value = Number(inputLevelEl.value)
-        openSIPSJS.setMicrophoneInputLevel(value)
+        openSIPSJS.setMicrophoneSensitivity(value)
     })
 
 outputLevelApplyButtonEl?.addEventListener(

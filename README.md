@@ -29,24 +29,26 @@ const openSIPSJS = new OpenSIPSJS({
 Then you will be able to call next methods on openSIPSJS instance:
 
 ### Methods
+- `initCall(target: String, addToCurrentRoom: Boolean): void` - call to the target. If addToCurrentRoom is true then the call will be added to the user's current room
+- `holdCall(callId: String, automatic?: Boolean): Promise<void>` - put call on hold
+- `unholdCall(callId: String): Promise<void>` - unhold a call
+- `terminateCall(callId: String): void` - terminate call
+- `moveCall({callId: String, roomId: Number}): Promise<void>` - Same as callChangeRoom. Move call to the specific room
+- `transferCall({callId: String, target: String}): void` - transfer call to target
+- `mergeCall(roomId: Number): void` - merge calls in specific room. Works only for rooms with 2 calls inside
+- `answerCall(callId: String): void` - answer a call
+- `mute(): void` - mute ourself
+- `unmute(): void` - unmute ourself
+- `muteCaller(callId: String): void` - mute caller
+- `unmuteCaller(callId: String): void` - unmute caller
 - `setMicrophone(deviceId: String): Promise<void>` - set passed device as input device for calls
 - `setSpeaker(deviceId: String): Promise<void>` - set passed device as output device for calls
 - `setActiveRoom(roomId: Number): Promise<void>` - switch to the room
-- `hold(callId: String, automatic: Boolean): Promise<void>` - put call on hold
-- `unhold(callId: String): Promise<void>` - unhold a call
-- `initCall(target: String, addToCurrentRoom: Boolean): void` - call to the target. If addToCurrentRoom is true then the call will be added to the user's current room
-- `callTerminate(callId: String): void` - terminate call
-- `callTransfer({callId: String, target: String}): void` - transfer call to target
-- `callMerge(roomId: Number): void` - merge calls in specific room
-- `callAnswer(callId: String): void` - answer the call
-- `setMetricsConfig(config: WebrtcMetricsConfigType): void` - set the metric config (used for audio quality indicator)
-- `mute(): void` - mute the agent
-- `unmute(): void` - unmute the agent
+- `setMicrophoneSensitivity(value: Number): void` - set sensitivity of microphone
 - `setDND(value: Boolean): void` - set the agent "Do not disturb" status
-- `callChangeRoom({callId: String, roomId: Number}): Promise<void>` - move call to the room
-- `callMove({callId: String, roomId: Number}): Promise<void>` - Same as callChangeRoom. Move call to the specific room
 - `subscribe({type: String, listener: function}): void` - subscribe to an event. Available events: `new_call`, `ended`, `progress`, `failed`, `confirmed`
 - `removeIListener(type: String): void` - remove event listener
+- `setMetricsConfig(config: WebrtcMetricsConfigType): void` - set the metric config (used for audio quality indicator)
 
 WebrtcMetricsConfigType
 
