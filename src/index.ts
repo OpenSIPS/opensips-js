@@ -51,6 +51,8 @@ import JsSIP from 'jssip/lib/JsSIP'
 import { METRIC_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
 import { CALL_EVENT_LISTENER_TYPE } from '@/enum/call.event.listener.type'
 
+import audioContext from '@/helpers/audioContext'
+
 const CALL_STATUS_UNANSWERED = 0
 
 const STORAGE_KEYS = {
@@ -788,7 +790,6 @@ class OpenSIPSJS extends UA {
             }
 
             // Use the Web Audio API to mix the received tracks
-            const audioContext = new AudioContext()
             const allReceivedMediaStreams = new MediaStream()
             const mixedOutput = audioContext.createMediaStreamDestination()
 
