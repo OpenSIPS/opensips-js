@@ -107,7 +107,7 @@ export class MSRPSession extends EventEmitter{
             this._direction = 'outgoing'
         }
         this.target = target
-        this._connection = new WebSocket(`ws://${this._ua._configuration.realm}:2856`, 'msrp')
+        this._connection = new WebSocket(`wss://${this._ua._configuration.realm}`, 'msrp')
         // MSRP WebSocket connection
         this._connection.binaryType = 'arraybuffer'
         this._connection.onopen = (event) => {

@@ -5,8 +5,11 @@ import * as JsSIP_C from 'jssip/lib/Constants'
 import RTCSessionConstructor, { Originator, RTCSession } from 'jssip/lib/RTCSession'
 import Transactions from 'jssip/lib/Transactions'
 import { IncomingRequest } from 'jssip/lib/SIPMessage'
+import JanusSession from '@/lib/janus/session'
+import TestSession from '@/lib/janus/testSession'
 
 import { MSRPSession, MSRPOptions } from '@/lib/msrp/session'
+import { /*MSRPSession, */JanusOptions } from '@/lib/janus/session' // TODO: import JanusSession from here
 
 import { CallOptionsExtended } from '@/types/rtc'
 import { UAExtendedInterface } from '@/lib/msrp/session'
@@ -51,6 +54,9 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         ict: {}
     }
 
+    _janus_sessions: any[] = []
+    //_janus_session: any = null
+
     constructor (configuration: UAConfiguration) {
         console.log(configuration)
         // const _proto = configuration.uri.split(':').shift()
@@ -67,6 +73,26 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         return super.call(target, options)
     }
 
+    joinVideoCall (target, options) {
+        logger.debug('call()')
+
+        const session = new JanusSession(this)
+
+        session.connect(target, options)
+
+        return session
+    }
+
+    /*call (target, options) {
+        logger.debug('call()')
+
+        const session = new TestSession(this)
+
+        session.connect(target, options)
+
+        return session
+    }*/
+
     /**
      * new MSRPSession
      */
@@ -80,11 +106,20 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         this.emit('newMSRPSession', data)
     }
 
+    newJanusSession (session, data) {
+        this._janus_sessions[session.id] = session
+        this.emit('newJanusSession', data)
+    }
+
     /**
      * MSRPSession destroyed.
      */
     destroyMSRPSession (session: MSRPSession) {
         delete this._msrp_sessions[session.id]
+    }
+
+    destroyJanusSession (session) {
+        delete this._janus_sessions[session.id]
     }
 
     receiveRequest (request: any) {
@@ -184,6 +219,11 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
                             if(request.body.search(/MSRP/ig) > -1) {
                                 session = new MSRPSession(this)
                                 session.init_incoming(request)
+                            } else if(request.body.search(/JANUS/ig) > -1) {
+                                // TODO: use new JanusSession(this) when implemented
+                                //_janus_session = new MSRPSession(this)
+                                //session = new MSRPSession(this)
+                                //this._janus_session.init_incoming(request)
                             } else {
                                 session = new RTCSessionConstructor(this)
                                 session.init_incoming(request)
@@ -256,6 +296,14 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         return session
     }
 
+    startJanus (target: string, options: JanusOptions): MSRPSession {
+        logger.debug('startJanus()', options)
+
+        const session = new MSRPSession(this) // TODO: use new JanusSession(this)
+        session.connect(target)
+        return session
+    }
+
 
     terminateMSRPSessions (options: object) {
         logger.debug('terminateSessions()')
@@ -263,6 +311,16 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         for (const idx in this._msrp_sessions) {
             if (!this._msrp_sessions[idx].isEnded()) {
                 this._msrp_sessions[idx].terminate(options)
+            }
+        }
+    }
+
+    terminateJanusSessions (options) {
+        logger.debug('terminateSessions()')
+
+        for (const idx in this._janus_sessions) {
+            if (!this._janus_sessions[idx].isEnded()) {
+                this._janus_sessions[idx].terminate(options)
             }
         }
     }
@@ -308,6 +366,18 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
 
                 try {
                     this._msrp_sessions[msrp_session].terminate()
+                } catch (error) {
+                    console.error(error)
+                }
+            }
+        }
+
+        for (const janus_session in this._janus_sessions) {
+            if (Object.prototype.hasOwnProperty.call(this._janus_sessions, janus_session)) {
+                logger.debug(`closing session ${janus_session}`)
+
+                try {
+                    this._janus_sessions[janus_session].terminate()
                 } catch (error) {
                     console.error(error)
                 }

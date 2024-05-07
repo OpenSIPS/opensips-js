@@ -14,6 +14,8 @@ import {
 } from 'jssip/lib/SIPMessage'
 import { UAConfiguration } from 'jssip/lib/UA'
 
+import { MODULES } from '@/enum/modules'
+
 export type IntervalType = ReturnType<typeof setInterval>
 
 export type ListenerEventType = EndEvent | IncomingEvent | OutgoingEvent | IncomingAckEvent | OutgoingAckEvent
@@ -121,6 +123,12 @@ export type IRoomUpdate = Omit<IRoom, 'started'> & {
     started?: Date
 }
 
+export type AudioModuleName = typeof MODULES.AUDIO
+export type VideoModuleName = typeof MODULES.VIDEO
+export type MSRPModuleName = typeof MODULES.MSRP
+
+export type Modules = AudioModuleName | VideoModuleName | MSRPModuleName
+
 export interface IOpenSIPSJSOptions {
     configuration: Omit<UAConfiguration, 'sockets'>,
     socketInterfaces: [ string ]
@@ -129,7 +137,8 @@ export interface IOpenSIPSJSOptions {
         session_timers: boolean
         extraHeaders: [ string ]
         pcConfig: RTCConfiguration
-    }
+    },
+    modules: Array<Modules>
 }
 
 export interface TriggerListenerOptions {

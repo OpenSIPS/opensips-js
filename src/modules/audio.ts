@@ -1,259 +1,167 @@
-import UA from '@/helpers/UA'
 import {
-    IncomingAckEvent,
-    IncomingEvent,
-    OutgoingAckEvent,
-    OutgoingEvent,
-    EndEvent
-} from 'jssip/lib/RTCSession'
-import { RTCSessionEvent, UAConfiguration, UAEventMap } from 'jssip/lib/UA'
-import { MSRPSessionEvent } from '@/helpers/UA'
-import { forEach } from 'p-iteration'
-
-import { TempTimeData, setupTime } from '@/helpers/time.helper'
-import { ITimeData } from '@/types/timer'
-import { filterObjectKeys } from '@/helpers/filter.helper'
-import {
-    syncStream,
-    processAudioVolume,
-    simplifyCallObject,
-    simplifyMessageObject,
-    isLoggerCompatible
-} from '@/helpers/audio.helper'
-import WebRTCMetrics from '@/helpers/webrtcmetrics/metrics'
-//import VUMeter from '@/helpers/VUMeter'
-
-import { WebrtcMetricsConfigType, Probe, ProbeMetricInType, MetricAudioData, MediaDeviceType } from '@/types/webrtcmetrics'
-import { ListenersKeyType, ListenerCallbackFnType } from '@/types/listeners'
-import {
-    RTCSessionExtended,
     ICall,
-    IntervalType,
-    ListenerEventType,
-    MediaEvent,
-    ICallStatusUpdate,
-    IRoom,
     ICallStatus,
+    ICallStatusUpdate,
+    IntervalType,
+    IRoom,
     IRoomUpdate,
-    IOpenSIPSJSOptions,
-    TriggerListenerOptions, CustomLoggerType, Modules, AudioModuleName
+    MediaEvent,
+    RTCSessionExtended
 } from '@/types/rtc'
-
+import { ITimeData } from '@/types/timer'
+import { setupTime, TempTimeData } from '@/helpers/time.helper'
 import {
-    IMessage,
-    MSRPSessionExtended,
-    TriggerMSRPListenerOptions
-} from '@/types/msrp'
-
-import MSRPMessage from '@/lib/msrp/message'
-import JsSIP from 'jssip/lib/JsSIP'
-
-import { METRIC_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
-import { CALL_EVENT_LISTENER_TYPE } from '@/enum/call.event.listener.type'
-
+    MediaDeviceType,
+    MetricAudioData,
+    Probe,
+    ProbeMetricInType,
+    WebrtcMetricsConfigType
+} from '@/types/webrtcmetrics'
+import { processAudioVolume, simplifyCallObject, syncStream } from '@/helpers/audio.helper'
+import { RTCSessionEvent } from 'jssip/lib/UA'
+import { forEach } from 'p-iteration'
 import audioContext from '@/helpers/audioContext'
-
-import { AudioModule } from '@/modules/audio'
-import { VideoModule } from '@/modules/video'
-import { MSRPModule } from '@/modules/msrp'
-import { MODULES } from '@/enum/modules'
-
-const CALL_STATUS_UNANSWERED = 0
+import { CALL_EVENT_LISTENER_TYPE } from '@/enum/call.event.listener.type'
+import { IncomingAckEvent, IncomingEvent, OutgoingAckEvent, OutgoingEvent } from 'jssip/lib/RTCSession'
+import WebRTCMetrics from '@/helpers/webrtcmetrics/metrics'
+import { filterObjectKeys } from '@/helpers/filter.helper'
+import { METRIC_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
+import VUMeter from '@/helpers/VUMeter'
 
 const STORAGE_KEYS = {
     SELECTED_INPUT_DEVICE: 'OpensipsJSInputDevice',
     SELECTED_OUTPUT_DEVICE: 'OpensipsJSOutputDevice'
 }
+const CALL_STATUS_UNANSWERED = 0
 
-function requireInitialization () {
-    return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
-        const originalMethod = descriptor.value
+export class AudioModule {
+    private context: any
+    private currentActiveRoomIdValue: number | undefined
+    private isAutoAnswer = false
+    private isCallAddingInProgress: string | undefined
+    private muteWhenJoinEnabled = false
+    private isDNDEnabled = false
+    private muted = false
 
-        descriptor.value = function (...args: any[]) {
-            if (!this.initialized) {
-                throw new Error('Class not initialized. Call init() first.')
-            }
-            return originalMethod.apply(this, args)
-        }
+    private microphoneInputLevelValue = 1 // [0;1]
+    private speakerVolumeValue = 1 // [0;1]
 
-        return descriptor
-    }
-}
-
-class OpenSIPSJS extends UA {
-    private initialized = false
-
-    private readonly options: IOpenSIPSJSOptions
-    private logger: CustomLoggerType = console
-    //private VUMeter: VUMeter
-
-    /* Events */
-    private readonly newRTCSessionEventName: ListenersKeyType = 'newRTCSession'
-    private readonly registeredEventName: ListenersKeyType = 'registered'
-    private readonly unregisteredEventName: ListenersKeyType = 'unregistered'
-    private readonly disconnectedEventName: ListenersKeyType = 'disconnected'
-    private readonly connectedEventName: ListenersKeyType = 'connected'
-    private readonly newMSRPSessionEventName: ListenersKeyType = 'newMSRPSession'
-
-    /* State */
-    //private muted = false
-    //private isAutoAnswer = false
-    //private isDNDEnabled = false
-    //private muteWhenJoinEnabled = false
-
-    /*private activeRooms: { [key: number]: IRoom } = {}
+    private activeRooms: { [key: number]: IRoom } = {}
     private activeCalls: { [key: string]: ICall } = {}
-    private extendedCalls: { [key: string]: ICall } = {}*/
+    private extendedCalls: { [key: string]: ICall } = {}
 
-    /*private activeMessages: { [key: string]: IMessage } = {}
-    private extendedMessages: { [key: string]: IMessage } = {}
-    private msrpHistory: { [key: string]: Array<MSRPMessage> } = {}*/
-
-    /*private microphoneInputLevelValue = 1 // [0;1]
-    private speakerVolumeValue = 1 // [0;1]*/
-    /*private availableMediaDevices: Array<MediaDeviceInfo> = []
+    private availableMediaDevices: Array<MediaDeviceInfo> = []
     private selectedMediaDevices: { [key in MediaDeviceType]: string } = {
         input: 'default',
         output: 'default'
-    }*/
+    }
 
-    /*private callStatus: { [key: string]: ICallStatus } = {}
+    private callStatus: { [key: string]: ICallStatus } = {}
     private callTime: { [key: string]: TempTimeData } = {}
     private callMetrics: { [key: string]: any } = {}
     private timeIntervals: { [key: string]: IntervalType } = {}
     private metricConfig: WebrtcMetricsConfigType = {
         refreshEvery: 1000
-    }*/
-
-    /*private activeStreamValue: MediaStream | null = null
-    //private initialStreamValue: MediaStream | null = null*/
-    //private currentActiveRoomIdValue: number | undefined
-    //private isCallAddingInProgress: string | undefined
-    private isMSRPInitializingValue: boolean | undefined
-    private isReconnecting = false
-
-    public audio: AudioModule = null
-    public msrp: MSRPModule = null
-    public video: VideoModule = null
-
-    private listenersList: {
-        [key: string]: Array<(call: any, event: ListenerEventType | undefined) => void>
-    } = {}
-
-    private modules: Array<Modules> = []
-
-    constructor (options: IOpenSIPSJSOptions, logger?: CustomLoggerType) {
-        if (!options.modules.length) {
-            throw new Error('options.modules should include at least 1 module')
-        }
-
-        const configuration: UAConfiguration = {
-            ...options.configuration,
-            sockets: options.socketInterfaces.map(sock => new JsSIP.WebSocketInterface(sock))
-        }
-
-        super(configuration)
-
-        this.options = options
-        this.modules = options.modules
-
-        if (logger && isLoggerCompatible(logger)) {
-            this.logger = logger
-        }
     }
 
-    public on <T extends ListenersKeyType> (type: T, listener: ListenerCallbackFnType<T>) {
-        return super.on(type as keyof UAEventMap, listener as UAEventMap[keyof UAEventMap])
-    }
-    public off <T extends ListenersKeyType> (type: T, listener: ListenerCallbackFnType<T>) {
-        return super.off(type, listener)
-    }
-    public emit (type: ListenersKeyType, args: any) {
-        return super.emit(type, args)
-    }
+    private activeStreamValue: MediaStream | null = null
+    private initialStreamValue: MediaStream | null = null
 
-    public get sipDomain () {
-        return this.options.sipDomain
-    }
+    private VUMeter: VUMeter
 
-    public begin () {
-        if (this.isConnected()) {
-            console.error('Connection is already established')
-            return
-        }
+    constructor (context) {
+        this.context = context
 
-        if (this.modules.includes(MODULES.AUDIO)) {
-            this.audio = new AudioModule(this)
-        }
-
-        if (this.modules.includes(MODULES.MSRP)) {
-            this.msrp = new MSRPModule(this)
-        }
-
-        if (this.modules.includes(MODULES.VIDEO)) {
-            this.video = new VideoModule(this)
-        }
-
-        this.on(
-            this.registeredEventName,
-            () => {
-                this.logger.log('Successfully registered to', this.options.socketInterfaces[0])
-                this.setInitialized(true)
-            }
+        this.context.on(
+            this.context.newRTCSessionEventName,
+            this.newRTCSessionCallback.bind(this)
         )
 
-        this.on(
-            this.unregisteredEventName,
-            () => {
-                this.logger.log('Unregistered from', this.options.socketInterfaces[0])
-                this.setInitialized(false)
-            }
-        )
+        this.VUMeter = new VUMeter({
+            onChangeFunction: this.emitVolumeChange.bind(this)
+        })
 
-        this.on(
-            this.connectedEventName,
-            () => {
-                this.logger.log('Connected to', this.options.socketInterfaces[0])
-                this.isReconnecting = false
-            }
-        )
-
-        this.on(
-            this.disconnectedEventName,
-            () => {
-                if (this.isReconnecting) {
-                    return
-                }
-                this.logger.log('Disconnected from', this.options.socketInterfaces[0])
-                this.logger.log('Reconnecting to', this.options.socketInterfaces[0])
-                this.isReconnecting = true
-                this.stop()
-                this.setInitialized(false)
-                setTimeout(this.start.bind(this), 5000)
-            }
-        )
-
-        this.logger.log('Connecting to', this.options.socketInterfaces[0])
-        this.start()
-
-        return this
+        this.initializeMediaDevices()
     }
 
-    /*public get sipOptions () {
+    public get sipOptions () {
         const options = {
-            ...this.options.sipOptions,
+            ...this.context.options.sipOptions,
             mediaConstraints: this.getUserMediaConstraints
         }
 
         return options
+    }
+
+    /*public begin () {
+        if (this.context.isConnected()) {
+            console.error('Connection is already established')
+            return
+        }
+
+        this.context.on(
+            this.context.registeredEventName,
+            () => {
+                this.context.logger.log('Successfully registered to', this.context.options.socketInterfaces[0])
+                this.context.setInitialized(true)
+            }
+        )
+
+        this.context.on(
+            this.context.unregisteredEventName,
+            () => {
+                this.context.logger.log('Unregistered from', this.context.options.socketInterfaces[0])
+                this.context.setInitialized(false)
+            }
+        )
+
+        this.context.on(
+            this.context.newRTCSessionEventName,
+            this.newRTCSessionCallback.bind(this)
+        )
+
+        this.context.on(
+            this.context.connectedEventName,
+            () => {
+                this.context.logger.log('Connected to', this.context.options.socketInterfaces[0])
+                this.context.isReconnecting = false
+            }
+        )
+
+        this.context.on(
+            this.context.disconnectedEventName,
+            () => {
+                if (this.context.isReconnecting) {
+                    return
+                }
+                this.context.logger.log('Disconnected from', this.context.options.socketInterfaces[0])
+                this.context.logger.log('Reconnecting to', this.context.options.socketInterfaces[0])
+                this.context.isReconnecting = true
+                this.context.stop()
+                this.context.setInitialized(false)
+                setTimeout(this.context.start.bind(this.context), 5000)
+            }
+        )
+
+        this.context.on(
+            this.context.newMSRPSessionEventName,
+            this.context.newMSRPSessionCallback.bind(this.context)
+        )
+
+        this.context.logger.log('Connecting to', this.context.options.socketInterfaces[0])
+        this.context.start()
+
+        this.initializeMediaDevices()
+
+        return this.context
     }*/
 
-    /*public get currentActiveRoomId () {
+    public get currentActiveRoomId () {
         return this.currentActiveRoomIdValue
     }
     private set currentActiveRoomId (roomId: number | undefined) {
         this.currentActiveRoomIdValue = roomId
-        this.emit('currentActiveRoomChanged', roomId)
+        this.context.emit('currentActiveRoomChanged', roomId)
     }
 
     public get autoAnswer () {
@@ -265,15 +173,10 @@ class OpenSIPSJS extends UA {
     }
     private set callAddingInProgress (value: string | undefined) {
         this.isCallAddingInProgress = value
-        this.emit('callAddingInProgressChanged', value)
-    }*/
+        this.context.emit('callAddingInProgressChanged', value)
+    }
 
-    // TODO: MSRP
-    /*public get isMSRPInitializing () {
-        return this.isMSRPInitializingValue
-    }*/
-
-    /*public get muteWhenJoin () {
+    public get muteWhenJoin () {
         return this.muteWhenJoinEnabled
     }
 
@@ -295,14 +198,9 @@ class OpenSIPSJS extends UA {
 
     public get hasActiveCalls () {
         return Object.values(this.extendedCalls).length > 0
-    }*/
+    }
 
-    // TODO: MSRP
-    /*public get getActiveMessages () {
-        return this.activeMessages
-    }*/
-
-    /*public get getActiveRooms () {
+    public get getActiveRooms () {
         return this.activeRooms
     }
 
@@ -343,7 +241,7 @@ class OpenSIPSJS extends UA {
 
     private setAvailableMediaDevices (devices: Array<MediaDeviceInfo>) {
         this.availableMediaDevices = devices
-        this.emit('changeAvailableDeviceList', devices)
+        this.context.emit('changeAvailableDeviceList', devices)
     }
 
     public async updateDeviceList () {
@@ -383,7 +281,7 @@ class OpenSIPSJS extends UA {
             [value.callId]: time
         }
 
-        this.emit('changeCallTime', this.callTime)
+        this.context.emit('changeCallTime', this.callTime)
     }
 
     public removeCallTime (callId: string) {
@@ -394,7 +292,7 @@ class OpenSIPSJS extends UA {
             ...callTimeCopy,
         }
 
-        this.emit('changeCallTime', this.callTime)
+        this.context.emit('changeCallTime', this.callTime)
     }
 
     private setTimeInterval (callId: string, interval: IntervalType) {
@@ -420,7 +318,7 @@ class OpenSIPSJS extends UA {
     }
 
     private emitVolumeChange (callId: string, volume: number) {
-        this.emit('changeCallVolume', {
+        this.context.emit('changeCallVolume', {
             callId,
             volume
         })
@@ -444,7 +342,7 @@ class OpenSIPSJS extends UA {
 
     private setIsMuted (value: boolean) {
         this.muted = value
-        this.emit('changeIsMuted', value)
+        this.context.emit('changeIsMuted', value)
     }
 
     private processMute (value: boolean) {
@@ -526,9 +424,9 @@ class OpenSIPSJS extends UA {
         call.connection.addEventListener('addstream', async (event: Event) => {
             this.triggerAddStream(event as MediaEvent, call)
         })
-    }*/
+    }
 
-    /*public async moveCall (callId: string, roomId: number) {
+    public async moveCall (callId: string, roomId: number) {
         this.updateCallStatus({
             callId,
             isMoving: true
@@ -545,10 +443,10 @@ class OpenSIPSJS extends UA {
 
     public updateCall (value: ICall) {
         this.activeCalls[value._id] = simplifyCallObject(value) as ICall
-        this.emit('changeActiveCalls', this.activeCalls)
-    }*/
+        this.context.emit('changeActiveCalls', this.activeCalls)
+    }
 
-    /*public updateRoom (value: IRoomUpdate) {
+    public updateRoom (value: IRoomUpdate) {
         const room = this.activeRooms[value.roomId]
 
         const newRoomData: IRoom = {
@@ -563,7 +461,7 @@ class OpenSIPSJS extends UA {
             }
         }
 
-        this.emit('updateRoom', {
+        this.context.emit('updateRoom', {
             room: newRoomData,
             roomList: this.activeRooms
         })
@@ -584,10 +482,15 @@ class OpenSIPSJS extends UA {
             [value._id]: simplifyCallObject(value) as ICall
         }
 
+        /*this.extendedCalls = {
+            ...this.extendedCalls,
+            [value._id]: value
+        }*/
+
         this.extendedCalls[value._id] = value
 
         if (emitEvent) {
-            this.emit('changeActiveCalls', this.activeCalls)
+            this.context.emit('changeActiveCalls', this.activeCalls)
         }
     }
 
@@ -601,10 +504,10 @@ class OpenSIPSJS extends UA {
             }
         }
 
-        this.emit('changeCallStatus', this.callStatus)
-    }*/
+        this.context.emit('changeCallStatus', this.callStatus)
+    }
 
-    /*private updateCallStatus (value: ICallStatusUpdate) {
+    private updateCallStatus (value: ICallStatusUpdate) {
         const prevStatus = { ...this.callStatus[value.callId] }
 
         const newStatus: ICallStatus = {
@@ -630,7 +533,7 @@ class OpenSIPSJS extends UA {
             }
         }
 
-        this.emit('changeCallStatus', this.callStatus)
+        this.context.emit('changeCallStatus', this.callStatus)
     }
 
     private removeCallStatus (callId: string) {
@@ -641,7 +544,7 @@ class OpenSIPSJS extends UA {
             ...callStatusCopy,
         }
 
-        this.emit('changeCallStatus', this.callStatus)
+        this.context.emit('changeCallStatus', this.callStatus)
     }
 
     private addRoom (value: IRoom) {
@@ -650,7 +553,7 @@ class OpenSIPSJS extends UA {
             [value.roomId]: value
         }
 
-        this.emit('addRoom', {
+        this.context.emit('addRoom', {
             room: value,
             roomList: this.activeRooms
         })
@@ -697,7 +600,7 @@ class OpenSIPSJS extends UA {
         this.setupVUMeter(value, 'origin')
 
         this.activeStreamValue = value
-        this.emit('changeActiveStream', value)
+        this.context.emit('changeActiveStream', value)
     }
 
     public async setSpeaker (dId: string) {
@@ -736,7 +639,7 @@ class OpenSIPSJS extends UA {
             ...activeRoomsCopy,
         }
 
-        this.emit('removeRoom', {
+        this.context.emit('removeRoom', {
             room: roomToRemove,
             roomList: this.activeRooms
         })
@@ -757,7 +660,7 @@ class OpenSIPSJS extends UA {
     }
 
     private checkInitialized () {
-        if (!this.initialized) {
+        if (!this.context.initialized) {
             throw new Error('[OpenSIPSJS] You must call `start` method first!')
         }
     }
@@ -901,9 +804,9 @@ class OpenSIPSJS extends UA {
         if (call._status !== 8) {
             call.terminate()
         }
-    }*/
+    }
 
-    /*public transferCall (callId: string, target: string) {
+    public transferCall (callId: string, target: string) {
         if (target.toString().length === 0) {
             return new Error('Target must be passed')
         }
@@ -911,7 +814,7 @@ class OpenSIPSJS extends UA {
         const call = this.extendedCalls[callId]
 
         if (!call._is_confirmed && !call._is_canceled) {
-            const redirectTarget = `sip:${target}@${this.sipDomain}`
+            const redirectTarget = `sip:${target}@${this.context.sipDomain}`
 
             call.terminate({
                 status_code: 302,
@@ -927,7 +830,7 @@ class OpenSIPSJS extends UA {
             isTransferring: true
         })
 
-        call.refer(`sip:${target}@${this.sipDomain}`)
+        call.refer(`sip:${target}@${this.context.sipDomain}`)
         this.updateCall(call)
     }
 
@@ -959,7 +862,7 @@ class OpenSIPSJS extends UA {
     // TODO: Use this method in demo
     public setDND (value: boolean) {
         this.isDNDEnabled = value
-        this.emit('changeIsDND', value)
+        this.context.emit('changeIsDND', value)
     }
 
     private startCallTimer (callId: string) {
@@ -1005,28 +908,9 @@ class OpenSIPSJS extends UA {
         }
 
         return (parseInt(roomIdList.sort()[roomIdList.length - 1]) + 1)
-    }*/
-
-    public subscribe (type: string, listener: (c: RTCSessionExtended) => void) {
-        const isListenerEmpty = !this.listenersList[type] || !this.listenersList[type].length
-        const newListeners = isListenerEmpty? [ listener ]: [ ...this.listenersList[type], listener ]
-
-        this.listenersList = {
-            ...this.listenersList,
-            [type]: newListeners
-        }
     }
 
-    public removeIListener (value: string) {
-        const listenersCopy = { ...this.listenersList }
-        delete listenersCopy[value]
-
-        this.listenersList = {
-            ...listenersCopy,
-        }
-    }
-
-    /*private async setupCall (event: RTCSessionEvent) {
+    private async setupCall (event: RTCSessionEvent) {
         const session = event.session as RTCSessionExtended
         const sessionAlreadyInActiveCalls = this.getActiveCalls[session.id]
 
@@ -1043,10 +927,10 @@ class OpenSIPSJS extends UA {
         }
 
         if (session.direction === 'incoming') {
-            this.logger.log('New incoming call from', session._remote_identity?._uri?._user)
+            this.context.logger.log('New incoming call from', session._remote_identity?._uri?._user)
             newRoomInfo.incomingInProgress = true
 
-            this.subscribe(CALL_EVENT_LISTENER_TYPE.CALL_CONFIRMED, (call) => {
+            this.context.subscribe(CALL_EVENT_LISTENER_TYPE.CALL_CONFIRMED, (call) => {
                 if (session.id === call.id) {
                     this.updateRoom( {
                         incomingInProgress: false,
@@ -1056,7 +940,7 @@ class OpenSIPSJS extends UA {
                 }
             })
 
-            this.subscribe(CALL_EVENT_LISTENER_TYPE.CALL_FAILED, (call) => {
+            this.context.subscribe(CALL_EVENT_LISTENER_TYPE.CALL_FAILED, (call) => {
                 if (session.id === call.id) {
                     this.updateRoom({
                         incomingInProgress: false,
@@ -1094,22 +978,9 @@ class OpenSIPSJS extends UA {
         if (doAutoAnswer) {
             this.answerCall(call._id)
         }
-    }*/
-
-    private triggerListener ({ listenerType, session, event }: TriggerListenerOptions) {
-        const listeners = this.listenersList[listenerType]
-
-        if (!listeners || !listeners.length) {
-            return
-        }
-
-        listeners.forEach((listener) => {
-            listener(session, event)
-        })
     }
 
-
-    /*private removeCall (value: string) {
+    private removeCall (value: string) {
         const stateActiveCallsCopy = { ...this.activeCalls }
         delete stateActiveCallsCopy[value]
 
@@ -1123,10 +994,10 @@ class OpenSIPSJS extends UA {
             ...stateExtendedCallsCopy,
         }
 
-        this.emit('changeActiveCalls', this.activeCalls)
-    }*/
+        this.context.emit('changeActiveCalls', this.activeCalls)
+    }
 
-    /*private activeCallListRemove (call: ICall) {
+    private activeCallListRemove (call: ICall) {
         const session = this.extendedCalls[call._id]
         this.stopVUMeter('origin')
 
@@ -1138,9 +1009,9 @@ class OpenSIPSJS extends UA {
         const callRoomIdToConfigure = session.roomId
         this.removeCall(call._id)
         this.roomReconfigure(callRoomIdToConfigure)
-    }*/
+    }
 
-    /*private async newRTCSessionCallback (event: RTCSessionEvent) {
+    private async newRTCSessionCallback (event: RTCSessionEvent) {
         const session = event.session as RTCSessionExtended
 
         if (this.isDND) {
@@ -1154,8 +1025,8 @@ class OpenSIPSJS extends UA {
         // stop timers on ended and failed
         session.on('ended', (event) => {
             this.stopVUMeter(session.id)
-            this.logger.log('Session ended for', session._remote_identity?._uri?._user)
-            this.triggerListener({
+            this.context.logger.log('Session ended for', session._remote_identity?._uri?._user)
+            this.context.triggerListener({
                 listenerType: CALL_EVENT_LISTENER_TYPE.CALL_ENDED,
                 session,
                 event
@@ -1177,8 +1048,8 @@ class OpenSIPSJS extends UA {
             }
         })
         session.on('progress', (event: IncomingEvent | OutgoingEvent) => {
-            this.logger.log('Session in progress for', session._remote_identity?._uri?._user)
-            this.triggerListener({
+            this.context.logger.log('Session in progress for', session._remote_identity?._uri?._user)
+            this.context.triggerListener({
                 listenerType: CALL_EVENT_LISTENER_TYPE.CALL_PROGRESS,
                 session,
                 event
@@ -1186,8 +1057,8 @@ class OpenSIPSJS extends UA {
         })
         session.on('failed', (event) => {
             this.stopVUMeter(session.id)
-            this.logger.log('Session failed for', session._remote_identity?._uri?._user)
-            this.triggerListener({
+            this.context.logger.log('Session failed for', session._remote_identity?._uri?._user)
+            this.context.triggerListener({
                 listenerType: CALL_EVENT_LISTENER_TYPE.CALL_FAILED,
                 session,
                 event
@@ -1214,8 +1085,8 @@ class OpenSIPSJS extends UA {
             }
         })
         session.on('confirmed', (event: IncomingAckEvent | OutgoingAckEvent) => {
-            this.logger.log('Session confirmed for', session._remote_identity?._uri?._user)
-            this.triggerListener({
+            this.context.logger.log('Session confirmed for', session._remote_identity?._uri?._user)
+            this.context.triggerListener({
                 listenerType: CALL_EVENT_LISTENER_TYPE.CALL_CONFIRMED,
                 session,
                 event
@@ -1233,16 +1104,11 @@ class OpenSIPSJS extends UA {
             const roomId = this.getActiveCalls[session.id].roomId
             this.setActiveRoom(roomId)
         }
-    }*/
-
-    private setInitialized (value: boolean) {
-        this.initialized = value
-        this.emit('ready', value)
     }
 
-    /*public setMuteWhenJoin (value: boolean) {
+    public setMuteWhenJoin (value: boolean) {
         this.muteWhenJoinEnabled = value
-        this.emit('changeMuteWhenJoin', value)
+        this.context.emit('changeMuteWhenJoin', value)
     }
 
     public setMicrophoneSensitivity (value: number) {
@@ -1272,17 +1138,17 @@ class OpenSIPSJS extends UA {
         localStorage.setItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE, deviceId)
 
         this.selectedMediaDevices.input = deviceId
-        this.emit('changeActiveInputMediaDevice', deviceId)
+        this.context.emit('changeActiveInputMediaDevice', deviceId)
     }
 
     private setSelectedOutputDevice (deviceId: string) {
         localStorage.setItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE, deviceId)
 
         this.selectedMediaDevices.output = deviceId
-        this.emit('changeActiveOutputMediaDevice', deviceId)
-    }*/
+        this.context.emit('changeActiveOutputMediaDevice', deviceId)
+    }
 
-    /*private setCallMetrics (value: any) {
+    private setCallMetrics (value: any) {
         const metrics = { ...value }
         delete metrics['callId']
 
@@ -1291,7 +1157,7 @@ class OpenSIPSJS extends UA {
             [value.callId]: metrics
         }
 
-        this.emit('changeCallMetrics', this.callMetrics)
+        this.context.emit('changeCallMetrics', this.callMetrics)
     }
 
     private removeCallMetrics (callId: string) {
@@ -1302,7 +1168,7 @@ class OpenSIPSJS extends UA {
             ...callMetricsCopy,
         }
 
-        this.emit('changeCallMetrics', this.callMetrics)
+        this.context.emit('changeCallMetrics', this.callMetrics)
     }
 
     private getCallQuality (call: ICall) {
@@ -1327,7 +1193,7 @@ class OpenSIPSJS extends UA {
             this.setCallMetrics(metrics)
         }
 
-        this.subscribe(CALL_EVENT_LISTENER_TYPE.CALL_ENDED, (session) => {
+        this.context.subscribe(CALL_EVENT_LISTENER_TYPE.CALL_ENDED, (session) => {
             if (session._id === call._id) {
                 metrics.stopAllProbes()
             }
@@ -1376,15 +1242,16 @@ class OpenSIPSJS extends UA {
 
     //@requireInitialization()
     public initCall (target: string, addToCurrentRoom: boolean) {
-        //this.checkInitialized()
+        this.checkInitialized()
 
         if (target.length === 0) {
             return console.error('Target must be a valid string')
         }
 
-        this.logger.log(`Calling sip:${target}@${this.sipDomain}...`)
-        const call = this.call(
-            `sip:${target}@${this.sipDomain}`,
+        this.context.logger.log(`Calling sip:${target}@${this.context.sipDomain}...`)
+
+        const call = this.context.call(
+            `sip:${target}@${this.context.sipDomain}`,
             this.sipOptions
         )
 
@@ -1400,9 +1267,9 @@ class OpenSIPSJS extends UA {
         call.connection.addEventListener('addstream', (event: Event) => {
             this.triggerAddStream(event as MediaEvent, call as ICall)
         })
-    }*/
+    }
 
-    /*private async processRoomChange ({ callId, roomId }: { callId: string, roomId: number }) {
+    private async processRoomChange ({ callId, roomId }: { callId: string, roomId: number }) {
         const oldRoomId = this.extendedCalls[callId].roomId
 
         this.extendedCalls[callId].roomId = roomId
@@ -1419,7 +1286,6 @@ class OpenSIPSJS extends UA {
             this.deleteRoomIfEmpty(oldRoomId)
             this.deleteRoomIfEmpty(roomId)
         })
-    }*/
-}
+    }
 
-export default OpenSIPSJS
+}

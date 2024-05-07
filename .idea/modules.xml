@@ -6,6 +6,7 @@
       <module fileurl="file://$PROJECT_DIR$/../chrome-extension-client-redesign/.idea/chrome-extension-client-redesign.iml" filepath="$PROJECT_DIR$/../chrome-extension-client-redesign/.idea/chrome-extension-client-redesign.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/opensips-js.iml" filepath="$PROJECT_DIR$/.idea/opensips-js.iml" />
       <module fileurl="file://$PROJECT_DIR$/../opensipsjs-widget/.idea/opensipsjs-widget.iml" filepath="$PROJECT_DIR$/../opensipsjs-widget/.idea/opensipsjs-widget.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../socketio-storage-logger/.idea/socketio-storage-logger.iml" filepath="$PROJECT_DIR$/../socketio-storage-logger/.idea/socketio-storage-logger.iml" />
       <module fileurl="file://$PROJECT_DIR$/../voice-webrtc-test/.idea/voice-webrtc-test.iml" filepath="$PROJECT_DIR$/../voice-webrtc-test/.idea/voice-webrtc-test.iml" />
       <module fileurl="file://$PROJECT_DIR$/../vsip/.idea/vsip.iml" filepath="$PROJECT_DIR$/../vsip/.idea/vsip.iml" />
       <module fileurl="file://$PROJECT_DIR$/../vsip-next/.idea/vsip-next.iml" filepath="$PROJECT_DIR$/../vsip-next/.idea/vsip-next.iml" />

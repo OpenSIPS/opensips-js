@@ -5,6 +5,7 @@
     <mapping directory="$PROJECT_DIR$/../VoicenterEventsSDK" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/../chrome-extension-client-redesign" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/../opensipsjs-widget" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../socketio-storage-logger" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/../voice-webrtc-test" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/../vsip-next" vcs="Git" />
   </component>
