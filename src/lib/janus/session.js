@@ -2327,10 +2327,10 @@ export default class RTCSession extends EventEmitter {
                 }
 
                 const inviteData = {
-                    janus: 'invite',
+                    janus: 'attach',
                     plugin: 'janus.plugin.videoroom',
-                    opaque_id: 'videoroomtest-uzkIUidc1969',
-                    transaction: this._getNextTransactionId(),
+                    opaque_id: 'videoroomtest-uzkIUidc1969'
+                    //transaction: this._getNextTransactionId(),
                     //session_id: 8477157010600503
                 }
 
