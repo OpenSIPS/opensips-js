@@ -6,14 +6,15 @@ import { EventEmitter } from 'events'
 import sdp_transform from 'sdp-transform'
 //const Logger = require('./Logger')
 import Logger from 'jssip/lib/Logger'
-import JsSIP_C from 'jssip/lib/Constants'
+import JsSIP_C, { SUBSCRIBE } from 'jssip/lib/Constants'
 import Exceptions from 'jssip/lib/Exceptions'
 import Transactions from 'jssip/lib/Transactions'
 import * as Utils from 'jssip/lib/Utils'
 //const Timers = require('./Timers')
 import Timers from 'jssip/lib/Timers'
 import * as SIPMessage from 'jssip/lib/SIPMessage'
-import Dialog from 'jssip/lib/Dialog'
+//import Dialog from 'jssip/lib/Dialog'
+import Dialog from './Dialog'
 import RequestSender from 'jssip/lib/RequestSender'
 //const RTCSession_DTMF = require('./RTCSession/DTMF')
 import RTCSession_DTMF from 'jssip/lib/RTCSession/DTMF'
@@ -23,6 +24,17 @@ import RTCSession_ReferNotifier from 'jssip/lib/RTCSession/ReferNotifier'
 //const RTCSession_ReferSubscriber = require('./RTCSession/ReferSubscriber')
 import RTCSession_ReferSubscriber from 'jssip/lib/RTCSession/ReferSubscriber'
 import URI from 'jssip/lib/URI'
+
+function randomString (len) {
+    const charSet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+    let randomStr = ''
+    // eslint-disable-next-line no-plusplus
+    for (let i = 0; i < len; i++) {
+        const randomPoz = Math.floor(Math.random() * charSet.length)
+        randomStr += charSet.substring(randomPoz, randomPoz + 1)
+    }
+    return randomStr
+}
 
 const logger = new Logger('JanusSession')
 
@@ -287,7 +299,9 @@ export default class RTCSession extends EventEmitter {
         }
 
         // Check target validity.
+        console.log('target', target)
         target = this._ua.normalizeTarget(target)
+        console.log('normalizeTarget target', target)
         if (!target) {
             throw new TypeError(`Invalid target: ${originalTarget}`)
         }
@@ -358,6 +372,8 @@ export default class RTCSession extends EventEmitter {
         this._direction = 'outgoing'
         this._local_identity = this._request.from
         this._remote_identity = this._request.to
+
+        console.log('this._remote_identity', this._remote_identity)
 
         // User explicitly provided a newRTCSession callback for this session.
         if (initCallback) {
@@ -830,6 +846,7 @@ export default class RTCSession extends EventEmitter {
 
                     // Restore the dialog into 'this' in order to be able to send the in-dialog BYE :-).
                     this._dialog = dialog
+                    console.log('SET DIALOG terminate')
 
                     // Restore the dialog into 'ua' so the ACK can reach 'this' session.
                     this._ua.newDialog(dialog)
@@ -1752,9 +1769,18 @@ export default class RTCSession extends EventEmitter {
      * Dialog Management
      */
     _createDialog (message, type, early) {
+        console.log('_createDialog', message)
         const local_tag = (type === 'UAS') ? message.to_tag : message.from_tag
         const remote_tag = (type === 'UAS') ? message.from_tag : message.to_tag
         const id = message.call_id + local_tag + remote_tag
+
+        console.log('remote_tag', remote_tag)
+        /*message.headers.Contact = [
+            {
+                parsed: '<sip:665@192.168.181.88:5060>',
+                raw: '<sip:665@192.168.181.88:5060>'
+            }
+        ]*/
 
         let early_dialog = this._earlyDialogs[id]
 
@@ -1765,8 +1791,10 @@ export default class RTCSession extends EventEmitter {
             } else {
                 early_dialog = new Dialog(this, message, type, Dialog.C.STATUS_EARLY)
 
+                console.log('SET DIALOG early')
                 // Dialog has been successfully created.
                 if (early_dialog.error) {
+                    console.log('early_dialog error', early_dialog.error)
                     logger.debug(early_dialog.error)
                     this._failed('remote', message, JsSIP_C.causes.INTERNAL_ERROR)
 
@@ -1785,6 +1813,7 @@ export default class RTCSession extends EventEmitter {
             // In case the dialog is in _early_ state, update it.
             if (early_dialog) {
                 early_dialog.update(message, type)
+                console.log('SET DIALOG 1')
                 this._dialog = early_dialog
                 delete this._earlyDialogs[id]
 
@@ -1795,11 +1824,13 @@ export default class RTCSession extends EventEmitter {
             const dialog = new Dialog(this, message, type)
 
             if (dialog.error) {
+                console.log('dialog.error', dialog.error)
                 logger.debug(dialog.error)
                 this._failed('remote', message, JsSIP_C.causes.INTERNAL_ERROR)
 
                 return false
             } else {
+                console.log('AAA SET DIALOG 2')
                 this._dialog = dialog
 
                 return true
@@ -2254,6 +2285,8 @@ export default class RTCSession extends EventEmitter {
      * Initial Request Sender
      */
     _sendInitialRequest (mediaConstraints, rtcOfferConstraints, mediaStream) {
+        this.ackSent = false
+
         const request_sender = new RequestSender(this._ua, this._request, {
             onRequestTimeout: () => {
                 this.onRequestTimeout()
@@ -2380,9 +2413,13 @@ export default class RTCSession extends EventEmitter {
     _receiveInviteResponse (response) {
         logger.debug('receiveInviteResponse()')
 
-        // Handle 2XX retransmissions and responses from forked requests.
-        if (this._dialog && (response.status_code >=200 && response.status_code <=299)) {
+        console.log('_receiveInviteResponse response', response)
+        console.log('dialog', this._dialog)
 
+
+        // Handle 2XX retransmissions and responses from forked requests.
+        if (this._dialog && (response.status_code >=200 && response.status_code <=299) && !this.ackSent) {
+            console.log('IF 1 dialog')
             /*
              * If it is a retransmission from the endpoint that established
              * the dialog, send an ACK
@@ -2390,6 +2427,8 @@ export default class RTCSession extends EventEmitter {
             if (this._dialog.id.call_id === response.call_id &&
                 this._dialog.id.local_tag === response.from_tag &&
                 this._dialog.id.remote_tag === response.to_tag) {
+                console.log('IF 1 SEND ACK')
+                this.ackSent = true
                 this.sendRequest(JsSIP_C.ACK)
 
                 return
@@ -2411,38 +2450,76 @@ export default class RTCSession extends EventEmitter {
 
         }
 
+        if (this.ackSent) {
+            const parsedBody = JSON.parse(response.body)
+            //console.log('parsedBody', parsedBody)
+            this.session_id = parsedBody.session_id
+            this.handle_id = parsedBody.data.id
+            const opaqueId = `videoroomtest-${randomString(12)}`
+
+            const registerBody = {
+                janus: 'message',
+                body: {
+                    request: 'join',
+                    room: 'abcd',
+                    ptype: 'publisher',
+                    display: 'User1',
+                    clientID: 'dufgjb023gh4vr872v238ugf2y82g4',
+                    opaque_id: opaqueId,
+                },
+                handle_id: this.handle_id
+            }
+
+            const registerExtraHeaders = [ 'PTYPE: Publisher' ]
+
+            console.log('JOIN MESSAGE', registerBody)
+            this.sendRequest(JsSIP_C.SUBSCRIBE, {
+                extraHeaders: registerExtraHeaders,
+                body: JSON.stringify(registerBody),
+            })
+        }
+
         // Proceed to cancellation if the user requested.
         if (this._is_canceled) {
+            console.log('IF 2 canceled')
             if (response.status_code >= 100 && response.status_code < 200) {
                 this._request.cancel(this._cancel_reason)
             } else if (response.status_code >= 200 && response.status_code < 299) {
+                console.log('IF 2 _acceptAndTerminate')
                 this._acceptAndTerminate(response)
             }
 
             return
         }
 
+        console.log('IF 2 this._status', this._status)
         if (this._status !== C.STATUS_INVITE_SENT && this._status !== C.STATUS_1XX_RECEIVED) {
+            console.log('IF 3 not invite sent')
             return
         }
 
         switch (true) {
             case /^100$/.test(response.status_code):
+                console.log('IF 4 SWITCH 1')
                 this._status = C.STATUS_1XX_RECEIVED
                 break
 
             case /^1[0-9]{2}$/.test(response.status_code):
             {
+                console.log('IF 5 SWITCH 2')
                 // Do nothing with 1xx responses without To tag.
                 if (!response.to_tag) {
+                    console.log('IF 5 break')
                     logger.debug('1xx response received without to tag')
                     break
                 }
 
                 // Create Early Dialog if 1XX comes with contact.
                 if (response.hasHeader('contact')) {
+                    console.log('IF 5 contact')
                     // An error on dialog creation will fire 'failed' event.
                     if (!this._createDialog(response, 'UAC', true)) {
+                        console.log('IF 5 _createDialog break')
                         break
                     }
                 }
@@ -2450,6 +2527,7 @@ export default class RTCSession extends EventEmitter {
                 this._status = C.STATUS_1XX_RECEIVED
 
                 if (!response.body) {
+                    console.log('IF 5 !response.body')
                     this._progress('remote', response)
                     break
                 }
@@ -2481,18 +2559,52 @@ export default class RTCSession extends EventEmitter {
 
             case /^2[0-9]{2}$/.test(response.status_code):
             {
+                console.log('IF 6 SWITCH 3')
                 this._status = C.STATUS_CONFIRMED
 
                 if (!response.body) {
+                    console.log('IF 6 !response.body')
                     this._acceptAndTerminate(response, 400, JsSIP_C.causes.MISSING_SDP)
                     this._failed('remote', response, JsSIP_C.causes.BAD_MEDIA_DESCRIPTION)
                     break
                 }
 
+                console.log('AAA _createDialog')
                 // An error on dialog creation will fire 'failed' event.
                 if (!this._createDialog(response, 'UAC')) {
                     break
                 }
+
+                //if (!this.ackSent) return
+
+                /*const parsedBody = JSON.parse(response.body)
+                //console.log('parsedBody', parsedBody)
+                this.session_id = parsedBody.session_id
+                this.handle_id = parsedBody.data.id
+                const opaqueId = `videoroomtest-${randomString(12)}`
+
+                const registerBody = {
+                    janus: 'message',
+                    body: {
+                        request: 'join',
+                        room: 'abcd',
+                        ptype: 'publisher',
+                        display: 'User1',
+                        clientID: 'dufgjb023gh4vr872v238ugf2y82g4',
+                        opaque_id: opaqueId,
+                    },
+                    handle_id: this.handle_id
+                }
+
+                const registerExtraHeaders = [ 'PTYPE: Publisher' ]
+
+                console.log('JOIN MESSAGE', registerBody)
+                this.sendRequest(JsSIP_C.SUBSCRIBE, {
+                    extraHeaders: registerExtraHeaders,
+                    body: JSON.stringify(registerBody),
+                })*/
+
+                break
 
                 const e = {
                     originator: 'remote',
@@ -2545,6 +2657,7 @@ export default class RTCSession extends EventEmitter {
 
             default:
             {
+                console.log('IF 7 SWITCH 4')
                 const cause = Utils.sipErrorCause(response.status_code)
 
                 this._failed('remote', response, cause)

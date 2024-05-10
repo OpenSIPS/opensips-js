@@ -67,11 +67,11 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         // console.log(configuration.uri)
     }
 
-    call (target: string, options?: CallOptionsExtended): RTCSession {
+    /*call (target: string, options?: CallOptionsExtended): RTCSession {
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore
         return super.call(target, options)
-    }
+    }*/
 
     joinVideoCall (target, options) {
         logger.debug('call()')
@@ -83,7 +83,7 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         return session
     }
 
-    /*call (target, options) {
+    call (target, options) {
         logger.debug('call()')
 
         const session = new TestSession(this)
@@ -91,7 +91,7 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         session.connect(target, options)
 
         return session
-    }*/
+    }
 
     /**
      * new MSRPSession
