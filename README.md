@@ -23,37 +23,25 @@ const openSIPSJS = new OpenSIPSJS({
         extraHeaders: [ 'X-Bar: bar' ],
         pcConfig: {},
     },
+    modules: [ 'audio', 'video', 'msrp' ]
 })
 ```
 
-Then you will be able to call next methods on openSIPSJS instance:
+Then you can work with appropriate modules:
+```javascript
+openSIPSJS.audio
+openSIPSJS.video
+openSIPSJS.msrp
+```
 
-### Methods
+# OpensipsJS
+### OpensipsJS instance methods
 - `begin(): OpensipsInstance` - start opensips
-- `initCall(target: String, addToCurrentRoom: Boolean): void` - call to the target. If addToCurrentRoom is true then the call will be added to the user's current room
-- `holdCall(callId: String, automatic?: Boolean): Promise<void>` - put call on hold
-- `unholdCall(callId: String): Promise<void>` - unhold a call
-- `terminateCall(callId: String): void` - terminate call
-- `moveCall(callId: String, roomId: Number): Promise<void>` - Same as callChangeRoom. Move call to the specific room
-- `transferCall(callId: String, target: String): void` - transfer call to target
-- `mergeCall(roomId: Number): void` - merge calls in specific room. Works only for rooms with 2 calls inside
-- `answerCall(callId: String): void` - answer a call
-- `mute(): void` - mute ourself
-- `unmute(): void` - unmute ourself
-- `muteCaller(callId: String): void` - mute caller
-- `unmuteCaller(callId: String): void` - unmute caller
-- `setMicrophone(deviceId: String): Promise<void>` - set passed device as input device for calls
-- `setSpeaker(deviceId: String): Promise<void>` - set passed device as output device for calls
-- `setActiveRoom(roomId: Number): Promise<void>` - switch to the room
-- `setMicrophoneSensitivity(value: Number): void` - set sensitivity of microphone. Value should be in range from 0 to 1
-- `setSpeakerVolume(value: Number): void` - set volume of callers. Value should be in range from 0 to 1
-- `setDND(value: Boolean): void` - set the agent "Do not disturb" status
+- `on(event: OpensipsEvent, callback): void` - remove event listener
 - `subscribe({type: String, listener: function}): void` - subscribe to an event. Available events: `new_call`, `ended`, `progress`, `failed`, `confirmed`
 - `removeIListener(type: String): void` - remove event listener
-- `on(event: OpensipsEvent, callback): void` - remove event listener
-- `setMetricsConfig(config: WebrtcMetricsConfigType): void` - set the metric config (used for audio quality indicator)
 
-### Opensips Events
+### OpensipsJS events
 
 | Event      | Callback interface    | Description |
 |----------------|---------|---------------|
@@ -75,20 +63,47 @@ Then you will be able to call next methods on openSIPSJS instance:
 
 WebrtcMetricsConfigType
 
-| Parameter      | Type                   |
-|----------------|------------------------|
-| `refreshEvery` | `number \| undefined`  |
-| `startAfter`   | `number \| undefined`  |
-| `startAfter`   | `number \| undefined`  |
-| `verbose`      | `boolean \| undefined` |
-| `pname`        | `string \| undefined`  |
-| `cid`          | `string \| undefined`  |
-| `uid`          | `string \| undefined`  |
-| `record`       | `boolean \| undefined` |
-| `ticket`       | `boolean \| undefined` |
+| Parameter      | Type      | Default |
+|----------------|-----------|----------|
+| `refreshEvery` | `number` | `undefined`  |
+| `startAfter`   | `number` | `undefined`  |
+| `startAfter`   | `number` | `undefined`  |
+| `verbose`      | `boolean` | `undefined` |
+| `pname`        | `string` | `undefined`  |
+| `cid`          | `string` | `undefined`  |
+| `uid`          | `string` | `undefined`  |
+| `record`       | `boolean` | `undefined` |
+| `ticket`       | `boolean` | `undefined` |
 
-Also there are next public fields on openSIPSJS instance:
-### Fields
+Also, there are next public fields on OpensipsJS instance:
+### OpensipsJS instance fields
+- `sipDomain: String` - returns sip domain
+
+# Audio
+
+### Audio methods
+- `initCall(target: String, addToCurrentRoom: Boolean): void` - call to the target. If addToCurrentRoom is true then the call will be added to the user's current room
+- `holdCall(callId: String, automatic?: Boolean): Promise<void>` - put call on hold
+- `unholdCall(callId: String): Promise<void>` - unhold a call
+- `terminateCall(callId: String): void` - terminate call
+- `moveCall(callId: String, roomId: Number): Promise<void>` - Same as callChangeRoom. Move call to the specific room
+- `transferCall(callId: String, target: String): void` - transfer call to target
+- `mergeCall(roomId: Number): void` - merge calls in specific room. Works only for rooms with 2 calls inside
+- `answerCall(callId: String): void` - answer a call
+- `mute(): void` - mute ourself
+- `unmute(): void` - unmute ourself
+- `muteCaller(callId: String): void` - mute caller
+- `unmuteCaller(callId: String): void` - unmute caller
+- `setMicrophone(deviceId: String): Promise<void>` - set passed device as input device for calls
+- `setSpeaker(deviceId: String): Promise<void>` - set passed device as output device for calls
+- `setActiveRoom(roomId: Number): Promise<void>` - switch to the room
+- `setMicrophoneSensitivity(value: Number): void` - set sensitivity of microphone. Value should be in range from 0 to 1
+- `setSpeakerVolume(value: Number): void` - set volume of callers. Value should be in range from 0 to 1
+- `setDND(value: Boolean): void` - set the agent "Do not disturb" status
+- `setMetricsConfig(config: WebrtcMetricsConfigType): void` - set the metric config (used for audio quality indicator)
+
+### Audio instance fields
+- `sipOptions: Object` - returns sip options
 - `getActiveRooms: { [key: number]: IRoom }` - returns an object of active rooms where key is room id and value is room data
 - `sipDomain: String` - returns sip domain
 - `sipOptions: Object` - returns sip options
@@ -99,3 +114,80 @@ Also there are next public fields on openSIPSJS instance:
 - `selectedOutputDevice: String` - returns current selected output device id
 - `isDND: Boolean` - returns if the agent is in "Do not disturb" status
 - `isMuted: Boolean` - returns if the agent is muted
+
+# MSRP
+
+### MSRP methods
+- `initMSRP(target: String, body: String): void` - initialize connection with target contact. Body is the initial message to this target.
+- `sendMSRP(sessionId: String, body: String): Promise<void>` - send message
+- `msrpAnswer(sessionId: String)` - accept MSRP session invitation
+- `messageTerminate(sessionId: String)` - terminate message session
+
+### MSRP instance fields
+- `getActiveMessages: { [key: string]: IMessage }` - returns an object of active message sessions where key is session id and value is message session data.
+
+
+# Video
+
+### Video methods
+- `joinRoom(roomId: String, displayName: String, mediaConstraints: Object): void` - join conference room
+- `hangup()` - exit room
+- `startVideo()` - turn on camera
+- `stopVideo()` - turn off camera
+- `startAudio()` - mute
+- `stopAudio()` - unmute
+- `startScreenShare()` - start screen sharing
+- `stopScreenShare()` - stop screen sharing
+- `enableScreenShareWhiteboard(enable: boolean, stream: MediaStream)` - enable screen share whiteboard. stream parameter is screen share stream
+- `enableBokehEffectMask(): Promise<MediaStream>` - enable bokeh mask effect
+- `enableBackgroundImgEffectMask(): Promise<MediaStream>` - enable background image mask effect
+- `disableMask(): Promise<MediaStream>` - turn off mask effect. Returns stream without masking
+- `restartMasking(): Promise<void>` - rerun mask effect
+- `setupMaskVisualizationConfig(config: VisualizationConfigType)` - setup mask config
+- `startNoiseFilter()` - start noise filter
+- `stopNoiseFilter()` - stop noise filter
+- `setBitrate(bitrate: number)` - set bitrate for video
+- `enableWhiteboard(mode: 'whiteboard' | 'imageWhiteboard', enable: boolean, base64Image?: string)` - enable whiteboard. if mode is 'imageWhiteboard' then third parameter base64Image is required
+- `setupDrawerOptions(options: KonvaDrawerOptions)` - setup option for drawer
+- `setupScreenShareDrawerOptions(options: KonvaScreenShareDrawerOptions)` - setup option for screen share drawer
+
+VisualizationConfigType
+
+| Parameter      | Type                   | Default |
+|----------------|------------------------|---------|
+| `foregroundThreshold` | `number` | `0.5`  |
+| `maskOpacity`   | `number`| `0.5`  |
+| `maskBlur`   | `number`| `0`  |
+| `pixelCellWidth`      | `number`| `10` |
+| `backgroundBlur`        | `number`| `15`  |
+| `edgeBlur`          | `number`| `3`  |
+
+KonvaDrawerOptions
+
+| Parameter      | Type      |
+|----------------|-----------|
+| `container` | `number` |
+| `width`   | `number` |
+| `height`   | `number` |
+
+KonvaScreenShareDrawerOptions
+
+| Parameter      | Type      |
+|----------------|-----------|
+| `strokeWidth` | `number` |
+| `strokeColor`   | `string` |
+
+### Video events
+
+| Event      | Callback interface    | Description |
+|----------------|---------|---------------|
+| `member:join` | `(data) => {}`  |   Emitted when new member is joined   |
+| `member:update`   | `(data) => {}`  |  Emitted when member data is changed  |
+| `member:hangup`   | `(data) => {}`  |  Emitted when member leaves the conference  |
+| `hangup`   | `() => {}`  |  Emitted when we leave the conference  |
+| `screenShare:start`   | `() => {}`  |  Emitted when we share a screen  |
+| `screenShare:stop`   | `() => {}`  |  Emitted when we stop a screen sharing  |
+| `reconnect`   | `() => {}`  |  Emitted when reconnecting  |
+| `mediaConstraintsChange`   | `() => {}`  |  Emitted when media constraints change |
+| `metrics:report`   | `() => {}`  |  Emitted on metric report |
+| `metrics:stop`   | `() => {}`  |  Emitted when metrics are stopped |

@@ -65,6 +65,11 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         // configuration.uri = URI.parse(configuration.uri)
         super(configuration)
         // console.log(configuration.uri)
+        this.registrator().setExtraContactParams({
+            'pn-provider': 'acme',
+            'pn-param': 'acme-param',
+            'pn-prid': 'ZTY4ZDJlMzODE1NmUgKi0K>'
+        })
     }
 
     /*call (target: string, options?: CallOptionsExtended): RTCSession {
