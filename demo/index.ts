@@ -8,6 +8,7 @@ import { IndexedDBService } from './helpers/IndexedDBService'
 import { getUIDFromSession } from './helpers'
 import { ChangeVolumeEventType } from '../src/types/listeners'
 import { MODULES } from '../src/enum/modules'
+import { CallTime } from '../src/types/timer'
 
 let openSIPSJS = null
 let msrpHistoryDb = null
@@ -115,6 +116,18 @@ const calculateActiveCallsNumber = (sessions: { [key: string]: ICall | IMessage 
     activeCallsCounterEl.innerText = `${counter}`
 }
 
+function buildRoomElementID (roomId: number) {
+    return `room-${roomId}`
+}
+
+function buildCallElementID (callId: string) {
+    return `call-${callId}`
+}
+
+function buildCallTimerElementID (callId: string) {
+    return `callTimer-${callId}`
+}
+
 const updateRoomListOptions = (roomList: { [key: number]: IRoom }) => {
     const currentSelectedRoom = openSIPSJS.audio.currentActiveRoomId
 
@@ -139,7 +152,7 @@ const updateRoomListOptions = (roomList: { [key: number]: IRoom }) => {
 
         // Update rooms list data
         const roomEl = document.createElement('div')
-        roomEl.setAttribute('id', `room-${room.roomId}`)
+        roomEl.setAttribute('id', buildRoomElementID(room.roomId))
         roomEl.setAttribute('key', `${room.roomId}`)
         roomEl.classList.add('roomWrapper')
 
@@ -173,11 +186,17 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
     activeCallsInRoom.forEach((call, index) => {
         const listItemEl = document.createElement('li')
         listItemEl.setAttribute('key', `${index}`)
+        listItemEl.setAttribute('id', buildCallElementID(call.id))
 
         const callIdListItem = document.createElement('div')
         callIdListItem.innerText = call._id
-        listItemEl.appendChild(callIdListItem)
 
+        const callTimerItem = document.createElement('span')
+        callTimerItem.setAttribute('id', buildCallTimerElementID(call.id))
+        callTimerItem.innerText = '00:00:00'
+
+        listItemEl.appendChild(callIdListItem)
+        listItemEl.appendChild(callTimerItem)
 
         const muteAgentButtonEl = document.createElement('button') as HTMLButtonElement
         muteAgentButtonEl.innerText = call.localMuted ? 'Unmute' : 'Mute'
@@ -607,6 +626,15 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
             })
             .on('removeRoom', ({ roomList }: RoomChangeEmitType) => {
                 updateRoomListOptions(roomList)
+            })
+            .on('changeCallTime', (callTime: CallTime) => {
+                Object.values(callTime).forEach(call => {
+                    const callTimerEl = document.getElementById(buildCallTimerElementID(call.callId))
+
+                    if (callTimerEl) {
+                        callTimerEl.innerText = `${call.formatted}`
+                    }
+                })
             })
             .begin()
 
