@@ -8,8 +8,8 @@ import {
     MediaEvent,
     RTCSessionExtended
 } from '@/types/rtc'
-import { ITimeData } from '@/types/timer'
-import { setupTime, TempTimeData } from '@/helpers/time.helper'
+import { CallTime, ITimeData, TempTimeData } from '@/types/timer'
+import { setupTime } from '@/helpers/time.helper'
 import {
     MediaDeviceType,
     MetricAudioData,
@@ -27,6 +27,7 @@ import WebRTCMetrics from '@/helpers/webrtcmetrics/metrics'
 import { filterObjectKeys } from '@/helpers/filter.helper'
 import { METRIC_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
 import VUMeter from '@/helpers/VUMeter'
+import OpenSIPSJS from '@/index'
 
 const STORAGE_KEYS = {
     SELECTED_INPUT_DEVICE: 'OpensipsJSInputDevice',
@@ -35,7 +36,7 @@ const STORAGE_KEYS = {
 const CALL_STATUS_UNANSWERED = 0
 
 export class AudioModule {
-    private context: any
+    private context: OpenSIPSJS
     private currentActiveRoomIdValue: number | undefined
     private isAutoAnswer = false
     private isCallAddingInProgress: string | undefined
@@ -57,7 +58,7 @@ export class AudioModule {
     }
 
     private callStatus: { [key: string]: ICallStatus } = {}
-    private callTime: { [key: string]: TempTimeData } = {}
+    private callTime: CallTime = {}
     private callMetrics: { [key: string]: any } = {}
     private timeIntervals: { [key: string]: IntervalType } = {}
     private metricConfig: WebrtcMetricsConfigType = {
@@ -69,7 +70,7 @@ export class AudioModule {
 
     private VUMeter: VUMeter
 
-    constructor (context) {
+    constructor (context: OpenSIPSJS) {
         this.context = context
 
         this.context.on(
@@ -304,6 +305,11 @@ export class AudioModule {
 
     private removeTimeInterval (callId: string) {
         const timeIntervalsCopy = { ...this.timeIntervals }
+
+        if (!timeIntervalsCopy[callId]) {
+            return
+        }
+
         clearInterval(timeIntervalsCopy[callId])
         delete timeIntervalsCopy[callId]
 
@@ -866,6 +872,8 @@ export class AudioModule {
     }
 
     private startCallTimer (callId: string) {
+        this.removeTimeInterval(callId)
+
         const timeData = {
             callId,
             hours: 0,
@@ -873,6 +881,7 @@ export class AudioModule {
             seconds: 0,
             formatted: ''
         }
+
         this.setCallTime(timeData)
 
         const interval = setInterval(() => {
@@ -950,8 +959,11 @@ export class AudioModule {
                     this.deleteRoomIfEmpty(roomId)
                 }
             })
-
         } else if (session.direction === 'outgoing') {
+            session.once('confirmed', () => {
+                this.startCallTimer(session.id)
+            })
+
             this.startCallTimer(session.id)
         }
 

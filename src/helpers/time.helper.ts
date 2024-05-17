@@ -1,8 +1,4 @@
-import { ITimeData } from '@/types/timer'
-
-export type TempTimeData = Omit<ITimeData, 'callId'> & {
-    callId: string | undefined
-}
+import { TempTimeData } from '@/types/timer'
 
 function formatTime (time: number) {
     return time < 10 ? `0${time}` : `${time}`

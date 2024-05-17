@@ -10,7 +10,7 @@ import { RTCSessionEvent, UAConfiguration, UAEventMap } from 'jssip/lib/UA'
 import { MSRPSessionEvent } from '@/helpers/UA'
 import { forEach } from 'p-iteration'
 
-import { TempTimeData, setupTime } from '@/helpers/time.helper'
+import { setupTime } from '@/helpers/time.helper'
 import { ITimeData } from '@/types/timer'
 import { filterObjectKeys } from '@/helpers/filter.helper'
 import {
@@ -83,12 +83,12 @@ function requireInitialization () {
 class OpenSIPSJS extends UA {
     private initialized = false
 
-    private readonly options: IOpenSIPSJSOptions
+    public readonly options: IOpenSIPSJSOptions
     private logger: CustomLoggerType = console
     //private VUMeter: VUMeter
 
     /* Events */
-    private readonly newRTCSessionEventName: ListenersKeyType = 'newRTCSession'
+    public readonly newRTCSessionEventName: ListenersKeyType = 'newRTCSession'
     private readonly registeredEventName: ListenersKeyType = 'registered'
     private readonly unregisteredEventName: ListenersKeyType = 'unregistered'
     private readonly disconnectedEventName: ListenersKeyType = 'disconnected'
