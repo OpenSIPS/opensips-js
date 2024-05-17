@@ -429,8 +429,8 @@ class OpenSIPSJS extends UA {
         // TODO: maybe would be better to move to the top
         this.setActiveRoom(call.roomId)
 
-        call.connection.addEventListener('addstream', async (event: Event) => {
-            this.triggerAddStream(event as MediaEvent, call)
+        call.connection.addEventListener('track', (event: RTCTrackEvent) => {
+            this.triggerAddStream(event, call)
         })
     }
 
@@ -1473,7 +1473,7 @@ class OpenSIPSJS extends UA {
         this.initialStreamValue = stream
     }
 
-    private async triggerAddStream (event: MediaEvent, call: ICall) {
+    private async triggerAddStream (event: RTCTrackEvent, call: ICall) {
         this.setIsMuted(this.muteWhenJoin || this.isMuted)
 
         if (!this.initialStreamValue) {
@@ -1487,8 +1487,10 @@ class OpenSIPSJS extends UA {
         this.setActiveStream(processedStream)
         await call.connection.getSenders()[0].replaceTrack(processedStream.getTracks()[0])
 
-        syncStream(event, call, this.selectedOutputDevice, this.speakerVolume)
-        this.setupVUMeter(event.stream, call._id)
+        const stream = new MediaStream([ event.track ])
+
+        syncStream(stream, call, this.selectedOutputDevice, this.speakerVolume)
+        this.setupVUMeter(stream, call._id)
         this.getCallQuality(call)
         this.updateCall(call)
     }
@@ -1515,8 +1517,8 @@ class OpenSIPSJS extends UA {
             })
         }
 
-        call.connection.addEventListener('addstream', (event: Event) => {
-            this.triggerAddStream(event as MediaEvent, call as ICall)
+        call.connection.addEventListener('track', (event: RTCTrackEvent) => {
+            this.triggerAddStream(event, call as ICall)
         })
     }
 

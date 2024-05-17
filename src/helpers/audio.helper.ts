@@ -90,12 +90,12 @@ export function processAudioVolume (stream: MediaStream, volume: number) {
     return audioDestination.stream
 }
 
-export function syncStream (event: MediaEvent, call: ICall, outputDevice: string, volume: number) {
+export function syncStream (stream: MediaStream, call: ICall, outputDevice: string, volume: number) {
     const audio = document.createElement('audio') as StreamMediaType
 
     audio.id = call._id
     audio.className = 'audioTag'
-    audio.srcObject = event.stream
+    audio.srcObject = stream
     audio.setSinkId(outputDevice)
     audio.volume = volume
     audio.play()
