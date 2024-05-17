@@ -58,25 +58,20 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
     //_janus_session: any = null
 
     constructor (configuration: UAConfiguration) {
-        console.log(configuration)
-        // const _proto = configuration.uri.split(':').shift()
-        // const _user = (configuration.uri.split(':').pop()).split('@').shift()
-        // const _realm = (configuration.uri.split(':').pop()).split('@').pop()
-        // configuration.uri = URI.parse(configuration.uri)
         super(configuration)
-        // console.log(configuration.uri)
-        this.registrator().setExtraContactParams({
+
+        /*this.registrator().setExtraContactParams({
             'pn-provider': 'acme',
             'pn-param': 'acme-param',
             'pn-prid': 'ZTY4ZDJlMzODE1NmUgKi0K>'
-        })
+        })*/
     }
 
-    /*call (target: string, options?: CallOptionsExtended): RTCSession {
+    call (target: string, options?: CallOptionsExtended): RTCSession {
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore
         return super.call(target, options)
-    }*/
+    }
 
     joinVideoCall (target, options) {
         logger.debug('call()')
@@ -88,7 +83,7 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         return session
     }
 
-    call (target, options) {
+    /*call (target, options) {
         logger.debug('call()')
 
         const session = new TestSession(this)
@@ -96,7 +91,7 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         session.connect(target, options)
 
         return session
-    }
+    }*/
 
     /**
      * new MSRPSession
