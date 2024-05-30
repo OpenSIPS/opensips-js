@@ -14,9 +14,17 @@ const openSIPSJS = new OpenSIPSJS({
     configuration: {
         session_timers: false,
         uri: 'sip:extension_user@domain',
+        // --- Use password or authorization_jwt to authorize
         password: 'password',
+        // or
+        authorization_jwt: 'token',
     },
     socketInterfaces: [ 'wss://domain' ],
+    pnExtraHeaders: {
+        'pn-provider': 'acme',
+        'pn-param': 'acme-param',
+        'pn-prid': 'ZH11Y4ZDJlMNzODE1NgKi0K>'
+    },
     sipDomain: 'domain',
     sipOptions: {
         session_timers: false,

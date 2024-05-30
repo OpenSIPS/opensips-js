@@ -1,5 +1,5 @@
 import OpenSIPSJS from '../src/index'
-import { ICall, IRoom, RoomChangeEmitType } from '../src/types/rtc'
+import {ICall, IOpenSIPSConfiguration, IRoom, RoomChangeEmitType, UAConfiguration} from '../src/types/rtc'
 import { runIndicator } from '../src/helpers/volume.helper'
 import { SendMessageOptions } from 'jssip/lib/Message'
 import { IMessage, MSRPSessionExtended } from '../src/types/msrp'
@@ -9,6 +9,8 @@ import { getUIDFromSession } from './helpers'
 import { ChangeVolumeEventType } from '../src/types/listeners'
 import { MODULES } from '../src/enum/modules'
 import { CallTime } from '../src/types/timer'
+import UA from 'jssip/lib/UA'
+import JsSIP from 'jssip/lib/JsSIP'
 
 let openSIPSJS = null
 let msrpHistoryDb = null
@@ -451,23 +453,101 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
 
     const username = formData.get('username') || urlParams.get('username')
 
-    const password = formData.get('password') || urlParams.get('password')
+    const password = (formData.get('password') || urlParams.get('password')) as string
+    const token = (formData.get('token') || urlParams.get('token')) as string
 
     const domain = formData.get('domain') || urlParams.get('domain')
 
-    if (!username || !password || !domain) {
+    if (username && domain && (!password && !token)) {
+        alert('Fill up password or token')
+        return
+    }
+    if (!username || (!password && !token) || !domain) {
         alert('Fill up all required fields')
         return
     }
 
     try {
+        /*const socket_ = new JsSIP.WebSocketInterface(`wss://${domain}`)
+        const jssip = new UA({
+            session_timers: false,
+            uri: `sip:${username}@${domain}`,
+            password: password,
+            sockets: [ socket_ ],
+        })
+
+        jssip.start()
+        window.ua = jssip
+
+        const sipOptions = {
+            session_timers: false,
+            extraHeaders: [ 'X-Bar: bar' ],
+            pcConfig: {},
+            mediaConstraints: {
+                audio: {
+                    deviceId: {
+                        exact: 'default'
+                    }
+                },
+                video: false
+            }
+        }
+
+        function onNewSession (event) {
+            console.log('on newRTCSession', event)
+            let session = event.session
+
+            window.hangup = function () {
+                session.terminate()
+                session.removeAllListeners()
+
+                session = null
+                event.session = null
+
+                jssip.removeListener('newRTCSession', onNewSession)
+            }
+        }
+
+        jssip.on('newRTCSession', onNewSession)
+
+        setTimeout(() => {
+            let call = jssip.call(`sip:${'665'}@${domain}`, sipOptions)
+
+            call.on('failed', (call) => {
+                console.log('failed')
+            })
+
+            call.on('ended', (call) => {
+                console.log('ended')
+            })
+
+            call.on('confirmed', (call) => {
+                console.log('confirmed')
+            })
+            //window.call = call
+        }, 3000)*/
+
+        const configuration: IOpenSIPSConfiguration = {
+            session_timers: false,
+            uri: `sip:${username}@${domain}`
+        }
+
+        if (password) {
+            configuration.password = password
+        }
+
+        if (token) {
+            configuration.authorization_jwt = token
+        }
+
         openSIPSJS = new OpenSIPSJS({
-            configuration: {
-                session_timers: false,
-                uri: `sip:${username}@${domain}`,
-                password: password
-            },
+            configuration,
             socketInterfaces: [ `wss://${domain}` ],
+            /*pnExtraHeaders: {
+                'pn-provider': 'acme',
+                'pn-param': 'acme-param',
+                'pn-prid': 'ZH11Y4ZDJlMNzODE1NgKi0K>'
+            },*/
             sipDomain: `${domain}`,
             sipOptions: {
                 session_timers: false,
@@ -637,6 +717,9 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
                 })
             })
             .begin()
+
+
+
 
         /*setTimeout(() => {
             openSIPSJS.video.startJanus('abcd')

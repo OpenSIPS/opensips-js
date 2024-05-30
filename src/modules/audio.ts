@@ -5,7 +5,6 @@ import {
     IntervalType,
     IRoom,
     IRoomUpdate,
-    MediaEvent,
     RTCSessionExtended
 } from '@/types/rtc'
 import { CallTime, ITimeData, TempTimeData } from '@/types/timer'
@@ -1019,6 +1018,15 @@ export class AudioModule {
         })
 
         const callRoomIdToConfigure = session.roomId
+
+        /*session.removeAllListeners()
+
+        if (session.connection) {
+            session.connection.close()
+        }*/
+
+        //this.extendedCalls[call._id] = null
+
         this.removeCall(call._id)
         this.roomReconfigure(callRoomIdToConfigure)
     }
@@ -1268,6 +1276,23 @@ export class AudioModule {
             `sip:${target}@${this.context.sipDomain}`,
             this.sipOptions
         )
+
+        /*window.hangup = function () {
+            session.terminate()
+            session.removeAllListeners()
+
+            session.connection.getSenders().forEach((sender) => {
+                sender.track.stop()
+            })
+
+            if (session.connection) {
+                session.connection.close()
+            }
+
+            session = null
+        }*/
+
+
 
         this.callAddingInProgress = call.id
 

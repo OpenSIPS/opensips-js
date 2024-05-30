@@ -16,6 +16,8 @@ import { UAConfiguration } from 'jssip/lib/UA'
 
 import { MODULES } from '@/enum/modules'
 
+import { ExtraContactParams } from 'jssip/lib/Registrator'
+
 export type IntervalType = ReturnType<typeof setInterval>
 
 export type ListenerEventType = EndEvent | IncomingEvent | OutgoingEvent | IncomingAckEvent | OutgoingAckEvent
@@ -129,8 +131,11 @@ export type MSRPModuleName = typeof MODULES.MSRP
 
 export type Modules = AudioModuleName | VideoModuleName | MSRPModuleName
 
+export type IOpenSIPSConfiguration = Omit<UAConfiguration, 'sockets'>
+
 export interface IOpenSIPSJSOptions {
-    configuration: Omit<UAConfiguration, 'sockets'>,
+    configuration: IOpenSIPSConfiguration
+    pnExtraHeaders: ExtraContactParams
     socketInterfaces: [ string ]
     sipDomain: string
     sipOptions: {
