@@ -81,10 +81,10 @@ function requireInitialization () {
 }
 
 class OpenSIPSJS extends UA {
-    private initialized = false
+    public initialized = false
 
     public readonly options: IOpenSIPSJSOptions
-    private logger: CustomLoggerType = console
+    public logger: CustomLoggerType = console
     //private VUMeter: VUMeter
 
     /* Events */
@@ -153,6 +153,10 @@ class OpenSIPSJS extends UA {
         }
 
         super(configuration)
+
+        if (options.pnExtraHeaders && Object.keys(options.pnExtraHeaders).length) {
+            this.registrator().setExtraContactParams(options.pnExtraHeaders)
+        }
 
         this.options = options
         this.modules = options.modules
@@ -1096,7 +1100,7 @@ class OpenSIPSJS extends UA {
         }
     }*/
 
-    private triggerListener ({ listenerType, session, event }: TriggerListenerOptions) {
+    public triggerListener ({ listenerType, session, event }: TriggerListenerOptions) {
         const listeners = this.listenersList[listenerType]
 
         if (!listeners || !listeners.length) {
