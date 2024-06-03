@@ -135,7 +135,6 @@ export type IOpenSIPSConfiguration = Omit<UAConfiguration, 'sockets'>
 
 export interface IOpenSIPSJSOptions {
     configuration: IOpenSIPSConfiguration
-    pnExtraHeaders: ExtraContactParams
     socketInterfaces: [ string ]
     sipDomain: string
     sipOptions: {
@@ -144,6 +143,7 @@ export interface IOpenSIPSJSOptions {
         pcConfig: RTCConfiguration
     },
     modules: Array<Modules>
+    pnExtraHeaders?: ExtraContactParams
 }
 
 export interface TriggerListenerOptions {
