@@ -1,7 +1,6 @@
 import { ICall, StreamMediaType, MediaEvent, CustomLoggerType } from '@/types/rtc'
 import { Writeable } from '@/types/generic'
 import { IMessage } from '@/types/msrp'
-//import audioContext from '@/helpers/audioContext'
 
 type ICallKey = keyof ICall
 const CALL_KEYS_TO_INCLUDE: Array<ICallKey> = [
