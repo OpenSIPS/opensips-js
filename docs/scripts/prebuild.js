@@ -14,7 +14,7 @@ const docsComponentsDirPath = path.join(docsSrcDirPath, '.vuepress', 'components
 const demoViewComponentPath = path.join(docsComponentsDirPath, `${demoComponentFileName}.vue`)
 
 const demoMdFilePath = path.join(docsSrcDirPath, 'demo.md')
-const indexMdFilePath = path.join(docsSrcDirPath, 'index.md')
+const indexMdFilePath = path.join(docsSrcDirPath, 'documentation.md')
 
 function generateComponentContent (content) {
     return `<template>${content}</template>`
