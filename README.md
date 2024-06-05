@@ -4,7 +4,6 @@ Using npm:
 ```shell
 $ npm i @voicenter-team/opensips-js
 ```
-
 ## Usage
 Firstly lets import the library and create the OpenSIPS instance:
 ```javascript
