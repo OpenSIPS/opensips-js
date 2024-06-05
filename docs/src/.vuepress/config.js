@@ -42,7 +42,9 @@ module.exports = {
           collapsable: false,
           children: [
             '',
+            'documentation',
             'demo',
+            'ecosystem'
           ]
         }
       ],

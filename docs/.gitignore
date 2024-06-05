@@ -12,5 +12,5 @@ config.local.js
 basement_dist
 src/.vuepress/components/DemoView.vue
 src/demo.md
-src/index.md
+src/documentation.md
 src/.vuepress/dist
