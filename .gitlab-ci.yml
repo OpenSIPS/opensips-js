@@ -15,7 +15,7 @@ install_and_build:
     - npm run build
   artifacts:
     paths:
-      - build/
+      - dist/
   when: manual
 
 upload_to_s3:
