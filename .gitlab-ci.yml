@@ -20,10 +20,11 @@ install_and_build:
 
 upload_to_s3:
   stage: deploy
-  image: registry.gitlab.com/gitlab-org/cloud-deploy/aws-base:latest
+  image: registry.gitlab.com/gitlab-org/cloud-deploy/aws-base:latest3
+  tags:
+    - aws
   script:
     - env
     - aws s3 cp dist/ "s3://$S3_BUCKET_NAME/path/to/destination/" --recursive
-  when: manual
   dependencies:
     - install_and_build
