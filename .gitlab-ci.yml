@@ -16,16 +16,14 @@ install_and_build:
   artifacts:
     paths:
       - build/
-  only:
-    - main
+  when: manual
 
 upload_to_s3:
   stage: deploy
   image: registry.gitlab.com/gitlab-org/cloud-deploy/aws-base:latest
   script:
     - aws s3 cp build/ s3://$S3_BUCKET_NAME/path/to/destination/ --recursive
-  only:
-    - main
+  when: manual
   environment:
     name: production
   dependencies:
