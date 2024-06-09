@@ -22,9 +22,7 @@ upload_to_s3:
   stage: deploy
   image: registry.gitlab.com/gitlab-org/cloud-deploy/aws-base:latest
   script:
-    - aws s3 cp dist/ s3://$S3_BUCKET_NAME/path/to/destination/ --recursive
+    - aws s3 cp dist/ "s3://$S3_BUCKET_NAME/path/to/destination/" --recursive
   when: manual
-  environment:
-    name: production
   dependencies:
     - install_and_build
