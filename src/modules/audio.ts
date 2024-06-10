@@ -87,9 +87,13 @@ export class AudioModule {
     }
 
     public get sipOptions () {
+        const constraints = {
+            video: false,
+            audio: true
+        }
         const options = {
             ...this.context.options.sipOptions,
-            mediaConstraints: this.getUserMediaConstraints
+            mediaConstraints: constraints//this.getUserMediaConstraints
         }
 
         return options
