@@ -1,7 +1,7 @@
 <template>
   <div>
     <div>
-      <img src="../public/opensips-ecosystem.png" alt="opensips-ecosystem">
+      <img src="opensips-ecosystem.png" alt="opensips-ecosystem">
     </div>
 
     <h3>
