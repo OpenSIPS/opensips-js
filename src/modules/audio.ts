@@ -87,13 +87,9 @@ export class AudioModule {
     }
 
     public get sipOptions () {
-        const constraints = {
-            video: false,
-            audio: true
-        }
         const options = {
             ...this.context.options.sipOptions,
-            mediaConstraints: constraints//this.getUserMediaConstraints
+            mediaConstraints: this.getUserMediaConstraints
         }
 
         return options
@@ -223,6 +219,15 @@ export class AudioModule {
     }
 
     public get getUserMediaConstraints () {
+        if (/Mobi|Android|iPhone/i.test(navigator.userAgent)) {
+            this.logData(`Platform is mobile: ${navigator.userAgent}`)
+            return {
+                video: false,
+                audio: true
+            }
+        }
+
+        this.logData(`Platform is PC: ${navigator.userAgent}`)
         return {
             audio: {
                 deviceId: {
@@ -251,11 +256,7 @@ export class AudioModule {
     }
 
     public async updateDeviceList () {
-        const constraints = {
-            video: false,
-            audio: true
-        }
-        await navigator.mediaDevices.getUserMedia(constraints)
+        await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
         const devices = await navigator.mediaDevices.enumerateDevices()
 
         this.setAvailableMediaDevices(devices)
@@ -275,13 +276,8 @@ export class AudioModule {
         try {
             this.logData(`getUserMediaConstraints${JSON.stringify(this.getUserMediaConstraints)}`)
 
-            const constraints = {
-                video: false,
-                audio: true
-            }
-
             // Ask input media permissions
-            const stream = await navigator.mediaDevices.getUserMedia(constraints)
+            const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
 
 
             const devices = await navigator.mediaDevices.enumerateDevices()
@@ -1268,11 +1264,7 @@ export class AudioModule {
     }
 
     async setupStream () {
-        const constraints = {
-            video: false,
-            audio: true
-        }
-        const stream = await navigator.mediaDevices.getUserMedia(constraints)
+        const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
 
         if (this.initialStreamValue) {
             this.initialStreamValue.getTracks().forEach((track) => track.stop())
