@@ -266,8 +266,14 @@ export class AudioModule {
 
         try {
             this.logData(`getUserMediaConstraints${JSON.stringify(this.getUserMediaConstraints)}`)
+
+            const constraints = {
+                video: false,
+                audio: true
+            }
+
             // Ask input media permissions
-            const stream = await navigator.mediaDevices.getUserMedia()
+            const stream = await navigator.mediaDevices.getUserMedia(constraints)
 
 
             const devices = await navigator.mediaDevices.enumerateDevices()
