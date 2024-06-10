@@ -265,8 +265,9 @@ export class AudioModule {
         const initialOutputDevice = localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
 
         try {
+            this.logData(`getUserMediaConstraints${JSON.stringify(this.getUserMediaConstraints)}`)
             // Ask input media permissions
-            const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
+            const stream = await navigator.mediaDevices.getUserMedia()
 
 
             const devices = await navigator.mediaDevices.enumerateDevices()
