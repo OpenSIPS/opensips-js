@@ -1,10 +1,11 @@
 const { description } = require('../../package')
+const { version } = require('../../../package.json')
 
 module.exports = {
   /**
    * Ref：https://v1.vuepress.vuejs.org/config/#title
    */
-  /* title: 'OpenSIPSJS', */
+  title: `OpenSIPSJS v${version}`,
   /**
    * Ref：https://v1.vuepress.vuejs.org/config/#description
    */
