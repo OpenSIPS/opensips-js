@@ -77,9 +77,11 @@ export class AudioModule {
             this.newRTCSessionCallback.bind(this)
         )
 
+        this.logData('constructor before VUMeter')
         this.VUMeter = new VUMeter({
             onChangeFunction: this.emitVolumeChange.bind(this)
         })
+        this.logData('constructor after VUMeter')
 
         this.initializeMediaDevices()
     }
@@ -262,24 +264,29 @@ export class AudioModule {
         const initialInputDevice = localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE) || 'default'
         const initialOutputDevice = localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
 
-        // Ask input media permissions
-        const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
+        try {
+            // Ask input media permissions
+            const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
 
 
-        const devices = await navigator.mediaDevices.enumerateDevices()
-        this.logData(`initializeMediaDevices enumerateDevices length ${devices.length}`)
+            const devices = await navigator.mediaDevices.enumerateDevices()
+            this.logData(`initializeMediaDevices enumerateDevices length ${devices.length}`)
 
-        this.setAvailableMediaDevices(devices)
+            this.setAvailableMediaDevices(devices)
 
-        await this.setMicrophone(initialInputDevice)
-        await this.setSpeaker(initialOutputDevice)
+            await this.setMicrophone(initialInputDevice)
+            await this.setSpeaker(initialOutputDevice)
 
-        navigator.mediaDevices.addEventListener('devicechange', async () => {
-            const newDevices = await navigator.mediaDevices.enumerateDevices()
-            this.setAvailableMediaDevices(newDevices)
-        })
+            navigator.mediaDevices.addEventListener('devicechange', async () => {
+                const newDevices = await navigator.mediaDevices.enumerateDevices()
+                this.setAvailableMediaDevices(newDevices)
+            })
 
-        stream.getTracks().forEach(track => track.stop())
+            stream.getTracks().forEach(track => track.stop())
+        } catch (err) {
+            this.logData(`initializeMediaDevices catch ${err}`)
+        }
+
     }
 
     public setCallTime (value: ITimeData) {
