@@ -1,0 +1,31 @@
+stages:
+  - build
+  - deploy
+
+variables:
+  build_path: "docs/src/.vuepress/dist"
+
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - node_modules/
+
+install_and_build:
+  stage: build
+  image: node:16.20.2-bullseye
+  script:
+    - yarn install
+    - yarn run docs-build
+  artifacts:
+    paths:
+      - $build_path
+  when: manual
+
+upload_to_s3:
+  stage: deploy
+  image: registry.gitlab.com/gitlab-org/cloud-deploy/aws-base:latest
+  when: manual
+  script:
+    - aws s3 cp $build_path "s3://$S3_BUCKET_NAME/yossi_build/" --recursive
+  dependencies:
+    - install_and_build
