@@ -247,7 +247,11 @@ export class AudioModule {
     }
 
     public async updateDeviceList () {
-        await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
+        const constraints = {
+            video: false,
+            audio: true
+        }
+        await navigator.mediaDevices.getUserMedia(constraints)
         const devices = await navigator.mediaDevices.enumerateDevices()
 
         this.setAvailableMediaDevices(devices)
@@ -1260,7 +1264,11 @@ export class AudioModule {
     }
 
     async setupStream () {
-        const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
+        const constraints = {
+            video: false,
+            audio: true
+        }
+        const stream = await navigator.mediaDevices.getUserMedia(constraints)
 
         if (this.initialStreamValue) {
             this.initialStreamValue.getTracks().forEach((track) => track.stop())
