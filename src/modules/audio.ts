@@ -251,15 +251,23 @@ export class AudioModule {
         this.setAvailableMediaDevices(devices)
     }
 
+    public logData (data) {
+        const logs = document.getElementById('logs')
+        const span = document.createElement('span')
+        span.innerText = `${data.toString()}\n`
+        logs.appendChild(span)
+    }
+
     private async initializeMediaDevices () {
         const initialInputDevice = localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE) || 'default'
         const initialOutputDevice = localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
 
         // Ask input media permissions
         const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
-        stream.getTracks().forEach(track => track.stop())
+
 
         const devices = await navigator.mediaDevices.enumerateDevices()
+        this.logData(`initializeMediaDevices enumerateDevices length ${devices.length}`)
 
         this.setAvailableMediaDevices(devices)
 
@@ -270,6 +278,8 @@ export class AudioModule {
             const newDevices = await navigator.mediaDevices.enumerateDevices()
             this.setAvailableMediaDevices(newDevices)
         })
+
+        stream.getTracks().forEach(track => track.stop())
     }
 
     public setCallTime (value: ITimeData) {
@@ -573,8 +583,11 @@ export class AudioModule {
 
     public async setMicrophone (dId: string) {
         if (!this.getInputDeviceList.find(({ deviceId }) => deviceId === dId)) {
+            this.logData('setMicrophone return')
             return
         }
+
+        this.logData(`setMicrophone id ${dId}`)
 
         this.setSelectedInputDevice(dId)
 
@@ -610,9 +623,11 @@ export class AudioModule {
 
     public async setSpeaker (dId: string) {
         if (!this.getOutputDeviceList.find(({ deviceId }) => deviceId === dId)) {
+            this.logData('setSpeaker return')
             return
         }
 
+        this.logData(`setSpeaker id ${dId}`)
         this.setSelectedOutputDevice(dId)
 
         const activeCallList = Object.values(this.extendedCalls)
