@@ -217,6 +217,13 @@ export class AudioModule {
     }
 
     public get getUserMediaConstraints () {
+        if (/Mobi|Android|iPhone/i.test(navigator.userAgent)) {
+            return {
+                video: false,
+                audio: true
+            }
+        }
+
         return {
             audio: {
                 deviceId: {
@@ -255,21 +262,26 @@ export class AudioModule {
         const initialInputDevice = localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE) || 'default'
         const initialOutputDevice = localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
 
-        // Ask input media permissions
-        const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
-        stream.getTracks().forEach(track => track.stop())
+        try {
+            // Ask input media permissions
+            const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
+            const devices = await navigator.mediaDevices.enumerateDevices()
 
-        const devices = await navigator.mediaDevices.enumerateDevices()
+            this.setAvailableMediaDevices(devices)
 
-        this.setAvailableMediaDevices(devices)
+            await this.setMicrophone(initialInputDevice)
+            await this.setSpeaker(initialOutputDevice)
 
-        await this.setMicrophone(initialInputDevice)
-        await this.setSpeaker(initialOutputDevice)
+            navigator.mediaDevices.addEventListener('devicechange', async () => {
+                const newDevices = await navigator.mediaDevices.enumerateDevices()
+                this.setAvailableMediaDevices(newDevices)
+            })
 
-        navigator.mediaDevices.addEventListener('devicechange', async () => {
-            const newDevices = await navigator.mediaDevices.enumerateDevices()
-            this.setAvailableMediaDevices(newDevices)
-        })
+            stream.getTracks().forEach(track => track.stop())
+        } catch (err) {
+            console.error(err)
+        }
+
     }
 
     public setCallTime (value: ITimeData) {
