@@ -258,13 +258,6 @@ export class AudioModule {
         this.setAvailableMediaDevices(devices)
     }
 
-    public logData (data) {
-        const logs = document.getElementById('logs')
-        const span = document.createElement('span')
-        span.innerText = `${data.toString()}\n`
-        logs.appendChild(span)
-    }
-
     private async initializeMediaDevices () {
         const initialInputDevice = localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE) || 'default'
         const initialOutputDevice = localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
