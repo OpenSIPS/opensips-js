@@ -77,11 +77,9 @@ export class AudioModule {
             this.newRTCSessionCallback.bind(this)
         )
 
-        this.logData('constructor before VUMeter')
         this.VUMeter = new VUMeter({
             onChangeFunction: this.emitVolumeChange.bind(this)
         })
-        this.logData('constructor after VUMeter')
 
         this.initializeMediaDevices()
     }
@@ -220,14 +218,12 @@ export class AudioModule {
 
     public get getUserMediaConstraints () {
         if (/Mobi|Android|iPhone/i.test(navigator.userAgent)) {
-            this.logData(`Platform is mobile: ${navigator.userAgent}`)
             return {
                 video: false,
                 audio: true
             }
         }
 
-        this.logData(`Platform is PC: ${navigator.userAgent}`)
         return {
             audio: {
                 deviceId: {
@@ -274,14 +270,9 @@ export class AudioModule {
         const initialOutputDevice = localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
 
         try {
-            this.logData(`getUserMediaConstraints${JSON.stringify(this.getUserMediaConstraints)}`)
-
             // Ask input media permissions
             const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
-
-
             const devices = await navigator.mediaDevices.enumerateDevices()
-            this.logData(`initializeMediaDevices enumerateDevices length ${devices.length}`)
 
             this.setAvailableMediaDevices(devices)
 
@@ -295,7 +286,7 @@ export class AudioModule {
 
             stream.getTracks().forEach(track => track.stop())
         } catch (err) {
-            this.logData(`initializeMediaDevices catch ${err}`)
+            console.error(err)
         }
 
     }
@@ -601,11 +592,8 @@ export class AudioModule {
 
     public async setMicrophone (dId: string) {
         if (!this.getInputDeviceList.find(({ deviceId }) => deviceId === dId)) {
-            this.logData('setMicrophone return')
             return
         }
-
-        this.logData(`setMicrophone id ${dId}`)
 
         this.setSelectedInputDevice(dId)
 
@@ -641,11 +629,9 @@ export class AudioModule {
 
     public async setSpeaker (dId: string) {
         if (!this.getOutputDeviceList.find(({ deviceId }) => deviceId === dId)) {
-            this.logData('setSpeaker return')
             return
         }
 
-        this.logData(`setSpeaker id ${dId}`)
         this.setSelectedOutputDevice(dId)
 
         const activeCallList = Object.values(this.extendedCalls)
