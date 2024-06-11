@@ -2286,6 +2286,7 @@ export default class RTCSession extends EventEmitter {
      */
     _sendInitialRequest (mediaConstraints, rtcOfferConstraints, mediaStream) {
         this.ackSent = false
+        this.publisherSubscribeSent = false
 
         const request_sender = new RequestSender(this._ua, this._request, {
             onRequestTimeout: () => {
@@ -2450,7 +2451,7 @@ export default class RTCSession extends EventEmitter {
 
         }
 
-        if (this.ackSent) {
+        if (this.ackSent && !this.publisherSubscribeSent) {
             const parsedBody = JSON.parse(response.body)
             //console.log('parsedBody', parsedBody)
             this.session_id = parsedBody.session_id
@@ -2472,11 +2473,12 @@ export default class RTCSession extends EventEmitter {
 
             const registerExtraHeaders = [ 'PTYPE: Publisher' ]
 
-            console.log('JOIN MESSAGE', registerBody)
             this.sendRequest(JsSIP_C.SUBSCRIBE, {
                 extraHeaders: registerExtraHeaders,
                 body: JSON.stringify(registerBody),
             })
+
+            this.publisherSubscribeSent = true
         }
 
         // Proceed to cancellation if the user requested.
