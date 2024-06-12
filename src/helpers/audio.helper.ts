@@ -97,13 +97,10 @@ export function syncStream (stream: MediaStream, call: ICall, outputDevice: stri
     audio.className = 'audioTag'
     audio.srcObject = stream
 
-    /*if (!isMobile()) {
+    if (!isMobile()) {
         audio.setSinkId(outputDevice)
         audio.volume = volume
-    }*/
-
-    audio.setSinkId(outputDevice)
-    audio.volume = volume
+    }
 
     audio.play()
     call.audioTag = audio
