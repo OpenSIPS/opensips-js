@@ -258,13 +258,6 @@ export class AudioModule {
         this.setAvailableMediaDevices(devices)
     }
 
-    public logData (data) {
-        const logs = document.getElementById('logs')
-        const span = document.createElement('span')
-        span.innerText = `${data.toString()}\n`
-        logs.appendChild(span)
-    }
-
     private async initializeMediaDevices () {
         const initialInputDevice = localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE) || 'default'
         const initialOutputDevice = localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
@@ -1275,8 +1268,6 @@ export class AudioModule {
 
         const stream = new MediaStream([ event.track ])
 
-        this.logData(`triggerAddStream stream ${stream}`)
-
         syncStream(stream, call, this.selectedOutputDevice, this.speakerVolume)
         this.setupVUMeter(stream, call._id)
         this.getCallQuality(call)
@@ -1325,7 +1316,6 @@ export class AudioModule {
         }
 
         call.connection.addEventListener('track', (event: RTCTrackEvent) => {
-            this.logData(`Event 'track' ${event.track}`)
             this.triggerAddStream(event, call as ICall)
         })
     }
