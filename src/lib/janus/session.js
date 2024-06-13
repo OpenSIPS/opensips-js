@@ -2458,6 +2458,10 @@ export default class RTCSession extends EventEmitter {
             this.handle_id = parsedBody.data.id
             const opaqueId = `videoroomtest-${randomString(12)}`
 
+            const clientId = ([ 1e7 ]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+                (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+            )
+
             const registerBody = {
                 janus: 'message',
                 body: {
@@ -2465,7 +2469,7 @@ export default class RTCSession extends EventEmitter {
                     room: 'abcd',
                     ptype: 'publisher',
                     display: 'User1',
-                    clientID: 'dufgjb023gh4vr872v238ugf2y82g4',
+                    clientID: clientId,
                     opaque_id: opaqueId,
                 },
                 handle_id: this.handle_id
