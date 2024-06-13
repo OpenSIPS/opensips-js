@@ -1,5 +1,6 @@
 // /* globals RTCPeerConnection: false, RTCSessionDescription: false */
 
+import { v4 as uuidv4 } from 'uuid'
 //const EventEmitter = require('events').EventEmitter
 import { EventEmitter } from 'events'
 //const sdp_transform = require('sdp-transform')
@@ -24,17 +25,6 @@ import RTCSession_ReferNotifier from 'jssip/lib/RTCSession/ReferNotifier'
 //const RTCSession_ReferSubscriber = require('./RTCSession/ReferSubscriber')
 import RTCSession_ReferSubscriber from 'jssip/lib/RTCSession/ReferSubscriber'
 import URI from 'jssip/lib/URI'
-
-function randomString (len) {
-    const charSet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-    let randomStr = ''
-    // eslint-disable-next-line no-plusplus
-    for (let i = 0; i < len; i++) {
-        const randomPoz = Math.floor(Math.random() * charSet.length)
-        randomStr += charSet.substring(randomPoz, randomPoz + 1)
-    }
-    return randomStr
-}
 
 const logger = new Logger('JanusSession')
 
@@ -2456,7 +2446,10 @@ export default class RTCSession extends EventEmitter {
             //console.log('parsedBody', parsedBody)
             this.session_id = parsedBody.session_id
             this.handle_id = parsedBody.data.id
-            const opaqueId = `videoroomtest-${randomString(12)}`
+            this.client_id = uuidv4()
+
+            const opaqueRandomString = uuidv4().replace(/-/g, '').slice(0, 12)
+            const opaqueId = `videoroomtest-${opaqueRandomString}`
 
             const registerBody = {
                 janus: 'message',
@@ -2465,7 +2458,7 @@ export default class RTCSession extends EventEmitter {
                     room: 'abcd',
                     ptype: 'publisher',
                     display: 'User1',
-                    clientID: 'dufgjb023gh4vr872v238ugf2y82g4',
+                    clientID: this.client_id,
                     opaque_id: opaqueId,
                 },
                 handle_id: this.handle_id
