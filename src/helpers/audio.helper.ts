@@ -96,8 +96,12 @@ export function syncStream (stream: MediaStream, call: ICall, outputDevice: stri
     audio.id = call._id
     audio.className = 'audioTag'
     audio.srcObject = stream
-    audio.setSinkId(outputDevice)
-    audio.volume = volume
+
+    if (!isMobile()) {
+        audio.setSinkId(outputDevice)
+        audio.volume = volume
+    }
+
     audio.play()
     call.audioTag = audio
 }
@@ -110,4 +114,8 @@ export function isLoggerCompatible (logger: CustomLoggerType) {
     ) {
         return true
     }
+}
+
+export function isMobile () {
+    return /Mobi|Android|iPhone/i.test(navigator.userAgent)
 }

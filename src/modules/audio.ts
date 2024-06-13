@@ -16,7 +16,7 @@ import {
     ProbeMetricInType,
     WebrtcMetricsConfigType
 } from '@/types/webrtcmetrics'
-import { processAudioVolume, simplifyCallObject, syncStream } from '@/helpers/audio.helper'
+import { isMobile, processAudioVolume, simplifyCallObject, syncStream } from '@/helpers/audio.helper'
 import { RTCSessionEvent } from 'jssip/lib/UA'
 import { forEach } from 'p-iteration'
 import audioContext from '@/helpers/audioContext'
@@ -217,7 +217,7 @@ export class AudioModule {
     }
 
     public get getUserMediaConstraints () {
-        if (/Mobi|Android|iPhone/i.test(navigator.userAgent)) {
+        if (isMobile()) {
             return {
                 video: false,
                 audio: true
