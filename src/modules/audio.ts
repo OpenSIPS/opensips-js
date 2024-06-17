@@ -727,7 +727,7 @@ export class AudioModule {
                 await this.unholdCall(callsInRoom[0].id)
             }
 
-            if (callsInRoom[0].connection && callsInRoom[0].connection.getSenders()[0]) {
+            if (callsInRoom[0].connection && callsInRoom[0].connection?.getSenders()[0]) {
                 const processedStream = this.getActiveStream()
                 await callsInRoom[0].connection.getSenders()[0].replaceTrack(processedStream.getTracks()[0])
                 this.muteReconfigure(callsInRoom[0])
@@ -786,7 +786,7 @@ export class AudioModule {
                 sourceStream.connect(mixedOutput)
             }
 
-            if (session.connection.getSenders()[0]) {
+            if (session.connection?.getSenders()[0]) {
                 //mixedOutput.stream.getTracks().forEach(track => track.enabled = !getters.isMuted) // Uncomment to mute all callers on mute
                 await session.connection.getSenders()[0].replaceTrack(mixedOutput.stream.getTracks()[0])
                 this.muteReconfigure(session)
@@ -1025,7 +1025,7 @@ export class AudioModule {
         this.stopVUMeter('origin')
 
         // TODO: try without it
-        session.connection.getSenders().forEach((sender) => {
+        session.connection?.getSenders().forEach((sender) => {
             sender.track.stop()
         })
 
@@ -1075,7 +1075,7 @@ export class AudioModule {
 
             if (!Object.keys(this.extendedCalls).length) {
                 this.setIsMuted(false)
-                this.initialStreamValue.getTracks().forEach((track) => track.stop())
+                this.initialStreamValue?.getTracks().forEach((track) => track.stop())
                 this.initialStreamValue = null
             }
         })
@@ -1112,7 +1112,7 @@ export class AudioModule {
 
             if (!Object.keys(this.extendedCalls).length) {
                 this.setIsMuted(false)
-                this.initialStreamValue.getTracks().forEach((track) => track.stop())
+                this.initialStreamValue?.getTracks().forEach((track) => track.stop())
                 this.initialStreamValue = null
             }
         })
