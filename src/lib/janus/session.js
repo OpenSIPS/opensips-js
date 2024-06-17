@@ -28,6 +28,8 @@ import URI from 'jssip/lib/URI'
 
 const logger = new Logger('JanusSession')
 
+const RECORDING_PATH = '/opt/recordings/'
+
 const C = {
     // JanusSession states.
     STATUS_NULL: 0,
@@ -256,6 +258,7 @@ export default class RTCSession extends EventEmitter {
     connect (target, options = {}, initCallback) {
         logger.debug('connect()')
 
+        this.room_id = target
         const originalTarget = target
         const eventHandlers = Utils.cloneObject(options.eventHandlers)
         const extraHeaders = Utils.cloneArray(options.extraHeaders)
@@ -1606,6 +1609,18 @@ export default class RTCSession extends EventEmitter {
         }, Timers.TIMER_H)
     }
 
+    _sendTrickle (candidate) {
+        const body = {
+            janus: 'trickle',
+            candidate,
+            handle_id: this.handle_id,
+            //transaction:'6',
+            session_id: this.session_id
+        }
+
+        console.log('candidate body', body)
+    }
+
 
     _createRTCConnection (pcConfig, rtcConstraints) {
         this._connection = new RTCPeerConnection(pcConfig, rtcConstraints)
@@ -1622,6 +1637,23 @@ export default class RTCSession extends EventEmitter {
                 })
             }
         })
+
+        // Send ICE events to Janus.
+        this._connection.onicecandidate = (event) => {
+
+            if (this._connection.signalingState !== 'stable' && this._connection.signalingState !== 'have-local-offer') {
+                console.log('skipining icecandidate event',this._connection.signalingState,event)
+                return
+            }
+            if (!event.candidate) {
+                return
+            }
+            console.log('onicecandidate sendTrickle', event.candidate)
+            this._sendTrickle(event.candidate)
+                .catch((err) => {
+                    logger.warn(err)
+                })
+        }
 
         logger.debug('emit "peerconnection"')
 
@@ -2398,6 +2430,112 @@ export default class RTCSession extends EventEmitter {
         return sender.dtmf
     }*/
 
+    requestAudioAndVideoPermissions () {
+        return this.loadStream()
+    }
+
+    async loadStream () {
+        // const options = { ...this.mediaConstraints }
+        const options = {
+            audio: true,
+            video: true
+        }
+
+        try {
+            this.stream = await navigator.mediaDevices.getUserMedia(options)
+            logger.info('Got local user media.')
+
+        } catch (e) {
+            try {
+                options.video = false
+                this.stream = await navigator.mediaDevices.getUserMedia(options)
+            } catch (ex) {
+                options.audio = false
+                options.video = false
+                this.stream = await navigator.mediaDevices.getUserMedia(options)
+            }
+        }
+        // this.trackMicrophoneVolume()
+        return {
+            stream: this.stream,
+            options
+        }
+    }
+
+    addTracks (tracks) {
+        tracks.forEach((track) => {
+            this._connection.addTrack(track)
+        })
+    }
+
+    getRecordFileName () {
+        return RECORDING_PATH + this.room_id + btoa(unescape(encodeURIComponent(this.displayName))) + Date.now()
+    }
+
+    async processIceCandidates () {
+        for(let i = 0; i < this.iceCandidates.length; i++) {
+            await this._connection.addIceCandidate(this.iceCandidates[i])
+        }
+        this.iceCandidates = []
+    }
+
+    async sendConfigureMessage (options) {
+        console.log('SDP: sendConfigureMessage')
+        //this.offerOptions.offerToReceiveAudio = false
+        //this.offerOptions.offerToReceiveVideo = false
+
+        const offerOptions = {
+            offerToReceiveAudio: false,
+            offerToReceiveVideo: false
+        }
+        const jsepOffer = await this._connection.createOffer(offerOptions)
+        await this._connection.setLocalDescription(jsepOffer)
+
+        /*const confResult = await this.sendMessage({
+            request: 'configure',
+            record: true,
+            filename: this.getRecordFileName(),
+            ...options,
+        }, jsepOffer)*/
+
+        const body = {
+            janus: 'message',
+            body: {
+                request: 'configure',
+                record: true,
+                filename: this.getRecordFileName(),
+                ...options
+            },
+            /*jsep: {
+                sdp: 'test',
+                type: 'offer'
+            }*/
+            jsep: jsepOffer,
+            handle_id: this.handle_id,
+            //transaction: '5',
+            session_id: this.session_id
+        }
+
+        console.log('SDP: SEND SDP REQUEST', body)
+        this.sendRequest(JsSIP_C.INFO, {
+            //extraHeaders: registerExtraHeaders,
+            body: JSON.stringify(body),
+            eventHandlers: {
+                onSuccessResponse: async (response) => {
+                    //onSucceeded.call(this, response)
+                    //succeeded = true
+                    console.log('SDP: RESPONSE FOR SDP', response)
+                    await this._connection.setRemoteDescription(response.jsep)
+                    await this.processIceCandidates()
+                },
+            }
+        })
+
+
+
+        //return confResult
+    }
+
     /**
      * Reception of Response for Initial INVITE
      */
@@ -2444,34 +2582,47 @@ export default class RTCSession extends EventEmitter {
         if (this.ackSent && !this.publisherSubscribeSent) {
             const parsedBody = JSON.parse(response.body)
             //console.log('parsedBody', parsedBody)
-            this.session_id = parsedBody.session_id
-            this.handle_id = parsedBody.data.id
-            this.client_id = uuidv4()
 
-            const opaqueRandomString = uuidv4().replace(/-/g, '').slice(0, 12)
-            const opaqueId = `videoroomtest-${opaqueRandomString}`
+            this.requestAudioAndVideoPermissions().then(() => {
+                this.session_id = parsedBody.session_id
+                this.handle_id = parsedBody.data.id
+                this.client_id = uuidv4()
 
-            const registerBody = {
-                janus: 'message',
-                body: {
-                    request: 'join',
-                    room: 'abcd',
-                    ptype: 'publisher',
-                    display: 'User1',
-                    clientID: this.client_id,
-                    opaque_id: opaqueId,
-                },
-                handle_id: this.handle_id
-            }
+                const opaqueRandomString = uuidv4().replace(/-/g, '').slice(0, 12)
+                const opaqueId = `videoroomtest-${opaqueRandomString}`
 
-            const registerExtraHeaders = [ 'PTYPE: Publisher' ]
+                const registerBody = {
+                    janus: 'message',
+                    body: {
+                        request: 'join',
+                        room: 'abcd',
+                        ptype: 'publisher',
+                        display: 'User1',
+                        clientID: this.client_id,
+                        opaque_id: opaqueId,
+                    },
+                    handle_id: this.handle_id
+                }
 
-            this.sendRequest(JsSIP_C.SUBSCRIBE, {
-                extraHeaders: registerExtraHeaders,
-                body: JSON.stringify(registerBody),
+                const registerExtraHeaders = [ 'PTYPE: Publisher' ]
+
+                this.sendRequest(JsSIP_C.SUBSCRIBE, {
+                    extraHeaders: registerExtraHeaders,
+                    body: JSON.stringify(registerBody),
+
+                })
+
+                this.publisherSubscribeSent = true
+
+                this.addTracks(this.stream.getTracks())
+
+                this.sendConfigureMessage({
+                    audio: true,
+                    video: true,
+                }).then(() => {
+                    //this.sendInitialState()
+                })
             })
-
-            this.publisherSubscribeSent = true
         }
 
         // Proceed to cancellation if the user requested.
