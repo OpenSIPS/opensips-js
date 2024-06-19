@@ -30,19 +30,6 @@ const logger = new Logger('JanusSession')
 
 const RECORDING_PATH = '/opt/recordings/'
 
-function throttle(mainFunction, delay) {
-    let timerFlag = null; // Variable to keep track of the timer
-
-    // Returning a throttled version
-    return (...args) => {
-        if (timerFlag === null) { // If there is no timer currently running
-            mainFunction(...args); // Execute the main function
-            timerFlag = setTimeout(() => { // Set a timer to clear the timerFlag after the specified delay
-                timerFlag = null; // Clear the timerFlag to allow the main function to be executed again
-            }, delay);
-        }
-    };
-}
 
 const C = {
     // JanusSession states.
@@ -1624,33 +1611,6 @@ export default class RTCSession extends EventEmitter {
         }, Timers.TIMER_H)
     }
 
-    _sendTrickle (candidate) {
-        const body = {
-            janus: 'trickle',
-            candidate,
-            handle_id: this.handle_id,
-            //transaction:'6',
-            session_id: this.session_id
-        }
-
-        console.log('candidate body', body)
-
-        this.sendRequest(JsSIP_C.INFO, {
-            //extraHeaders: registerExtraHeaders,
-            body: JSON.stringify(body),
-            /*eventHandlers: {
-                onSuccessResponse: async (response) => {
-                    //onSucceeded.call(this, response)
-                    //succeeded = true
-                    console.log('SDP: RESPONSE FOR SDP', response)
-                    await this._connection.setRemoteDescription(response.jsep)
-                    await this.processIceCandidates()
-                },
-            }*/
-        })
-    }
-
-
     _createRTCConnection (pcConfig, rtcConstraints) {
         this._connection = new RTCPeerConnection(pcConfig, rtcConstraints)
 
@@ -2534,7 +2494,6 @@ export default class RTCSession extends EventEmitter {
             janus: 'trickle',
             candidate,
             handle_id: this.handle_id,
-            // transaction:'',
             session_id: this.session_id
         }))
 
@@ -2548,7 +2507,6 @@ export default class RTCSession extends EventEmitter {
             },
             jsep: jsepOffer,
             handle_id: this.handle_id,
-            //transaction: '',
             session_id: this.session_id
         }
 
@@ -2562,8 +2520,6 @@ export default class RTCSession extends EventEmitter {
             body: JSON.stringify(body),
             eventHandlers: {
                 onSuccessResponse: async (response) => {
-                    //succeeded = true
-                    //console.log('SDP: RESPONSE FOR SDP', response)
                     await this._connection.setRemoteDescription(response.jsep)
                     await this.processIceCandidates()
                     this._candidates = []
@@ -2655,13 +2611,6 @@ export default class RTCSession extends EventEmitter {
                 this.publisherSubscribeSent = true
 
                 this.addTracks(this.stream.getTracks())
-
-                /*this.sendConfigureMessage({
-                    audio: true,
-                    video: true,
-                }).then(() => {
-                    //this.sendInitialState()
-                })*/
             })
         }
 
