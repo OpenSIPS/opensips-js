@@ -30,6 +30,20 @@ const logger = new Logger('JanusSession')
 
 const RECORDING_PATH = '/opt/recordings/'
 
+function throttle(mainFunction, delay) {
+    let timerFlag = null; // Variable to keep track of the timer
+
+    // Returning a throttled version
+    return (...args) => {
+        if (timerFlag === null) { // If there is no timer currently running
+            mainFunction(...args); // Execute the main function
+            timerFlag = setTimeout(() => { // Set a timer to clear the timerFlag after the specified delay
+                timerFlag = null; // Clear the timerFlag to allow the main function to be executed again
+            }, delay);
+        }
+    };
+}
+
 const C = {
     // JanusSession states.
     STATUS_NULL: 0,
@@ -144,6 +158,7 @@ export default class RTCSession extends EventEmitter {
 
         // Map of ReferSubscriber instances indexed by the REFER's CSeq number.
         this._referSubscribers = {}
+        this._candidates = []
 
         // Custom session empty object for high level use.
         this._data = {}
@@ -1619,6 +1634,20 @@ export default class RTCSession extends EventEmitter {
         }
 
         console.log('candidate body', body)
+
+        this.sendRequest(JsSIP_C.INFO, {
+            //extraHeaders: registerExtraHeaders,
+            body: JSON.stringify(body),
+            /*eventHandlers: {
+                onSuccessResponse: async (response) => {
+                    //onSucceeded.call(this, response)
+                    //succeeded = true
+                    console.log('SDP: RESPONSE FOR SDP', response)
+                    await this._connection.setRemoteDescription(response.jsep)
+                    await this.processIceCandidates()
+                },
+            }*/
+        })
     }
 
 
@@ -1638,22 +1667,32 @@ export default class RTCSession extends EventEmitter {
             }
         })
 
-        // Send ICE events to Janus.
-        this._connection.onicecandidate = (event) => {
+        let iceCandidateTimeout
 
+        const onIceCandidate = (event) => {
             if (this._connection.signalingState !== 'stable' && this._connection.signalingState !== 'have-local-offer') {
-                console.log('skipining icecandidate event',this._connection.signalingState,event)
                 return
             }
             if (!event.candidate) {
                 return
             }
-            console.log('onicecandidate sendTrickle', event.candidate)
-            this._sendTrickle(event.candidate)
-                .catch((err) => {
-                    logger.warn(err)
+
+            this._candidates.push(event.candidate)
+
+            clearTimeout(iceCandidateTimeout)
+
+            // Debounce calling configure request with trickles till the last trickle
+            iceCandidateTimeout = setTimeout(() => {
+                this.sendConfigureMessage({
+                    audio: true,
+                    video: true,
+                }).then(() => {
+                    //this.sendInitialState()
                 })
+            }, 500)
         }
+
+        this._connection.onicecandidate = onIceCandidate
 
         logger.debug('emit "peerconnection"')
 
@@ -2491,14 +2530,15 @@ export default class RTCSession extends EventEmitter {
         const jsepOffer = await this._connection.createOffer(offerOptions)
         await this._connection.setLocalDescription(jsepOffer)
 
-        /*const confResult = await this.sendMessage({
-            request: 'configure',
-            record: true,
-            filename: this.getRecordFileName(),
-            ...options,
-        }, jsepOffer)*/
+        const candidatesArray = this._candidates.map((candidate) => ({
+            janus: 'trickle',
+            candidate,
+            handle_id: this.handle_id,
+            // transaction:'',
+            session_id: this.session_id
+        }))
 
-        const body = {
+        const configureBody = {
             janus: 'message',
             body: {
                 request: 'configure',
@@ -2506,27 +2546,27 @@ export default class RTCSession extends EventEmitter {
                 filename: this.getRecordFileName(),
                 ...options
             },
-            /*jsep: {
-                sdp: 'test',
-                type: 'offer'
-            }*/
             jsep: jsepOffer,
             handle_id: this.handle_id,
-            //transaction: '5',
+            //transaction: '',
             session_id: this.session_id
         }
 
-        console.log('SDP: SEND SDP REQUEST', body)
+        const body = {
+            configure: configureBody,
+            trickles: [ ...candidatesArray ]
+        }
+
         this.sendRequest(JsSIP_C.INFO, {
             //extraHeaders: registerExtraHeaders,
             body: JSON.stringify(body),
             eventHandlers: {
                 onSuccessResponse: async (response) => {
-                    //onSucceeded.call(this, response)
                     //succeeded = true
-                    console.log('SDP: RESPONSE FOR SDP', response)
+                    //console.log('SDP: RESPONSE FOR SDP', response)
                     await this._connection.setRemoteDescription(response.jsep)
                     await this.processIceCandidates()
+                    this._candidates = []
                 },
             }
         })
@@ -2616,12 +2656,12 @@ export default class RTCSession extends EventEmitter {
 
                 this.addTracks(this.stream.getTracks())
 
-                this.sendConfigureMessage({
+                /*this.sendConfigureMessage({
                     audio: true,
                     video: true,
                 }).then(() => {
                     //this.sendInitialState()
-                })
+                })*/
             })
         }
 
