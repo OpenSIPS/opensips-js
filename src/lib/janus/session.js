@@ -1643,12 +1643,16 @@ export default class RTCSession extends EventEmitter {
 
             // Debounce calling configure request with trickles till the last trickle
             iceCandidateTimeout = setTimeout(() => {
-                this.sendConfigureMessage({
-                    audio: true,
-                    video: true,
-                }).then(() => {
-                    //this.sendInitialState()
-                })
+                this.lastTrickleReceived = true
+
+                if (this.subscribeSent && !this.isConfigureSent) {
+                    this.sendConfigureMessage({
+                        audio: true,
+                        video: true,
+                    }).then(() => {
+                        //this.sendInitialState()
+                    })
+                }
             }, 500)
         }
 
@@ -2520,6 +2524,7 @@ export default class RTCSession extends EventEmitter {
             body: JSON.stringify(body),
             eventHandlers: {
                 onSuccessResponse: async (response) => {
+                    this.isConfigureSent = true
                     await this._connection.setRemoteDescription(response.jsep)
                     await this.processIceCandidates()
                     this._candidates = []
@@ -2605,7 +2610,22 @@ export default class RTCSession extends EventEmitter {
                 this.sendRequest(JsSIP_C.SUBSCRIBE, {
                     extraHeaders: registerExtraHeaders,
                     body: JSON.stringify(registerBody),
+                    eventHandlers: {
+                        onSuccessResponse: async (response) => {
+                            if (response.status_code === 200) {
+                                this.subscribeSent = true
 
+                                if (this.lastTrickleReceived && !this.isConfigureSent) {
+                                    this.sendConfigureMessage({
+                                        audio: true,
+                                        video: true,
+                                    }).then(() => {
+                                        //this.sendInitialState()
+                                    })
+                                }
+                            }
+                        },
+                    }
                 })
 
                 this.publisherSubscribeSent = true
