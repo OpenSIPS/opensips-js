@@ -2519,8 +2519,10 @@ export default class RTCSession extends EventEmitter {
             trickles: [ ...candidatesArray ]
         }
 
+        const extraHeaders = [ 'Content-Type: application/json' ]
+
         this.sendRequest(JsSIP_C.INFO, {
-            //extraHeaders: registerExtraHeaders,
+            extraHeaders,
             body: JSON.stringify(body),
             eventHandlers: {
                 onSuccessResponse: async (response) => {
