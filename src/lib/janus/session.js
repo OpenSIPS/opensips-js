@@ -2527,8 +2527,12 @@ export default class RTCSession extends EventEmitter {
             eventHandlers: {
                 onSuccessResponse: async (response) => {
                     this.isConfigureSent = true
-                    await this._connection.setRemoteDescription(response.jsep)
-                    await this.processIceCandidates()
+                    const messageData = response.data
+                    const messageBody = messageData.split('\r\n')
+                    const data = messageBody[messageBody.length - 1]
+                    const parsed = JSON.parse(data)
+                    await this._connection.setRemoteDescription(parsed.jsep) // (response.jsep)
+                    //await this.processIceCandidates()
                     this._candidates = []
                 },
             }
