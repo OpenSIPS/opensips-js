@@ -804,7 +804,6 @@ export class AudioModule {
     }
 
     public terminateCall (callId: string) {
-        // TODO: if it answered incoming call and we are doing hangup we are getting unregistered event and sockets are reconnecting
         const call = this.extendedCalls[callId]
 
         if (call._status !== 8) {
@@ -1014,10 +1013,9 @@ export class AudioModule {
         this.stopVUMeter('origin')
 
         // TODO: try without it
-        // TODO: COMMENTED BECAUSE MARIANNA HAS PROBLEMS WHEN SHE HANGS UP INCOMING CALL
-        // session.connection.getSenders().forEach((sender) => {
-        //     sender.track.stop()
-        // })
+        session.connection.getSenders().forEach((sender) => {
+            sender.track.stop()
+        })
 
         const callRoomIdToConfigure = session.roomId
 
@@ -1044,13 +1042,6 @@ export class AudioModule {
             return
         }
 
-        // TODO: ADDED BECAUSE MARIANA NEEDED FOR THE PLAYING BIP SOUND ON INCOMING CALL
-        this.context.triggerListener({
-            listenerType: CALL_EVENT_LISTENER_TYPE.NEW_CALL,
-            session,
-            event
-        })
-
         // stop timers on ended and failed
         session.on('ended', (event) => {
             this.stopVUMeter(session.id)
@@ -1072,12 +1063,8 @@ export class AudioModule {
 
             if (!Object.keys(this.extendedCalls).length) {
                 this.setIsMuted(false)
-
-                // TODO: COMMENTED BECAUSE MARIANNA HAS PROBLEMS WHEN SHE HANGS UP INCOMING CALL
-                if (this.initialStreamValue) {
-                    this.initialStreamValue.getTracks().forEach((track) => track.stop())
-                    this.initialStreamValue = null
-                }
+                this.initialStreamValue.getTracks().forEach((track) => track.stop())
+                this.initialStreamValue = null
             }
         })
         session.on('progress', (event: IncomingEvent | OutgoingEvent) => {
@@ -1113,12 +1100,8 @@ export class AudioModule {
 
             if (!Object.keys(this.extendedCalls).length) {
                 this.setIsMuted(false)
-
-                // TODO: COMMENTED BECAUSE MARIANNA HAS PROBLEMS WHEN SHE HANGS UP INCOMING CALL
-                if (this.initialStreamValue) {
-                    this.initialStreamValue.getTracks().forEach((track) => track.stop())
-                    this.initialStreamValue = null
-                }
+                this.initialStreamValue.getTracks().forEach((track) => track.stop())
+                this.initialStreamValue = null
             }
         })
         session.on('confirmed', (event: IncomingAckEvent | OutgoingAckEvent) => {
