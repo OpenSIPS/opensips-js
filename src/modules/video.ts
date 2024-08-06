@@ -22,7 +22,7 @@ export class VideoModule {
         return options
     }
 
-    public initCall (target: string) {
+    public initCall (target: string, displayName: string) {
         // this.checkInitialized()
 
         if (target.length === 0) {
@@ -33,6 +33,7 @@ export class VideoModule {
 
         const call = this.context.joinVideoCall(
             `sip:${target}@${this.context.sipDomain}`,
+            displayName,
             this.sipOptions
         )
 
