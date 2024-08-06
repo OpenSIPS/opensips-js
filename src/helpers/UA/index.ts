@@ -72,10 +72,6 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
     constructor(configuration: UAConfiguration) {
         super(configuration)
 
-        /*configuration.sockets[0].ondata = (data) => {
-            console.log('ON DATA', data)
-        }*/
-
         /*this.registrator().setExtraContactParams({
             'pn-provider': 'acme',
             'pn-param': 'acme-param',
@@ -287,8 +283,7 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         delete this._janus_sessions[session.id]
     }
 
-    receiveRequest(request: any) {
-        console.log('receiveRequest', request)
+    receiveRequest (request: any) {
         const method = request.method
         console.log('-----------')
         // Check that request URI points to us.
@@ -426,7 +421,6 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
                      */
                     break
                 case JsSIP_C.NOTIFY:
-                    console.log('FFF in notify')
                     // Receive new sip event.
                     this.emit('sipEvent', {
                         event: request.event,
@@ -441,18 +435,13 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         } else { // In-dialog request.
             dialog = this._findDialog(request.call_id, request.from_tag, request.to_tag)
 
-            console.log('FFF in else')
             if (dialog) {
-                console.log('FFF in else dialog')
                 dialog.receiveRequest(request)
             } else if (method === JsSIP_C.NOTIFY) {
-                console.log('FFF in else no dialog')
                 session = this._findSession(request)
                 if (session) {
-                    console.log('FFF in else session')
                     session.receiveRequest(request)
                 } else {
-                    console.log('FFF in else no session')
                     logger.debug('received NOTIFY request for a non existent subscription')
                     request.reply(200)
                 }
