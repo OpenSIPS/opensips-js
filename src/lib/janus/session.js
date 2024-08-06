@@ -75,8 +75,6 @@ export default class RTCSession extends EventEmitter {
         this._from_tag = null
         this._to_tag = null
 
-        console.log('this._ua', this._ua)
-
         // Janus: transaction
         this.lastTransaction = 0
 
@@ -1288,7 +1286,6 @@ export default class RTCSession extends EventEmitter {
      * In dialog Request Reception
      */
     receiveRequest (request) {
-        console.log('SESSION receiveRequest', request)
         logger.debug('receiveRequest()')
 
         if (request.method === JsSIP_C.CANCEL) {
@@ -1428,7 +1425,6 @@ export default class RTCSession extends EventEmitter {
                     }
                     break
                 case JsSIP_C.NOTIFY:
-                    console.log('RECEIVE NOTIFY', request)
                     if (this._status === C.STATUS_CONFIRMED) {
                         this._receiveNotify(request)
                     } else {
@@ -2342,24 +2338,18 @@ export default class RTCSession extends EventEmitter {
         this.ackSent = false
         this.publisherSubscribeSent = false
 
-        console.log('SEND INITIAL REQUEST')
-
         const request_sender = new RequestSender(this._ua, this._request, {
             onRequestTimeout: () => {
-                console.log('ON REQUEST TIMEOUT')
                 this.onRequestTimeout()
             },
             onTransportError: () => {
-                console.log('ON TRANSPORT ERROR')
                 this.onTransportError()
             },
             // Update the request on authentication.
             onAuthenticated: (request) => {
-                console.log('ON AUTHENTICATED')
                 this._request = request
             },
             onReceiveResponse: (response) => {
-                console.log('ON RECEIVE RESPONSE')
                 this._receiveInviteResponse(response)
             }
         })
