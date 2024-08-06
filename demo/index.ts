@@ -718,8 +718,33 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
             })
             .begin()
 
+        openSIPSJS.subscribe(
+            'new_call',
+            (e) => {
+                console.log('[SUBSCRIBE] NEW_CALL', e)
+            }
+        )
 
+        openSIPSJS.subscribe(
+            'confirmed',
+            (e) => {
+                console.log('[SUBSCRIBE] CALL_CONFIRMED', e)
+            }
+        )
 
+        openSIPSJS.subscribe(
+            'failed',
+            (e) => {
+                console.log('[SUBSCRIBE] CALL_FAILED', e)
+            }
+        )
+
+        openSIPSJS.subscribe(
+            'ended',
+            (e) => {
+                console.log('[SUBSCRIBE] ENDED', e)
+            }
+        )
 
         /*setTimeout(() => {
             openSIPSJS.video.startJanus('abcd')

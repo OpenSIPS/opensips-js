@@ -1,6 +1,6 @@
 {
   "name": "@voicenter-team/opensips-js",
-  "version": "1.0.84",
+  "version": "1.0.85",
   "description": "The JS package for opensips",
   "default": "src/index.ts",
   "jsdelivr": "dist/opensips-js.umd.js",
