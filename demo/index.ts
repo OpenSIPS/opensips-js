@@ -795,14 +795,21 @@ videoCallFormEl?.addEventListener(
 
         const formData = new FormData(form)
         const target = formData.get('target')
+        const name = formData.get('name')
 
         if (typeof target !== 'string' || target.length === 0) {
-            alert('Please provide a valid string!')
+            alert('Please provide a valid string target!')
 
             return
         }
 
-        openSIPSJS.video?.initCall(target)
+        if (typeof name !== 'string' || name.length === 0) {
+            alert('Please provide a valid string name!')
+
+            return
+        }
+
+        openSIPSJS.video?.initCall(target, name)
     }
 )
 

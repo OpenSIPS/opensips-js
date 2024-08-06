@@ -16,6 +16,7 @@ import Timers from 'jssip/lib/Timers'
 import * as SIPMessage from 'jssip/lib/SIPMessage'
 //import Dialog from 'jssip/lib/Dialog'
 import Dialog from './Dialog'
+import Member from './Member'
 import RequestSender from 'jssip/lib/RequestSender'
 //const RTCSession_DTMF = require('./RTCSession/DTMF')
 import RTCSession_DTMF from 'jssip/lib/RTCSession/DTMF'
@@ -146,6 +147,19 @@ export default class RTCSession extends EventEmitter {
         // Map of ReferSubscriber instances indexed by the REFER's CSeq number.
         this._referSubscribers = {}
         this._candidates = []
+        this.publishers = []
+        this.private_id = null
+        this.memberList = {}
+        this.myFeedList = []
+        this.display_name = ''
+        this.stunServers = [{
+            urls: 'stun:turn.voicenter.co',
+            credential: 'kxsjahnsdjns3eds23esd',
+            username: 'turn2es21e'
+        }]
+
+        const opaqueRandomString = uuidv4().replace(/-/g, '').slice(0, 12)
+        this.opaque_id = `videoroomtest-${opaqueRandomString}`
 
         // Custom session empty object for high level use.
         this._data = {}
@@ -257,10 +271,11 @@ export default class RTCSession extends EventEmitter {
         }
     }
 
-    connect (target, options = {}, initCallback) {
+    connect (target, displayName, options = {}, initCallback) {
         logger.debug('connect()')
 
-        this.room_id = target
+        this.display_name = displayName
+
         const originalTarget = target
         const eventHandlers = Utils.cloneObject(options.eventHandlers)
         const extraHeaders = Utils.cloneArray(options.extraHeaders)
@@ -297,6 +312,8 @@ export default class RTCSession extends EventEmitter {
         console.log('target', target)
         target = this._ua.normalizeTarget(target)
         console.log('normalizeTarget target', target)
+        this.room_id = target.user
+
         if (!target) {
             throw new TypeError(`Invalid target: ${originalTarget}`)
         }
@@ -1261,6 +1278,10 @@ export default class RTCSession extends EventEmitter {
         return this._dialog.sendRequest(method, options)
     }
 
+    receiveNotify (request) {
+        logger.debug('receiveRequest()')
+    }
+
     /**
      * In dialog Request Reception
      */
@@ -1612,6 +1633,10 @@ export default class RTCSession extends EventEmitter {
     }
 
     _createRTCConnection (pcConfig, rtcConstraints) {
+        const config = {
+            iceServers: this.stunServers,
+            sdpSemantics: 'unified-plan',
+        }
         this._connection = new RTCPeerConnection(pcConfig, rtcConstraints)
 
         this._connection.addEventListener('iceconnectionstatechange', () => {
@@ -1646,7 +1671,7 @@ export default class RTCSession extends EventEmitter {
                 this.lastTrickleReceived = true
 
                 if (this.subscribeSent && !this.isConfigureSent) {
-                    this.sendConfigureMessage({
+                    this._sendConfigureMessage({
                         audio: true,
                         video: true,
                     }).then(() => {
@@ -2388,9 +2413,7 @@ export default class RTCSession extends EventEmitter {
                 const inviteData = {
                     janus: 'attach',
                     plugin: 'janus.plugin.videoroom',
-                    opaque_id: 'videoroomtest-uzkIUidc1969'
-                    //transaction: this._getNextTransactionId(),
-                    //session_id: 8477157010600503
+                    opaque_id: this.opaque_id
                 }
 
                 const bodyStringified = JSON.stringify(inviteData)
@@ -2482,11 +2505,7 @@ export default class RTCSession extends EventEmitter {
         this.iceCandidates = []
     }
 
-    async sendConfigureMessage (options) {
-        console.log('SDP: sendConfigureMessage')
-        //this.offerOptions.offerToReceiveAudio = false
-        //this.offerOptions.offerToReceiveVideo = false
-
+    async _sendConfigureMessage (options) {
         const offerOptions = {
             offerToReceiveAudio: false,
             offerToReceiveVideo: false
@@ -2519,7 +2538,7 @@ export default class RTCSession extends EventEmitter {
             trickles: [ ...candidatesArray ]
         }
 
-        const extraHeaders = [ 'Content-Type: application/json' ]
+        const extraHeaders = [ 'Content-Type: application/json', 'PTYPE: Ice' ]
 
         this.sendRequest(JsSIP_C.INFO, {
             extraHeaders,
@@ -2531,16 +2550,212 @@ export default class RTCSession extends EventEmitter {
                     const messageBody = messageData.split('\r\n')
                     const data = messageBody[messageBody.length - 1]
                     const parsed = JSON.parse(data)
-                    await this._connection.setRemoteDescription(parsed.jsep) // (response.jsep)
+                    await this._connection.setRemoteDescription(parsed.jsep)
                     //await this.processIceCandidates()
                     this._candidates = []
                 },
             }
         })
+    }
 
+    _sendMemberStartMessage (member, jsep) {
+        const body = {
+            janus: 'message',
+            body: {
+                request: 'start',
+                room: this.room_id
+            },
+            handle_id: member.handleId,
+            session_id: this.session_id,
+            jsep
+        }
 
+        const extraHeaders = [ 'Content-Type: application/json', 'PTYPE: Configure' ]
 
-        //return confResult
+        this.sendRequest(JsSIP_C.INFO, {
+            extraHeaders,
+            body: JSON.stringify(body),
+            eventHandlers: {
+                onSuccessResponse: async (response) => {
+                    if (response.status_code === 200) {
+                        await member.rtcpPeer.setLocalDescription(jsep)
+                    }
+                }
+            }
+        })
+    }
+
+    _sendTrickleMessage (candidates) {
+        const candidatesArray = candidates.map((candidate) => ({
+            janus: 'trickle',
+            candidate,
+            handle_id: this.handle_id,
+            session_id: this.session_id
+        }))
+
+        const body = {
+            trickles: [ ...candidatesArray ]
+        }
+
+        const extraHeaders = [ 'PTYPE: Trickle' ]
+
+        this.sendRequest(JsSIP_C.INFO, {
+            extraHeaders,
+            body: JSON.stringify(body),
+            eventHandlers: {
+                onSuccessResponse: async (response) => {
+                    console.log('_sendTrickleMessage', response)
+                },
+            }
+        })
+    }
+
+    async _answerAttachedStream (member, attachedStreamInfo) {
+        let answerSdp = null
+        const RTCPeerOnAddStream = async (event) => {
+            if (!member.rtcpPeer  ) {
+                return
+            }
+            if ( member.loaded) {
+                return
+            } else {
+                member.loaded = true
+                const options = {
+                    audio: true,
+                    video: true,
+                }
+
+                await new Promise((resolve) => {setTimeout(resolve,100)})
+                answerSdp = await member.rtcpPeer.createAnswer(options)
+
+                this._sendMemberStartMessage(member, answerSdp)
+            }
+
+            const aTracks = event.streams[0].getAudioTracks()
+            const  vTracks = event.streams[0].getVideoTracks()
+
+            const tracksToApply = []
+            if (aTracks[0]) {
+                tracksToApply.push(aTracks[0])
+            }
+            if (vTracks[0]) {
+                tracksToApply.push(vTracks[0])
+            }
+
+            const mediaStream = new MediaStream(tracksToApply)
+            member.stream = mediaStream
+
+            //this.plugin?.session.emit('member:join', this.memberInfo)
+        }
+
+        let iceCandidateTimeout
+        let candidates = []
+        // Send ICE events to Janus.
+        const RTCPeerOnIceCandidate = (event) => {
+            if (member.rtcpPeer.signalingState !== 'stable' &&
+                member.rtcpPeer.signalingState !== 'have-local-offer') return
+
+            candidates.push(event.candidate || null)
+
+            clearTimeout(iceCandidateTimeout)
+
+            iceCandidateTimeout = setTimeout(() => {
+                this._sendTrickleMessage(candidates)
+            }, 500)
+        }
+
+        member.rtcpPeer = new RTCPeerConnection()
+        //this.rtcpPeer.onaddstream = RTCPeerOnAddStream;
+        member.rtcpPeer.ontrack  = RTCPeerOnAddStream
+        member.rtcpPeer.onicecandidate = RTCPeerOnIceCandidate
+        member.rtcpPeer.sender = attachedStreamInfo.sender
+        await member.rtcpPeer.setRemoteDescription(attachedStreamInfo.jsep)
+        //this.setupMetrics()
+    }
+
+    _sendJoinMemberRequest (member) {
+        const registerBody = {
+            janus: 'message',
+            body: {
+                request: 'join',
+                room: this.room_id,
+                feed: member.info.id,
+                ptype: 'subscriber'
+            },
+            handle_id: member.handleId,
+            session_id: this.session_id
+        }
+
+        const registerExtraHeaders = [ 'PTYPE: Subscriber' ]
+
+        this.sendRequest(JsSIP_C.SUBSCRIBE, {
+            extraHeaders: registerExtraHeaders,
+            body: JSON.stringify(registerBody),
+            eventHandlers: {
+                onSuccessResponse: async (response) => {
+                    if (response.status_code === 200) {
+                        const body = JSON.parse(response.body)
+
+                        if (body?.plugindata?.data?.id) {
+                            await this._answerAttachedStream(member, body)
+                        }
+                    }
+                },
+            }
+        })
+    }
+
+    _attachMember (member) {
+        const registerBody = {
+            janus: 'attach',
+            opaque_id: this.opaque_id,
+            plugin: 'janus.plugin.videoroom',
+            session_id: this.session_id
+        }
+
+        const registerExtraHeaders = [ 'PTYPE: Subscriber' ]
+
+        this.sendRequest(JsSIP_C.INFO, {
+            extraHeaders: registerExtraHeaders,
+            body: JSON.stringify(registerBody),
+            eventHandlers: {
+                onSuccessResponse: async (response) => {
+                    if (response.status_code === 200) {
+                        const parsedBody = JSON.parse(response.body)
+                        const memberHandleId = parsedBody.data.id
+                        member.handleId = memberHandleId
+
+                        this._sendJoinMemberRequest(member)
+                    }
+                },
+            }
+        })
+    }
+
+    receivePublishers (msg) {
+        const unprocessedMembers = { ...this.memberList }
+        msg?.plugindata?.data?.publishers.forEach((publisher) => {
+
+            delete unprocessedMembers[publisher.id]
+            if (
+                !this.memberList[publisher.id]
+                && !this.myFeedList.includes(publisher.id)
+                &&  publisher.clientID !== this.client_id
+            ) {
+
+                this.memberList[publisher.id] = new Member(publisher, this)
+                this._attachMember(this.memberList[publisher.id])
+            }
+        })
+
+        if (msg?.plugindata?.data?.videoroom === 'synced') {
+            Object.keys(unprocessedMembers).forEach(key => {
+                unprocessedMembers[key].hangup()
+                delete this.memberList[key]
+            })
+        }
+        this.publishers = msg?.plugindata?.data?.publishers
+        this.private_id = msg?.plugindata?.data?.private_id
     }
 
     /**
@@ -2563,7 +2778,6 @@ export default class RTCSession extends EventEmitter {
             if (this._dialog.id.call_id === response.call_id &&
                 this._dialog.id.local_tag === response.from_tag &&
                 this._dialog.id.remote_tag === response.to_tag) {
-                console.log('IF 1 SEND ACK')
                 this.ackSent = true
                 this.sendRequest(JsSIP_C.ACK)
 
@@ -2595,18 +2809,15 @@ export default class RTCSession extends EventEmitter {
                 this.handle_id = parsedBody.data.id
                 this.client_id = uuidv4()
 
-                const opaqueRandomString = uuidv4().replace(/-/g, '').slice(0, 12)
-                const opaqueId = `videoroomtest-${opaqueRandomString}`
-
                 const registerBody = {
                     janus: 'message',
                     body: {
                         request: 'join',
-                        room: 'abcd',
+                        room: this.room_id,
                         ptype: 'publisher',
-                        display: 'User1',
+                        display: this.display_name,
                         clientID: this.client_id,
-                        opaque_id: opaqueId,
+                        opaque_id: this.opaque_id,
                     },
                     handle_id: this.handle_id
                 }
@@ -2622,12 +2833,10 @@ export default class RTCSession extends EventEmitter {
                                 this.subscribeSent = true
 
                                 if (this.lastTrickleReceived && !this.isConfigureSent) {
-                                    this.sendConfigureMessage({
+                                    this._sendConfigureMessage({
                                         audio: true,
                                         video: true,
-                                    }).then(() => {
-                                        //this.sendInitialState()
-                                    })
+                                    }).then(() => {})
                                 }
                             }
                         },
@@ -2642,45 +2851,36 @@ export default class RTCSession extends EventEmitter {
 
         // Proceed to cancellation if the user requested.
         if (this._is_canceled) {
-            console.log('IF 2 canceled')
             if (response.status_code >= 100 && response.status_code < 200) {
                 this._request.cancel(this._cancel_reason)
             } else if (response.status_code >= 200 && response.status_code < 299) {
-                console.log('IF 2 _acceptAndTerminate')
                 this._acceptAndTerminate(response)
             }
 
             return
         }
 
-        console.log('IF 2 this._status', this._status)
         if (this._status !== C.STATUS_INVITE_SENT && this._status !== C.STATUS_1XX_RECEIVED) {
-            console.log('IF 3 not invite sent')
             return
         }
 
         switch (true) {
             case /^100$/.test(response.status_code):
-                console.log('IF 4 SWITCH 1')
                 this._status = C.STATUS_1XX_RECEIVED
                 break
 
             case /^1[0-9]{2}$/.test(response.status_code):
             {
-                console.log('IF 5 SWITCH 2')
                 // Do nothing with 1xx responses without To tag.
                 if (!response.to_tag) {
-                    console.log('IF 5 break')
                     logger.debug('1xx response received without to tag')
                     break
                 }
 
                 // Create Early Dialog if 1XX comes with contact.
                 if (response.hasHeader('contact')) {
-                    console.log('IF 5 contact')
                     // An error on dialog creation will fire 'failed' event.
                     if (!this._createDialog(response, 'UAC', true)) {
-                        console.log('IF 5 _createDialog break')
                         break
                     }
                 }
@@ -2688,7 +2888,6 @@ export default class RTCSession extends EventEmitter {
                 this._status = C.STATUS_1XX_RECEIVED
 
                 if (!response.body) {
-                    console.log('IF 5 !response.body')
                     this._progress('remote', response)
                     break
                 }
@@ -2720,50 +2919,18 @@ export default class RTCSession extends EventEmitter {
 
             case /^2[0-9]{2}$/.test(response.status_code):
             {
-                console.log('IF 6 SWITCH 3')
                 this._status = C.STATUS_CONFIRMED
 
                 if (!response.body) {
-                    console.log('IF 6 !response.body')
                     this._acceptAndTerminate(response, 400, JsSIP_C.causes.MISSING_SDP)
                     this._failed('remote', response, JsSIP_C.causes.BAD_MEDIA_DESCRIPTION)
                     break
                 }
 
-                console.log('AAA _createDialog')
                 // An error on dialog creation will fire 'failed' event.
                 if (!this._createDialog(response, 'UAC')) {
                     break
                 }
-
-                //if (!this.ackSent) return
-
-                /*const parsedBody = JSON.parse(response.body)
-                //console.log('parsedBody', parsedBody)
-                this.session_id = parsedBody.session_id
-                this.handle_id = parsedBody.data.id
-                const opaqueId = `videoroomtest-${randomString(12)}`
-
-                const registerBody = {
-                    janus: 'message',
-                    body: {
-                        request: 'join',
-                        room: 'abcd',
-                        ptype: 'publisher',
-                        display: 'User1',
-                        clientID: 'dufgjb023gh4vr872v238ugf2y82g4',
-                        opaque_id: opaqueId,
-                    },
-                    handle_id: this.handle_id
-                }
-
-                const registerExtraHeaders = [ 'PTYPE: Publisher' ]
-
-                console.log('JOIN MESSAGE', registerBody)
-                this.sendRequest(JsSIP_C.SUBSCRIBE, {
-                    extraHeaders: registerExtraHeaders,
-                    body: JSON.stringify(registerBody),
-                })*/
 
                 break
 
@@ -2818,7 +2985,6 @@ export default class RTCSession extends EventEmitter {
 
             default:
             {
-                console.log('IF 7 SWITCH 4')
                 const cause = Utils.sipErrorCause(response.status_code)
 
                 this._failed('remote', response, cause)
