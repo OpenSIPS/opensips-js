@@ -1228,9 +1228,14 @@ export class AudioModule {
             })
 
             const inboundAudioMetric = probe.audio[inboundAudio] as ProbeMetricInType
+
+            if (!inboundAudioMetric) {
+                return
+            }
+
             const metric: MetricAudioData = filterObjectKeys(inboundAudioMetric, METRIC_KEYS_TO_INCLUDE)
             metric.callId = call._id
-            this.setCallMetrics(metrics)
+            this.setCallMetrics(metric)
         }
 
         this.context.subscribe(CALL_EVENT_LISTENER_TYPE.CALL_ENDED, (session) => {
