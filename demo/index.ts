@@ -612,10 +612,10 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
             imageSrc: base64Image
         })
 
-        openSIPSJS.use(screenSharePlugin)
+        /*openSIPSJS.use(screenSharePlugin)
         //openSIPSJS.use(streamMaskPlugin)
         openSIPSJS.use(whiteBoardPlugin)
-        openSIPSJS.use(screenShareWhiteBoardPlugin)
+        openSIPSJS.use(screenShareWhiteBoardPlugin)*/
 
         /* openSIPSJS Listeners */
         openSIPSJS

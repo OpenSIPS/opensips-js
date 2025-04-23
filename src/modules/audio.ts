@@ -19,6 +19,7 @@ import {
 import { isMobile, processAudioVolume, simplifyCallObject, syncStream } from '@/helpers/audio.helper'
 import { RTCSessionEvent } from 'jssip/lib/UA'
 import { forEach } from 'p-iteration'
+import { MicVAD, utils } from '@ricky0123/vad-web'
 import audioContext from '@/helpers/audioContext'
 import { CALL_EVENT_LISTENER_TYPE } from '@/enum/call.event.listener.type'
 import { IncomingAckEvent, IncomingEvent, OutgoingAckEvent, OutgoingEvent } from 'jssip/lib/RTCSession'
@@ -33,6 +34,23 @@ const STORAGE_KEYS = {
     SELECTED_OUTPUT_DEVICE: 'OpensipsJSOutputDevice'
 }
 const CALL_STATUS_UNANSWERED = 0
+
+export function debounce (callback, wait) {
+    let timerId
+
+    const debounced = (...args) => {
+        clearTimeout(timerId)
+        timerId = setTimeout(() => {
+            callback(...args)
+        }, wait)
+    }
+
+    debounced.cancel = () => {
+        clearTimeout(timerId)
+    }
+
+    return debounced
+}
 
 export class AudioModule {
     private context: OpenSIPSJS
@@ -66,6 +84,8 @@ export class AudioModule {
 
     private activeStreamValue: MediaStream | null = null
     private initialStreamValue: MediaStream | null = null
+    private vad: MicVAD | null = null
+    private vadSessions: object = {}
 
     private VUMeter: VUMeter
 
@@ -693,6 +713,7 @@ export class AudioModule {
     }
 
     private async roomReconfigure (roomId: number | undefined) {
+        console.log('roomReconfigure start')
         if (roomId === undefined) {
             return
         }
@@ -737,9 +758,12 @@ export class AudioModule {
         } else if (callsInRoom.length > 1) {
             await this.doConference(callsInRoom)
         }
+
+        console.log('roomReconfigure end')
     }
 
     private async doConference (sessions: Array<ICall>) {
+        console.log('doConference start')
         /*await forEach(sessions, async (session: ICall) => {
             if (session._localHold) {
                 await this.unholdCall(session._id)
@@ -788,12 +812,77 @@ export class AudioModule {
                 sourceStream.connect(mixedOutput)
             }
 
+            console.log('doConference')
+            this.vad?.pause()
+            this.vad = null
+
+            if (this.vadSessions[session._id]) {
+                this.vadSessions[session._id].vad.pause()
+                this.vadSessions[session._id].vad = null
+                console.log('vad session pause', session._id)
+            } else {
+                console.log('vad session else', session._id)
+            }
+
+            console.log('typeof mixedOutput', typeof mixedOutput)
+            const mixedStreamCopy = mixedOutput.stream.clone()
+            const vadSession = await MicVAD.new({
+                mixedStreamCopy,
+                model: 'v5',
+                //baseAssetPath: '/',
+                //onnxWASMBasePath: '/',
+                positiveSpeechThreshold: 0.4,
+                negativeSpeechThreshold: 0.4,
+                minSpeechFrames: 15,
+                preSpeechPadFrames: 30,
+                onFrameProcessed: async (probs, frame) => {
+                    console.log('VAD probs.isSpeech conference', session._id, probs.isSpeech)
+                    if (probs.isSpeech > 0.001) {
+                        if (!this.vadSessions[session._id].isSpeakingState && mixedOutput) {
+                            console.log('SET SPEAKING - YES')
+                            this.vadSessions[session._id].isSpeakingState = true
+                            clearTimeout(this.vadSessions[session._id].vadInterval)
+                            this.vadSessions[session._id].vadInterval = null
+
+                            mixedOutput.stream.getTracks().forEach(track => track.enabled = true)
+                            if (session.connection?.getSenders()[0]) {
+                                await session.connection.getSenders()[0].replaceTrack(mixedOutput.stream.getTracks()[0])
+                            }
+                        }
+                    } else {
+                        if (this.vadSessions[session._id].isSpeakingState && !this.vadSessions[session._id].vadInterval && mixedOutput) {
+                            this.vadSessions[session._id].vadInterval = setTimeout(async () => {
+                                console.log('SET SPEAKING - NO')
+                                this.vadSessions[session._id].isSpeakingState = false
+
+                                mixedOutput.stream.getTracks().forEach(track => track.enabled = false)
+                                if (session.connection?.getSenders()[0]) {
+                                    await session.connection.getSenders()[0].replaceTrack(mixedOutput.stream.getTracks()[0])
+                                }
+                            }, 1500)
+                        }
+                    }
+                },
+                onSpeechEnd: (arr) => {
+                    console.log('VAD onSpeechEnd')
+                },
+            })
+
+            this.vadSessions[session._id] = {
+                isSpeakingState: true,
+                vadInterval: null,
+                vad: vadSession
+            }
+
             if (session.connection?.getSenders()[0]) {
                 //mixedOutput.stream.getTracks().forEach(track => track.enabled = !getters.isMuted) // Uncomment to mute all callers on mute
                 await session.connection.getSenders()[0].replaceTrack(mixedOutput.stream.getTracks()[0])
                 this.muteReconfigure(session)
             }
+
+            vadSession.start()
         })
+        console.log('doConference end')
     }
 
     private processCallerMute (callId: string, value: boolean) {
@@ -1109,6 +1198,8 @@ export class AudioModule {
                 this.setIsMuted(false)
                 this.initialStreamValue?.getTracks().forEach((track) => track.stop())
                 this.initialStreamValue = null
+                this.vad?.pause()
+                this.vad = null
             }
         })
         session.on('progress', (event: IncomingEvent | OutgoingEvent) => {
@@ -1146,6 +1237,8 @@ export class AudioModule {
                 this.setIsMuted(false)
                 this.initialStreamValue?.getTracks().forEach((track) => track.stop())
                 this.initialStreamValue = null
+                this.vad?.pause()
+                this.vad = null
             }
         })
         session.on('confirmed', (event: IncomingAckEvent | OutgoingAckEvent) => {
@@ -1285,8 +1378,173 @@ export class AudioModule {
         if (this.initialStreamValue) {
             this.initialStreamValue.getTracks().forEach((track) => track.stop())
             this.initialStreamValue = null
+            this.vad?.pause()
+            this.vad = null
         }
         this.initialStreamValue = stream
+        const vadStream = stream.clone()
+
+        let isSpeakingState = false
+        let vadInterval = null
+        this.vad = await MicVAD.new({
+            vadStream,
+            model: 'v5',
+            //baseAssetPath: '/',
+            //onnxWASMBasePath: '/',
+            positiveSpeechThreshold: 0.4,
+            negativeSpeechThreshold: 0.4,
+            minSpeechFrames: 15,
+            preSpeechPadFrames: 30,
+            onFrameProcessed: async (probs, frame) => {
+                console.log('VAD probs.isSpeech', probs.isSpeech)
+                if (probs.isSpeech > 0.001) {
+                    if (!isSpeakingState && this.initialStreamValue) {
+                        console.log('SET SPEAKING - YES')
+                        isSpeakingState = true
+                        clearTimeout(vadInterval)
+                        vadInterval = null
+
+                        const callsInRoom = Object.values(this.extendedCalls)
+                            .filter(call => call.roomId === this.currentActiveRoomId)
+
+                        if (
+                            callsInRoom.length === 1 &&
+                            callsInRoom[0].connection &&
+                            callsInRoom[0].connection?.getSenders()[0]
+                        ) {
+                            //const processedStream = this.getActiveStream()
+                            /*await */
+                            this.initialStreamValue.getTracks().forEach(track => track.enabled = true)
+                            await callsInRoom[0].connection.getSenders()[0].replaceTrack(this.initialStreamValue.getTracks()[0])
+                            //this.muteReconfigure(callsInRoom[0])
+                        } /*else if (callsInRoom.length > 1) {
+                            const receivedTracks: Array<MediaStreamTrack> = []
+
+                            callsInRoom.forEach(session => {
+                                if (session !== null && session !== undefined) {
+                                    session.connection.getReceivers().forEach((receiver: RTCRtpReceiver) => {
+                                        receivedTracks.push(receiver.track)
+                                    })
+                                }
+                            })
+
+                            await forEach(callsInRoom, async (session: ICall) => {
+                                if (session === null || session === undefined) {
+                                    return
+                                }
+
+                                const allReceivedMediaStreams = new MediaStream()
+                                const mixedOutput = audioContext.createMediaStreamDestination()
+
+                                session.connection.getReceivers().forEach((receiver:  RTCRtpReceiver) => {
+                                    receivedTracks.forEach(track => {
+                                        allReceivedMediaStreams.addTrack(receiver.track)
+
+                                        if (receiver.track.id !== track.id) {
+                                            const sourceStream = audioContext.createMediaStreamSource(new MediaStream([ track ]))
+                                            sourceStream.connect(mixedOutput)
+                                        }
+                                    })
+                                })
+
+                                const sourceStream = audioContext.createMediaStreamSource(this.initialStreamValue)
+                                sourceStream.connect(mixedOutput)
+
+                                if (session.connection?.getSenders()[0]) {
+                                    await session.connection.getSenders()[0].replaceTrack(mixedOutput.stream.getTracks()[0])
+                                }
+                            })
+                            //await this.doConference(callsInRoom)
+                        }*/
+                        //this.roomReconfigure(this.currentActiveRoomId)
+                    }
+                } else {
+                    if (isSpeakingState && !vadInterval && this.initialStreamValue) {
+                        vadInterval = setTimeout(async () => {
+                            console.log('SET SPEAKING - NO')
+                            isSpeakingState = false
+
+                            /*const callsInRoom = Object.values(this.extendedCalls)
+                                .filter(call => call.roomId === this.currentActiveRoomId)
+
+                            if (callsInRoom[0].connection && callsInRoom[0].connection?.getSenders()[0]) {
+                                //const processedStream = this.getActiveStream()
+                                /!*await *!/
+                                callsInRoom[0].connection.getSenders()[0].replaceTrack(this.initialStreamValue.getTracks()[0])
+                                //this.muteReconfigure(callsInRoom[0])
+                            }*/
+
+                            const callsInRoom = Object.values(this.extendedCalls)
+                                .filter(call => call.roomId === this.currentActiveRoomId)
+
+                            if (
+                                callsInRoom.length === 1 &&
+                                callsInRoom[0].connection &&
+                                callsInRoom[0].connection?.getSenders()[0]
+                            ) {
+                                //const processedStream = this.getActiveStream()
+                                /*await */
+                                this.initialStreamValue.getTracks().forEach(track => track.enabled = false)
+                                await callsInRoom[0].connection.getSenders()[0].replaceTrack(this.initialStreamValue.getTracks()[0])
+                                //this.muteReconfigure(callsInRoom[0])
+                            } /*else if (callsInRoom.length > 1) {
+                                const receivedTracks: Array<MediaStreamTrack> = []
+
+                                callsInRoom.forEach(session => {
+                                    if (session !== null && session !== undefined) {
+                                        session.connection.getReceivers().forEach((receiver: RTCRtpReceiver) => {
+                                            receivedTracks.push(receiver.track)
+                                        })
+                                    }
+                                })
+
+                                await forEach(callsInRoom, async (session: ICall) => {
+                                    if (session === null || session === undefined) {
+                                        return
+                                    }
+
+                                    const allReceivedMediaStreams = new MediaStream()
+                                    const mixedOutput = audioContext.createMediaStreamDestination()
+
+                                    session.connection.getReceivers().forEach((receiver:  RTCRtpReceiver) => {
+                                        receivedTracks.forEach(track => {
+                                            allReceivedMediaStreams.addTrack(receiver.track)
+
+                                            if (receiver.track.id !== track.id) {
+                                                const sourceStream = audioContext.createMediaStreamSource(new MediaStream([ track ]))
+                                                sourceStream.connect(mixedOutput)
+                                            }
+                                        })
+                                    })
+
+                                    const sourceStream = audioContext.createMediaStreamSource(this.initialStreamValue)
+                                    sourceStream.connect(mixedOutput)
+
+                                    if (session.connection?.getSenders()[0]) {
+                                        await session.connection.getSenders()[0].replaceTrack(mixedOutput.stream.getTracks()[0])
+                                    }
+                                })
+
+                            }*/
+                            //this.roomReconfigure(this.currentActiveRoomId)
+                        }, 1500)
+                    }
+                }
+                //const indicatorColor = interpolateInferno(probs.isSpeech / 2)
+                //document.body.style.setProperty("--indicator-color", indicatorColor)
+            },
+            onSpeechEnd: (arr) => {
+                console.log('VAD onSpeechEnd')
+                /*const wavBuffer = utils.encodeWAV(arr)
+                const base64 = utils.arrayBufferToBase64(wavBuffer)
+                const url = `data:audio/wav;base64,${base64}`
+                const el = addAudio(url)
+                const speechList = document.getElementById("playlist")
+                speechList.prepend(el)*/
+            },
+        })
+
+        this.vad.start()
     }
 
     private async triggerAddStream (event: RTCTrackEvent, call: ICall) {
