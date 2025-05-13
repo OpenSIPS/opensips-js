@@ -13,6 +13,7 @@ import {
     IncomingRequest
 } from 'jssip/lib/SIPMessage'
 import { UAConfiguration } from 'jssip/lib/UA'
+import { RealTimeVADOptions } from '@ricky0123/vad-web'
 
 import { MODULES } from '@/enum/modules'
 
@@ -132,8 +133,18 @@ export type MSRPModuleName = typeof MODULES.MSRP
 
 export type Modules = AudioModuleName | VideoModuleName | MSRPModuleName
 
+export interface VADOptions {
+    model: 'v5' | 'legacy'
+    positiveSpeechThreshold: number
+    negativeSpeechThreshold: number
+    minSpeechFrames: number
+    preSpeechPadFrames: number
+}
+
 type UAConfigurationExtended = UAConfiguration & {
     overrideUserAgent?: (userAgent: string) => string
+    useVAD?: boolean
+    VADOptions?: Partial<VADOptions>
 }
 
 export type IOpenSIPSConfiguration = Omit<UAConfigurationExtended, 'sockets'>

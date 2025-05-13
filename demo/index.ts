@@ -62,6 +62,21 @@ const terminateJanusSessionButtonEl = document.getElementById('terminateJanusSes
 
 const agentVoiceLevelContainerEl = document.getElementById('agentVoiceLevelContainer')
 
+const saveVADConfigurationButtonEl = document.getElementById('saveVADConfigurationButton')
+const positiveSpeechThresholdInputEl = document.getElementById('positiveSpeechThreshold') as HTMLInputElement
+const negativeSpeechThresholdInputEl = document.getElementById('negativeSpeechThreshold') as HTMLInputElement
+const preSpeechPadFramesInputEl = document.getElementById('preSpeechPadFrames') as HTMLInputElement
+const redemptionFramesInputEl = document.getElementById('redemptionFrames') as HTMLInputElement
+const frameSamplesInputEl = document.getElementById('frameSamples') as HTMLInputElement
+const minSpeechFramesInputEl = document.getElementById('minSpeechFrames') as HTMLInputElement
+const submitUserSpeechOnPauseCheckboxEl = document.getElementById('submitUserSpeechOnPause') as HTMLInputElement
+const baseAssetPathInputEl = document.getElementById('baseAssetPath') as HTMLInputElement
+const onnxWASMBasePathInputEl = document.getElementById('onnxWASMBasePath') as HTMLInputElement
+const modelInputEl = document.getElementById('model') as HTMLInputElement
+const startOnLoadCheckboxEl = document.getElementById('startOnLoad') as HTMLInputElement
+const userSpeakingThresholdInputEl = document.getElementById('userSpeakingThreshold') as HTMLInputElement
+
+
 const activeCallsCounterEl = document.getElementById('activeCallsCounter')
 const roomSelectEl = document.getElementById('roomSelect') as HTMLSelectElement
 
@@ -1483,6 +1498,40 @@ dtmfForm?.addEventListener(
         const dtmfTarget = dtmfInputEl.value
 
         openSIPSJS.audio.sendDTMF(callsInActiveRoom[0]._id, dtmfTarget)
+    })
+
+saveVADConfigurationButtonEl?.addEventListener(
+    'click',
+    async (event) => {
+        event.preventDefault()
+
+        const positiveSpeechThreshold = Number(positiveSpeechThresholdInputEl.value)
+        const negativeSpeechThreshold = Number(negativeSpeechThresholdInputEl.value)
+        const preSpeechPadFrames = Number(preSpeechPadFramesInputEl.value)
+        const redemptionFrames = Number(redemptionFramesInputEl.value)
+        const frameSamples = Number(frameSamplesInputEl.value)
+        const minSpeechFrames = Number(minSpeechFramesInputEl.value)
+        const submitUserSpeechOnPause = submitUserSpeechOnPauseCheckboxEl.checked
+        const baseAssetPath = baseAssetPathInputEl.value
+        const onnxWASMBasePath = onnxWASMBasePathInputEl.value
+        const model = modelInputEl.value
+        const startOnLoad = startOnLoadCheckboxEl.checked
+        const userSpeakingThreshold = Number(userSpeakingThresholdInputEl.value)
+
+        openSIPSJS.audio.setVADConfiguration({
+            positiveSpeechThreshold,
+            negativeSpeechThreshold,
+            preSpeechPadFrames,
+            redemptionFrames,
+            frameSamples,
+            minSpeechFrames,
+            submitUserSpeechOnPause,
+            baseAssetPath,
+            onnxWASMBasePath,
+            model,
+            startOnLoad,
+            userSpeakingThreshold
+        })
     })
 
 roomSelectEl?.addEventListener(

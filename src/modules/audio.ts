@@ -5,7 +5,8 @@ import {
     IntervalType,
     IRoom,
     IRoomUpdate,
-    RTCSessionExtended
+    RTCSessionExtended,
+    VADOptions
 } from '@/types/rtc'
 import { CallTime, ITimeData, TempTimeData } from '@/types/timer'
 import { setupTime } from '@/helpers/time.helper'
@@ -19,7 +20,7 @@ import {
 import { isMobile, processAudioVolume, simplifyCallObject, syncStream } from '@/helpers/audio.helper'
 import { RTCSessionEvent } from 'jssip/lib/UA'
 import { forEach } from 'p-iteration'
-import { MicVAD, utils } from '@ricky0123/vad-web'
+import { MicVAD, utils, getDefaultRealTimeVADOptions } from '@ricky0123/vad-web'
 import audioContext from '@/helpers/audioContext'
 import { CALL_EVENT_LISTENER_TYPE } from '@/enum/call.event.listener.type'
 import { IncomingAckEvent, IncomingEvent, OutgoingAckEvent, OutgoingEvent } from 'jssip/lib/RTCSession'
@@ -28,6 +29,9 @@ import { filterObjectKeys } from '@/helpers/filter.helper'
 import { METRIC_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
 import VUMeter from '@/helpers/VUMeter'
 import OpenSIPSJS from '@/index'
+
+import * as ort from 'onnxruntime-web'
+ort.env.wasm.wasmPaths = '/'
 
 const STORAGE_KEYS = {
     SELECTED_INPUT_DEVICE: 'OpensipsJSInputDevice',
@@ -50,6 +54,16 @@ export function debounce (callback, wait) {
     }
 
     return debounced
+}
+
+function addAudio (audioUrl) {
+    const entry = document.createElement('li')
+    const audio = document.createElement('audio')
+    audio.controls = true
+    audio.src = audioUrl
+    entry.classList.add('newItem')
+    entry.appendChild(audio)
+    return entry
 }
 
 export class AudioModule {
@@ -84,8 +98,10 @@ export class AudioModule {
 
     private activeStreamValue: MediaStream | null = null
     private initialStreamValue: MediaStream | null = null
-    //private vad: MicVAD | null = null
+
+    private useVAD = false
     private vadSessions: object = {}
+    private vadConfiguration: Partial<VADOptions> = {}
 
     private VUMeter: VUMeter
 
@@ -101,7 +117,27 @@ export class AudioModule {
             onChangeFunction: this.emitVolumeChange.bind(this)
         })
 
+        this.processVADConfiguration()
         this.initializeMediaDevices()
+    }
+
+    public setVADConfiguration (options) {
+        console.log('setVADConfiguration', options)
+        this.vadConfiguration = {
+            ...options
+        }
+    }
+
+    private processVADConfiguration () {
+        this.useVAD = this.context.options.configuration?.useVAD ?? true
+
+        /*this.vadConfiguration = {
+            model: this.context.options.configuration?.VADOptions?.model ?? 'legacy',
+            positiveSpeechThreshold: this.context.options.configuration?.VADOptions?.positiveSpeechThreshold ?? 0.4,
+            negativeSpeechThreshold: this.context.options.configuration?.VADOptions?.negativeSpeechThreshold ?? 0.4,
+            minSpeechFrames: this.context.options.configuration?.VADOptions?.minSpeechFrames ?? 15,
+            preSpeechPadFrames: this.context.options.configuration?.VADOptions?.preSpeechPadFrames ?? 30
+        }*/
     }
 
     public get sipOptions () {
@@ -712,81 +748,143 @@ export class AudioModule {
         }
     }
 
-    private async processSessionVad (session, newStream) {
-        if (this.vadSessions[session._id]) {
-            this.vadSessions[session._id].pause()
-            this.vadSessions[session._id] = null
-            console.log('vad session pause', session._id)
-        } else {
-            console.log('vad session else', session._id)
-        }
+    private async processVAD (session, stream) {
+        const clonedStream = stream.clone()
 
-        console.log('typeof mixedOutput', typeof newStream)
-        const streamCopy = newStream.clone()
+        clonedStream.getTracks().forEach((track) => track.enabled = true)
+
+        const newStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                sampleRate: 16000, // <-- ensure this is at least 16000
+                channelCount: 1,
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false
+            },
+            video: false
+        })
+
+        const options = getDefaultRealTimeVADOptions('legacy')
+        console.log('VAD Options', {
+            ...options,
+            ...this.vadConfiguration,
+            stream: newStream,
+        })
+
         const vadSession = await MicVAD.new({
-            streamCopy,
-            model: 'v5',
+            ...options,
+            /*positiveSpeechThreshold: 0.35,
+            negativeSpeechThreshold: 0.35,
+            preSpeechPadFrames: 4,
+            redemptionFrames: 8,
+            frameSamples: 1536,
+            minSpeechFrames: 2,
+            submitUserSpeechOnPause: false,*/
+            ...this.vadConfiguration,
+            stream: newStream,
+            /*model: 'v5',
             //baseAssetPath: '/',
             //onnxWASMBasePath: '/',
             positiveSpeechThreshold: 0.4,
             negativeSpeechThreshold: 0.4,
             minSpeechFrames: 15,
-            preSpeechPadFrames: 30,
-            /*onFrameProcessed: async (probs, frame) => {
-                console.log('VAD probs.isSpeech conference', session._id, probs.isSpeech)
-                if (probs.isSpeech > 0.001) {
-                    if (!this.vadSessions[session._id].isSpeakingState && newStream) {
-                        console.log('SET SPEAKING - YES')
-                        this.vadSessions[session._id].isSpeakingState = true
-                        clearTimeout(this.vadSessions[session._id].vadInterval)
-                        this.vadSessions[session._id].vadInterval = null
-
-                        newStream.getTracks().forEach(track => track.enabled = true)
-                        if (session.connection?.getSenders()[0]) {
-                            await session.connection.getSenders()[0].replaceTrack(newStream.getTracks()[0])
-                        }
-                    }
-                } else {
-                    if (this.vadSessions[session._id].isSpeakingState && !this.vadSessions[session._id].vadInterval && newStream) {
-                        this.vadSessions[session._id].vadInterval = setTimeout(async () => {
-                            console.log('SET SPEAKING - NO')
-                            this.vadSessions[session._id].isSpeakingState = false
-
-                            newStream.getTracks().forEach(track => track.enabled = false)
-                            if (session.connection?.getSenders()[0]) {
-                                await session.connection.getSenders()[0].replaceTrack(newStream.getTracks()[0])
-                            }
-                        }, 1500)
-                    }
+            preSpeechPadFrames: 30,*/
+            /*model: 'legacy',
+            positiveSpeechThreshold: 0.4,
+            negativeSpeechThreshold: 0.4,
+            minSpeechFrames: 15,
+            preSpeechPadFrames: 30,*/
+            /*model: 'v5',
+            positiveSpeechThreshold: 0.5,
+            negativeSpeechThreshold: 0.35,
+            minSpeechFrames: 9,
+            preSpeechPadFrames: 3,
+            redemptionFrames: 24,
+            frameSamples: 512,
+            submitUserSpeechOnPause: false,
+            baseAssetPath: 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.20/dist/',
+            onnxWASMBasePath: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/',*/
+            onVADMisfire: () => {
+                console.log('Vad misfire')
+                /*if (session.connection?.getSenders()[0]) {
+                    session.connection.getSenders()[0].track.enabled = false
+                    console.log('After disable', session._id)
+                }*/
+            },
+            onFrameProcessed: (probabilities, frame) => {
+                console.log('onFrameProcessed')
+            },
+            onSpeechStart: () => {
+                console.log('Speech start')
+                if (session.connection?.getSenders()[0]) {
+                    session.connection.getSenders()[0].track.enabled = true
+                    console.log('After enable', session._id)
                 }
             },
+            onSpeechRealStart: () => {
+                console.log('Speech real start')
+            },
             onSpeechEnd: (arr) => {
-                console.log('VAD onSpeechEnd')
-            },*/
-            onSpeechStart: async () => {
-                console.log('onSpeechStart')
-                //this.vadSessions[session._id].isSpeakingState = true
-                //clearTimeout(this.vadSessions[session._id].vadInterval)
-                //this.vadSessions[session._id].vadInterval = null
-
-                newStream.getTracks().forEach(track => track.enabled = true)
+                console.log('Speech end')
+                /*const wavBuffer = utils.encodeWAV(audio)
+                const base64 = utils.arrayBufferToBase64(wavBuffer)
+                const url = `data:audio/wav;base64,${base64}`*/
                 if (session.connection?.getSenders()[0]) {
-                    await session.connection.getSenders()[0].replaceTrack(newStream.getTracks()[0])
+                    session.connection.getSenders()[0].track.enabled = false
+                    console.log('After disable', session._id)
+                }
+
+
+                const wavBuffer = utils.encodeWAV(arr)
+                const base64 = utils.arrayBufferToBase64(wavBuffer)
+                const url = `data:audio/wav;base64,${base64}`
+                const el = addAudio(url)
+                const speechList = document.getElementById('playlist')
+                console.log('prepend')
+                speechList.prepend(el)
+                //setAudioList((old) => [ url, ...old ])
+            },
+            /*onFrameProcessed: (probabilities, frame) => {
+                console.log('onFrameProcessed')
+            },
+            onSpeechRealStart: () => {
+                console.log('Speech real start')
+            },
+            onSpeechStart: async () => {
+                console.log('onSpeechStart', session._id)
+                if (session.connection?.getSenders()[0]) {
+                    session.connection.getSenders()[0].track.enabled = true
+                    console.log('After enable', session._id)
                 }
             },
             onVADMisfire: async () => {
-                console.log('onVADMisfire')
-                //this.vadSessions[session._id].isSpeakingState = false
-
-                newStream.getTracks().forEach(track => track.enabled = false)
+                console.log('onVADMisfire', session._id)
                 if (session.connection?.getSenders()[0]) {
-                    await session.connection.getSenders()[0].replaceTrack(newStream.getTracks()[0])
+                    session.connection.getSenders()[0].track.enabled = false
+                    console.log('After disable', session._id)
                 }
-            }
+            },
+            onSpeechEnd: (arr) => {
+                console.log('onSpeechEnd')
+                const wavBuffer = utils.encodeWAV(arr)
+                const base64 = utils.arrayBufferToBase64(wavBuffer)
+                const url = `data:audio/wav;base64,${base64}`
+                const el = addAudio(url)
+                const speechList = document.getElementById('playlist')
+                console.log('prepend')
+                speechList.prepend(el)
+            },*/
         })
+
+        if (this.vadSessions[session._id]) {
+            this.vadSessions[session._id].pause()
+            delete this.vadSessions[session._id]
+        }
 
         this.vadSessions[session._id] = vadSession
         vadSession.start()
+
+        console.log('this.vadSessions', this.vadSessions)
     }
 
     private stopSessionVad (session) {
@@ -797,7 +895,6 @@ export class AudioModule {
     }
 
     private async roomReconfigure (roomId: number | undefined) {
-        console.log('roomReconfigure start')
         if (roomId === undefined) {
             return
         }
@@ -837,7 +934,9 @@ export class AudioModule {
             if (callsInRoom[0].connection && callsInRoom[0].connection?.getSenders()[0]) {
                 const processedStream = this.getActiveStream()
 
-                this.processSessionVad(callsInRoom[0], processedStream)
+                if (this.useVAD) {
+                    this.processVAD(callsInRoom[0], processedStream)
+                }
 
                 await callsInRoom[0].connection.getSenders()[0].replaceTrack(processedStream.getTracks()[0])
                 this.muteReconfigure(callsInRoom[0])
@@ -845,12 +944,9 @@ export class AudioModule {
         } else if (callsInRoom.length > 1) {
             await this.doConference(callsInRoom)
         }
-
-        console.log('roomReconfigure end')
     }
 
     private async doConference (sessions: Array<ICall>) {
-        console.log('doConference start')
         /*await forEach(sessions, async (session: ICall) => {
             if (session._localHold) {
                 await this.unholdCall(session._id)
@@ -899,70 +995,9 @@ export class AudioModule {
                 sourceStream.connect(mixedOutput)
             }
 
-            console.log('doConference')
-
-            this.processSessionVad(session, mixedOutput.stream)
-
-            //this.vad?.pause()
-            //this.vad = null
-
-            /*if (this.vadSessions[session._id]) {
-                this.vadSessions[session._id].vad.pause()
-                this.vadSessions[session._id].vad = null
-                console.log('vad session pause', session._id)
-            } else {
-                console.log('vad session else', session._id)
+            if (this.useVAD) {
+                this.processVAD(session, mixedOutput.stream)
             }
-
-            console.log('typeof mixedOutput', typeof mixedOutput)
-            const mixedStreamCopy = mixedOutput.stream.clone()
-            const vadSession = await MicVAD.new({
-                mixedStreamCopy,
-                model: 'v5',
-                //baseAssetPath: '/',
-                //onnxWASMBasePath: '/',
-                positiveSpeechThreshold: 0.4,
-                negativeSpeechThreshold: 0.4,
-                minSpeechFrames: 15,
-                preSpeechPadFrames: 30,
-                onFrameProcessed: async (probs, frame) => {
-                    console.log('VAD probs.isSpeech conference', session._id, probs.isSpeech)
-                    if (probs.isSpeech > 0.001) {
-                        if (!this.vadSessions[session._id].isSpeakingState && mixedOutput) {
-                            console.log('SET SPEAKING - YES')
-                            this.vadSessions[session._id].isSpeakingState = true
-                            clearTimeout(this.vadSessions[session._id].vadInterval)
-                            this.vadSessions[session._id].vadInterval = null
-
-                            mixedOutput.stream.getTracks().forEach(track => track.enabled = true)
-                            if (session.connection?.getSenders()[0]) {
-                                await session.connection.getSenders()[0].replaceTrack(mixedOutput.stream.getTracks()[0])
-                            }
-                        }
-                    } else {
-                        if (this.vadSessions[session._id].isSpeakingState && !this.vadSessions[session._id].vadInterval && mixedOutput) {
-                            this.vadSessions[session._id].vadInterval = setTimeout(async () => {
-                                console.log('SET SPEAKING - NO')
-                                this.vadSessions[session._id].isSpeakingState = false
-
-                                mixedOutput.stream.getTracks().forEach(track => track.enabled = false)
-                                if (session.connection?.getSenders()[0]) {
-                                    await session.connection.getSenders()[0].replaceTrack(mixedOutput.stream.getTracks()[0])
-                                }
-                            }, 1500)
-                        }
-                    }
-                },
-                onSpeechEnd: (arr) => {
-                    console.log('VAD onSpeechEnd')
-                },
-            })
-
-            this.vadSessions[session._id] = {
-                isSpeakingState: true,
-                vadInterval: null,
-                vad: vadSession
-            }*/
 
             if (session.connection?.getSenders()[0]) {
                 //mixedOutput.stream.getTracks().forEach(track => track.enabled = !getters.isMuted) // Uncomment to mute all callers on mute
@@ -970,7 +1005,6 @@ export class AudioModule {
                 this.muteReconfigure(session)
             }
         })
-        console.log('doConference end')
     }
 
     private processCallerMute (callId: string, value: boolean) {
@@ -1465,7 +1499,7 @@ export class AudioModule {
     }
 
     async setupStream () {
-        const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
+        //const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
 
         if (this.initialStreamValue) {
             this.initialStreamValue.getTracks().forEach((track) => track.stop())
@@ -1473,170 +1507,10 @@ export class AudioModule {
             //this.vad?.pause()
             //this.vad = null
         }
+
+        const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
+
         this.initialStreamValue = stream
-        /*const vadStream = stream.clone()
-
-        let isSpeakingState = false
-        let vadInterval = null
-        this.vad = await MicVAD.new({
-            vadStream,
-            model: 'v5',
-            //baseAssetPath: '/',
-            //onnxWASMBasePath: '/',
-            positiveSpeechThreshold: 0.4,
-            negativeSpeechThreshold: 0.4,
-            minSpeechFrames: 15,
-            preSpeechPadFrames: 30,
-            onFrameProcessed: async (probs, frame) => {
-                console.log('VAD probs.isSpeech', probs.isSpeech)
-                if (probs.isSpeech > 0.001) {
-                    if (!isSpeakingState && this.initialStreamValue) {
-                        console.log('SET SPEAKING - YES')
-                        isSpeakingState = true
-                        clearTimeout(vadInterval)
-                        vadInterval = null
-
-                        const callsInRoom = Object.values(this.extendedCalls)
-                            .filter(call => call.roomId === this.currentActiveRoomId)
-
-                        if (
-                            callsInRoom.length === 1 &&
-                            callsInRoom[0].connection &&
-                            callsInRoom[0].connection?.getSenders()[0]
-                        ) {
-                            //const processedStream = this.getActiveStream()
-                            /!*await *!/
-                            this.initialStreamValue.getTracks().forEach(track => track.enabled = true)
-                            await callsInRoom[0].connection.getSenders()[0].replaceTrack(this.initialStreamValue.getTracks()[0])
-                            //this.muteReconfigure(callsInRoom[0])
-                        } /!*else if (callsInRoom.length > 1) {
-                            const receivedTracks: Array<MediaStreamTrack> = []
-
-                            callsInRoom.forEach(session => {
-                                if (session !== null && session !== undefined) {
-                                    session.connection.getReceivers().forEach((receiver: RTCRtpReceiver) => {
-                                        receivedTracks.push(receiver.track)
-                                    })
-                                }
-                            })
-
-                            await forEach(callsInRoom, async (session: ICall) => {
-                                if (session === null || session === undefined) {
-                                    return
-                                }
-
-                                const allReceivedMediaStreams = new MediaStream()
-                                const mixedOutput = audioContext.createMediaStreamDestination()
-
-                                session.connection.getReceivers().forEach((receiver:  RTCRtpReceiver) => {
-                                    receivedTracks.forEach(track => {
-                                        allReceivedMediaStreams.addTrack(receiver.track)
-
-                                        if (receiver.track.id !== track.id) {
-                                            const sourceStream = audioContext.createMediaStreamSource(new MediaStream([ track ]))
-                                            sourceStream.connect(mixedOutput)
-                                        }
-                                    })
-                                })
-
-                                const sourceStream = audioContext.createMediaStreamSource(this.initialStreamValue)
-                                sourceStream.connect(mixedOutput)
-
-                                if (session.connection?.getSenders()[0]) {
-                                    await session.connection.getSenders()[0].replaceTrack(mixedOutput.stream.getTracks()[0])
-                                }
-                            })
-                            //await this.doConference(callsInRoom)
-                        }*!/
-                        //this.roomReconfigure(this.currentActiveRoomId)
-                    }
-                } else {
-                    if (isSpeakingState && !vadInterval && this.initialStreamValue) {
-                        vadInterval = setTimeout(async () => {
-                            console.log('SET SPEAKING - NO')
-                            isSpeakingState = false
-
-                            /!*const callsInRoom = Object.values(this.extendedCalls)
-                                .filter(call => call.roomId === this.currentActiveRoomId)
-
-                            if (callsInRoom[0].connection && callsInRoom[0].connection?.getSenders()[0]) {
-                                //const processedStream = this.getActiveStream()
-                                /!*await *!/
-                                callsInRoom[0].connection.getSenders()[0].replaceTrack(this.initialStreamValue.getTracks()[0])
-                                //this.muteReconfigure(callsInRoom[0])
-                            }*!/
-
-                            const callsInRoom = Object.values(this.extendedCalls)
-                                .filter(call => call.roomId === this.currentActiveRoomId)
-
-                            if (
-                                callsInRoom.length === 1 &&
-                                callsInRoom[0].connection &&
-                                callsInRoom[0].connection?.getSenders()[0]
-                            ) {
-                                //const processedStream = this.getActiveStream()
-                                /!*await *!/
-                                this.initialStreamValue.getTracks().forEach(track => track.enabled = false)
-                                await callsInRoom[0].connection.getSenders()[0].replaceTrack(this.initialStreamValue.getTracks()[0])
-                                //this.muteReconfigure(callsInRoom[0])
-                            } /!*else if (callsInRoom.length > 1) {
-                                const receivedTracks: Array<MediaStreamTrack> = []
-
-                                callsInRoom.forEach(session => {
-                                    if (session !== null && session !== undefined) {
-                                        session.connection.getReceivers().forEach((receiver: RTCRtpReceiver) => {
-                                            receivedTracks.push(receiver.track)
-                                        })
-                                    }
-                                })
-
-                                await forEach(callsInRoom, async (session: ICall) => {
-                                    if (session === null || session === undefined) {
-                                        return
-                                    }
-
-                                    const allReceivedMediaStreams = new MediaStream()
-                                    const mixedOutput = audioContext.createMediaStreamDestination()
-
-                                    session.connection.getReceivers().forEach((receiver:  RTCRtpReceiver) => {
-                                        receivedTracks.forEach(track => {
-                                            allReceivedMediaStreams.addTrack(receiver.track)
-
-                                            if (receiver.track.id !== track.id) {
-                                                const sourceStream = audioContext.createMediaStreamSource(new MediaStream([ track ]))
-                                                sourceStream.connect(mixedOutput)
-                                            }
-                                        })
-                                    })
-
-                                    const sourceStream = audioContext.createMediaStreamSource(this.initialStreamValue)
-                                    sourceStream.connect(mixedOutput)
-
-                                    if (session.connection?.getSenders()[0]) {
-                                        await session.connection.getSenders()[0].replaceTrack(mixedOutput.stream.getTracks()[0])
-                                    }
-                                })
-
-                            }*!/
-                            //this.roomReconfigure(this.currentActiveRoomId)
-                        }, 1500)
-                    }
-                }
-                //const indicatorColor = interpolateInferno(probs.isSpeech / 2)
-                //document.body.style.setProperty("--indicator-color", indicatorColor)
-            },
-            onSpeechEnd: (arr) => {
-                console.log('VAD onSpeechEnd')
-                /!*const wavBuffer = utils.encodeWAV(arr)
-                const base64 = utils.arrayBufferToBase64(wavBuffer)
-                const url = `data:audio/wav;base64,${base64}`
-                const el = addAudio(url)
-                const speechList = document.getElementById("playlist")
-                speechList.prepend(el)*!/
-            },
-        })
-
-        this.vad.start()*/
     }
 
     private async triggerAddStream (event: RTCTrackEvent, call: ICall) {
@@ -1660,7 +1534,9 @@ export class AudioModule {
         this.getCallQuality(call)
         this.updateCall(call)
 
-        this.processSessionVad(call, stream)
+        if (this.useVAD) {
+            this.processVAD(call, processedStream)
+        }
     }
 
     //@requireInitialization()

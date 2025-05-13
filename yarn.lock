@@ -923,10 +923,10 @@
   resolved "https://registry.yarnpkg.com/@protobufjs/utf8/-/utf8-1.1.0.tgz#a777360b5b39a1a2e5106f8e858f2fd2d060c570"
   integrity sha512-Vvn3zZrhQZkkBE8LSuW3em98c0FwgO4nxzv6OdSxPKJIEKY2bGbHn+mhGIPerzI4twdxaP8/0+06HBpwf345Lw==
 
-"@ricky0123/vad-web@^0.0.22":
-  version "0.0.22"
-  resolved "https://registry.yarnpkg.com/@ricky0123/vad-web/-/vad-web-0.0.22.tgz#35fd050b85a14d2f16e97f2970fd398d3d08b70a"
-  integrity sha512-679R6sfwXx4jkquK+FJ9RC2W29oulWC+9ZINK6LVpuy90IBV7UaTGNN79oQXufpJTJs5z4X/22nw1DQ4+Rh8CA==
+"@ricky0123/vad-web@^0.0.24":
+  version "0.0.24"
+  resolved "https://registry.yarnpkg.com/@ricky0123/vad-web/-/vad-web-0.0.24.tgz#e65053bce876b9fa778a5176216809420a0fedde"
+  integrity sha512-uv6GWW/kq8BkVErMQzXp3uwSyYMT3w/3QJiUerVaaKp7EwhOTIRY+96EoyFdG2WOFU5RkLk/2CVGbI7nDlxhEg==
   dependencies:
     onnxruntime-web "1.14.0"
 
