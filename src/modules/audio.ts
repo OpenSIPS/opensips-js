@@ -41,6 +41,8 @@ export class AudioModule {
     private isCallAddingInProgress: string | undefined
     private muteWhenJoinEnabled = false
     private isDNDEnabled = false
+    // If false - all incoming calls will be rejected when busy
+    private isCallWaitingEnabled = true
     private muted = false
 
     private microphoneInputLevelValue = 1 // [0;1]
@@ -182,6 +184,21 @@ export class AudioModule {
 
     public get isDND () {
         return this.isDNDEnabled
+    }
+
+    /**
+     * Gets the current state of the call waiting feature.
+     *
+     * When call waiting is enabled (true), incoming calls will be allowed even when
+     * other calls are active.
+     *
+     * When call waiting is disabled (false) and there are already active calls,
+     * any new incoming calls will be automatically rejected with a "busy" status.
+     *
+     * @returns {boolean} True if call waiting is enabled, false if disabled
+     */
+    public get isCallWaiting (): boolean {
+        return this.isCallWaitingEnabled
     }
 
     public get speakerVolume () {
@@ -907,6 +924,25 @@ export class AudioModule {
         this.context.emit('changeIsDND', value)
     }
 
+    /**
+     * Sets the call waiting feature state.
+     *
+     * When call waiting is disabled (false) and there are already active calls,
+     * any new incoming calls will be automatically rejected with a "busy" status.
+     *
+     * When call waiting is enabled (true), incoming calls will be allowed even when
+     * other calls are active.
+     *
+     * This setting is used in the shouldTerminateNewSession method to determine whether
+     * to automatically terminate new incoming sessions when the user is already on a call.
+     *
+     * @param {boolean} value - True to enable call waiting, false to disable
+     */
+    public setCallWaiting (value: boolean) {
+        this.isCallWaitingEnabled = value
+        this.context.emit('changeIsCallWaiting', value)
+    }
+
     private startCallTimer (callId: string) {
         this.removeTimeInterval(callId)
 
@@ -1068,10 +1104,30 @@ export class AudioModule {
         this.roomReconfigure(callRoomIdToConfigure)
     }
 
+
+    /**
+     * Determines whether a new incoming session should be automatically terminated
+     * based on Do Not Disturb (DND) settings and Call Waiting settings.
+     *
+     * @param {RTCSessionEvent} event - The event containing the new RTC session
+     * @returns {boolean} True if the session should be terminated automatically, false otherwise
+     */
+    private shouldTerminateNewSession (event: RTCSessionEvent): boolean {
+        const session = event.session as RTCSessionExtended
+
+        if (session.direction === 'outgoing') {
+            return false
+        }
+
+        const terminateBecauseOfCallWaiting = !this.isCallWaiting && this.hasActiveCalls
+
+        return this.isDND || terminateBecauseOfCallWaiting
+    }
+
     private async newRTCSessionCallback (event: RTCSessionEvent) {
         const session = event.session as RTCSessionExtended
 
-        if (this.isDND) {
+        if (this.shouldTerminateNewSession(event)) {
             session.terminate({
                 status_code: 486,
                 reason_phrase: 'Do Not Disturb'

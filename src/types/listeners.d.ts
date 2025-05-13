@@ -31,6 +31,7 @@ export type changeActiveOutputMediaDeviceListener = (event: string) => void
 export type changeAvailableDeviceListListener = (event: Array<MediaDeviceInfo>) => void
 export type changeMuteWhenJoinListener = (value: boolean) => void
 export type changeIsDNDListener = (value: boolean) => void
+export type changeIsCallWaitingListener = (value: boolean) => void
 export type changeIsMutedListener = (value: boolean) => void
 export type changeActiveStreamListener = (value: MediaStream) => void
 export type addRoomListener = (value: RoomChangeEmitType) => void
@@ -73,6 +74,7 @@ export interface OpenSIPSEventMap extends UAEventMap {
     changeAvailableDeviceList: changeAvailableDeviceListListener
     changeMuteWhenJoin: changeMuteWhenJoinListener
     changeIsDND: changeIsDNDListener
+    changeIsCallWaiting: changeIsCallWaitingListener
     changeIsMuted: changeIsMutedListener
     changeActiveStream: changeActiveStreamListener
     addRoom: addRoomListener
