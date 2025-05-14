@@ -50,6 +50,9 @@
                     <select id="speakerEl"/>
                 </div>
 
+                Playlist
+                <div id="playlist"/>
+
                 <div class="call-quick-actions">
                     <div>
                         <label for="muteWhenJoinInputEl">Mute when join</label>
