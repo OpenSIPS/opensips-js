@@ -25,12 +25,12 @@
 
                 <div>
                     <div style="margin: 10px 0">
-                        <input type="checkbox" id="useAudioCheckbox" name="useAudioCheckbox" checked="true" />
+                        <input id="useAudioCheckbox" type="checkbox" name="useAudioCheckbox" checked="true" >
                         <label for="useAudioCheckbox">Audio</label>
                     </div>
 
                     <div style="margin: 10px 0">
-                        <input type="checkbox" id="useVideoCheckbox" name="useVideoCheckbox" checked="true" />
+                        <input id="useVideoCheckbox" type="checkbox" name="useVideoCheckbox" checked="true" >
                         <label for="useVideoCheckbox">Video</label>
                     </div>
                 </div>
@@ -41,23 +41,23 @@
             </form>
         </div>
         <div id="webRTCPage" style="display: none">
-            <div class="navigation-tab"> </div>
+            <div class="navigation-tab"/>
 
             <div id="audioTabContainer" class="tabcontent">
                 <h3>Audio Calls</h3>
                 <div>
-                    <select id="microphoneEl"></select>
-                    <select id="speakerEl"></select>
+                    <select id="microphoneEl"/>
+                    <select id="speakerEl"/>
                 </div>
 
                 <div class="call-quick-actions">
                     <div>
                         <label for="muteWhenJoinInputEl">Mute when join</label>
-                        <input type="checkbox" id="muteWhenJoinInputEl"/>
+                        <input id="muteWhenJoinInputEl" type="checkbox">
                     </div>
                     <div>
                         <label for="DNDInputEl">DND</label>
-                        <input type="checkbox" id="DNDInputEl"/>
+                        <input id="DNDInputEl" type="checkbox">
                     </div>
                 </div>
 
@@ -84,15 +84,16 @@
 
                 <div>
                     <label for="addToCurrentRoomInputEl">Add new call to current room</label>
-                    <input type="checkbox" id="addToCurrentRoomInputEl">
+                    <input id="addToCurrentRoomInputEl" type="checkbox">
                 </div>
 
-                <br/>
+                <br>
 
                 <div>
                     <label for="inputLevel">Microphone sensitivity (between 0 and 2):</label>
-                    <input type="number"
+                    <input
                            id="inputLevel"
+                           type="number"
                            name="inputLevel"
                            value="1"
                            min="0"
@@ -103,8 +104,9 @@
                 </div>
                 <div>
                     <label for="outputLevel">Speaker volume (between 0 and 1):</label>
-                    <input type="number"
+                    <input
                            id="outputLevel"
+                           type="number"
                            name="outputLevel"
                            value="1"
                            min="0"
@@ -114,7 +116,7 @@
                     <button id="outputLevelApplyButton">Apply</button>
                 </div>
 
-                <br/>
+                <br>
 
                 <div>
                     <form id="dtmfForm">
@@ -128,7 +130,7 @@
                     </form>
                 </div>
 
-                <div id="agentVoiceLevelContainer"></div>
+                <div id="agentVoiceLevelContainer"/>
 
                 <div>
                     Active calls: <span id="activeCallsCounter">0</span>
@@ -138,11 +140,150 @@
                     </select>
                 </div>
 
+                <div style="display: flex; flex-direction: column">
+                    <h3>VAD Configuration</h3>
+                    <label>
+                        positiveSpeechThreshold
+                        <input
+                               id="positiveSpeechThreshold"
+                               type="number"
+                               name="positiveSpeechThreshold"
+                               value="0.5"
+                               min="0"
+                               max="1000"
+                               step="0.01"
+                        >
+                    </label>
+                    <label>
+                        negativeSpeechThreshold
+                        <input
+                               id="negativeSpeechThreshold"
+                               type="number"
+                               name="negativeSpeechThreshold"
+                               value="0.35"
+                               min="0"
+                               max="1000"
+                               step="0.01"
+                        >
+                    </label>
+                    <label>
+                        preSpeechPadFrames
+                        <input
+                               id="preSpeechPadFrames"
+                               type="number"
+                               name="preSpeechPadFrames"
+                               value="1"
+                               min="0"
+                               max="1000"
+                               step="0.1"
+                        >
+                    </label>
+                    <label>
+                        redemptionFrames
+                        <input
+                               id="redemptionFrames"
+                               type="number"
+                               name="redemptionFrames"
+                               value="8"
+                               min="0"
+                               max="1000"
+                               step="0.1"
+                        >
+                    </label>
+                    <label>
+                        frameSamples
+                        <input
+                               id="frameSamples"
+                               type="number"
+                               name="frameSamples"
+                               value="1536"
+                               min="0"
+                               max="5000"
+                               step="1"
+                        >
+                    </label>
+                    <label>
+                        minSpeechFrames
+                        <input
+                               id="minSpeechFrames"
+                               type="number"
+                               name="minSpeechFrames"
+                               value="3"
+                               min="0"
+                               max="1000"
+                               step="0.1"
+                        >
+                    </label>
+                    <label style="margin: 10px 0">
+                        submitUserSpeechOnPause
+                        <input
+                               id="submitUserSpeechOnPause"
+                               type="checkbox"
+                               name="submitUserSpeechOnPause"
+                        >
+                    </label>
+                    <label style="margin: 10px 0">
+                        baseAssetPath
+                        <input
+                               id="baseAssetPath"
+                               type="string"
+                               name="baseAssetPath"
+                               value="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@latest/dist/"
+                        >
+                    </label>
+                    <label style="margin: 10px 0">
+                        onnxWASMBasePath
+                        <input
+                               id="onnxWASMBasePath"
+                               type="string"
+                               name="onnxWASMBasePath"
+                               value="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/"
+                        >
+                    </label>
+                    <label style="margin: 10px 0">
+                        model
+                        <input
+                               id="model"
+                               type="string"
+                               name="model"
+                               value="legacy"
+                        >
+                    </label>
+                    <label style="margin: 10px 0">
+                        startOnLoad (for v5 model)
+                        <input
+                               id="startOnLoad"
+                               type="checkbox"
+                               name="startOnLoad"
+                               checked="true"
+                        >
+                    </label>
+                    <label style="margin: 10px 0">
+                        userSpeakingThreshold (for v5 model)
+                        <input
+                               id="userSpeakingThreshold"
+                               type="number"
+                               name="userSpeakingThreshold"
+                               value="0.6"
+                               min="0"
+                               max="1000"
+                               step="0.01"
+                        >
+                    </label>
+
+                    <div>
+                        <button id="saveVADConfigurationButton">
+                            Save VAD configuration
+                        </button>
+                    </div>
+
+                </div>
+
                 <br>
                 <p>RoomList</p>
                 <br>
 
-                <div id="roomsContainer"></div>
+                <div id="roomsContainer"/>
             </div>
 
             <div id="videoTabContainer" class="tabcontent">
@@ -172,9 +313,9 @@
                     Video On
                 </button>
 
-                <div id="mainVideoElementContainer" style="width: 100%; height: calc(100vh - 124px)"></div>
+                <div id="mainVideoElementContainer" style="width: 100%; height: calc(100vh - 124px)"/>
 
-                <div id="participantsVideoElements" style="width: 100%"></div>
+                <div id="participantsVideoElements" style="width: 100%"/>
             </div>
 
         </div>
