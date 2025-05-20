@@ -610,7 +610,22 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         }
     }
 
-    stop () {
+    terminateAllSessions () {
+        for (const session in this._sessions) {
+            if (Object.prototype.hasOwnProperty.call(this._sessions, session)) {
+                logger.debug(`closing session ${session}`)
+
+                try {
+                    this._sessions[session].terminate()
+                } catch (error) {
+                    console.error(error)
+                }
+            }
+        }
+    }
+
+    stop (closeSessions = true) {
+        console.log('IN STOP')
         logger.debug('stop()')
 
         // Remove dynamic settings.
@@ -628,18 +643,29 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         // If there are session wait a bit so CANCEL/BYE can be sent and their responses received.
         const num_sessions = Object.keys(this._sessions).length
 
+        if (closeSessions) {
+            this.terminateAllSessions()
+        }
         // Run  _terminate_ on every Session.
-        for (const session in this._sessions) {
+        /*for (const session in this._sessions) {
             if (Object.prototype.hasOwnProperty.call(this._sessions, session)) {
                 logger.debug(`closing session ${session}`)
 
                 try {
-                    this._sessions[session].terminate()
+                    console.log('IN TRY')
+                    if (closeSessions) {
+                        this._sessions[session].terminate()
+                        //console.log('IN ENDED')
+                        /!*this._sessions[session]._ended('local', null, JsSIP_C.causes.BYE)*!/
+                    } /!*else {
+                        console.log('IN TERMINATE')
+                        this._sessions[session].terminate()
+                    }*!/
                 } catch (error) {
                     console.error(error)
                 }
             }
-        }
+        }*/
 
         // If there are session wait a bit so CANCEL/BYE can be sent and their responses received.
         // const num_msrp_sessions = Object.keys(this._msrp_sessions).length

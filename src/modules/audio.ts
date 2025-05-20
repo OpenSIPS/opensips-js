@@ -217,6 +217,13 @@ export class AudioModule {
         return Object.values(this.extendedCalls).length > 0
     }
 
+    public get hasActiveAnsweredCalls () {
+        const rooms = Object.values(this.activeRooms)
+        const answeredSessions = rooms.filter((room) => !room.incomingInProgress)
+
+        return answeredSessions.length > 0
+    }
+
     public get getActiveRooms () {
         return this.activeRooms
     }
@@ -1171,6 +1178,10 @@ export class AudioModule {
                 this.initialStreamValue?.getTracks().forEach((track) => track.stop())
                 this.initialStreamValue = null
             }
+
+            if (this.context.isWaitingForSessionHangup() && !this.hasActiveAnsweredCalls) {
+                this.context.stopSessionAfterWaiting()
+            }
         })
         session.on('progress', (event: IncomingEvent | OutgoingEvent) => {
             this.context.logger.log('Session in progress for', session._remote_identity?._uri?._user)
@@ -1207,6 +1218,10 @@ export class AudioModule {
                 this.setIsMuted(false)
                 this.initialStreamValue?.getTracks().forEach((track) => track.stop())
                 this.initialStreamValue = null
+            }
+
+            if (this.context.isWaitingForSessionHangup() && !this.hasActiveAnsweredCalls) {
+                this.context.stopSessionAfterWaiting()
             }
         })
         session.on('confirmed', (event: IncomingAckEvent | OutgoingAckEvent) => {

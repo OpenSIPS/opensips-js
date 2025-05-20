@@ -129,6 +129,8 @@ class OpenSIPSJS extends UA {
     private isMSRPInitializingValue: boolean | undefined
     private isReconnecting = false
     private activeConnection = false
+    private waitingForSessionHangup = false
+    private waitingForSessionTimeout = null
 
     public audio: AudioModule = null
     public msrp: MSRPModule = null
@@ -167,9 +169,28 @@ class OpenSIPSJS extends UA {
         }
     }
 
+    /*public setWaitingForSessionHangup (value: boolean) {
+        this.waitingForSessionHangup = value
+    }*/
+
+    public isWaitingForSessionHangup () {
+        return this.waitingForSessionHangup
+    }
+
+    public stopSessionAfterWaiting () {
+        this.setInitialized(false)
+        this.waitingForSessionHangup = false
+        clearTimeout(this.waitingForSessionTimeout)
+        this.waitingForSessionTimeout = null
+
+        if (this.activeConnection) {
+            setTimeout(this.start.bind(this), 5000)
+        }
+    }
+
     private get hasActiveSessions (): boolean {
         if (this.modules.includes(MODULES.AUDIO)) {
-            return this.audio.hasActiveCalls
+            return this.audio.hasActiveAnsweredCalls
         }
 
         return false
@@ -262,12 +283,15 @@ class OpenSIPSJS extends UA {
                 this.setConnected(true)
                 this.setReconnecting(false)
                 this.activeConnection = true
+                this.waitingForSessionHangup = false
             }
         )
 
         this.on(
             this.disconnectedEventName,
             () => {
+                this.setConnected(false)
+
                 if (this.isReconnecting) {
                     return
                 } else {
@@ -280,11 +304,24 @@ class OpenSIPSJS extends UA {
                 if (!this.hasActiveSessions) {
                     this.stop()
                     this.setInitialized(false)
-                    this.setConnected(false)
 
                     if (this.activeConnection) {
                         setTimeout(this.start.bind(this), 5000)
                     }
+                } else {
+                    this.waitingForSessionHangup = true
+
+                    // TODO: Handle case when inactive call was disconnected and other side hangs up the call
+                    this.stop(false)
+                    this.waitingForSessionTimeout = setTimeout(() => {
+                        this.terminateAllSessions()
+                        this.setInitialized(false)
+                        this.waitingForSessionHangup = false
+
+                        if (this.activeConnection) {
+                            setTimeout(this.start.bind(this), 5000)
+                        }
+                    },1200000)
                 }
             }
         )
