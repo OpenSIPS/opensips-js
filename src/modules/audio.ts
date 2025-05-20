@@ -838,7 +838,12 @@ export class AudioModule {
         // TODO: if it answered incoming call and we are doing hangup we are getting unregistered event and sockets are reconnecting
         const call = this.extendedCalls[callId]
 
-        if (call._status !== 8) {
+        if (call._status === 4) {
+            call.terminate({
+                status_code: 603,
+                reason_phrase: 'Decline'
+            })
+        } else if (call._status !== 8) {
             call.terminate()
         }
     }
