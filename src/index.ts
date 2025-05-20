@@ -167,6 +167,14 @@ class OpenSIPSJS extends UA {
         }
     }
 
+    private get hasActiveSessions (): boolean {
+        if (this.modules.includes(MODULES.AUDIO)) {
+            return this.audio.hasActiveCalls
+        }
+
+        return false
+    }
+
     public on <T extends ListenersKeyType> (type: T, listener: ListenerCallbackFnType<T>) {
         return super.on(type as keyof UAEventMap, listener as UAEventMap[keyof UAEventMap])
     }
@@ -269,12 +277,14 @@ class OpenSIPSJS extends UA {
                 this.logger.log('Disconnected from', this.options.socketInterfaces[0])
                 this.logger.log('Reconnecting to', this.options.socketInterfaces[0])
 
-                this.stop()
-                this.setInitialized(false)
-                this.setConnected(false)
+                if (!this.hasActiveSessions) {
+                    this.stop()
+                    this.setInitialized(false)
+                    this.setConnected(false)
 
-                if (this.activeConnection) {
-                    setTimeout(this.start.bind(this), 5000)
+                    if (this.activeConnection) {
+                        setTimeout(this.start.bind(this), 5000)
+                    }
                 }
             }
         )
