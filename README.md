@@ -205,7 +205,7 @@ Also, there are next public fields on OpensipsJS instance:
 ## Audio
 
 ### Audio methods
-- `initCall(target: String, addToCurrentRoom: Boolean): void` - call to the target. If addToCurrentRoom is true then the call will be added to the user's current room
+- `initCall(target: String, addToCurrentRoom: Boolean, holdOtherCalls: Boolean): void` - call to the target. If addToCurrentRoom is true then the call will be added to the user's current room
 - `holdCall(callId: String, automatic?: Boolean): Promise<void>` - put call on hold
 - `unholdCall(callId: String): Promise<void>` - unhold a call
 - `terminateCall(callId: String): void` - terminate call
