@@ -798,9 +798,7 @@ function onTransportData (data) {
     let message = data.message
 
     const originalMessage = message
-    console.log('onTransportData', message)
     message = Parser.parseMessage(message, this)
-    console.log('onTransportData parsed', message)
 
     if (this.onTransportCallback && typeof this.onTransportCallback === 'function') {
         this.onTransportCallback(message, originalMessage)

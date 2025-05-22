@@ -558,11 +558,7 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
         const configuration: IOpenSIPSConfiguration = {
             session_timers: false,
             uri: `sip:${username}@${domain}`,
-            overrideUserAgent: (userAgent) => userAgent + ' Vue 3.0'/*,
-            onTransportCallback: (objectMessage, stringMessage) => {
-                console.log('ON objectMessage', objectMessage)
-                console.log('ON stringMessage', stringMessage)
-            }*/
+            overrideUserAgent: (userAgent) => userAgent + ' Vue 3.0'
         }
 
         if (password) {
