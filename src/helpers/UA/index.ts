@@ -26,7 +26,7 @@ import { /*MSRPSession, */JanusOptions } from '@/lib/janus/session' // TODO: imp
 //import Parser from 'jssip/lib/Parser'
 import Parser from '@/lib/janus/Parser'
 
-import { CallOptionsExtended } from '@/types/rtc'
+import { CallOptionsExtended, OnTransportCallback } from '@/types/rtc'
 import { UAExtendedInterface } from '@/lib/msrp/session'
 
 //import Registrator from 'jssip/lib/Registrator'
@@ -82,6 +82,8 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
 
     protected newStreamPlugins: Array<BaseNewStreamPlugin> = []
     protected processStreamPlugins: Array<BaseProcessStreamPlugin> = []
+
+    protected onTransportCallback: OnTransportCallback
 
     //_janus_session: any = null
 
@@ -183,6 +185,10 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         this._configuration.user_agent = configuration.overrideUserAgent &&
             typeof configuration.overrideUserAgent === 'function' ?
             configuration.overrideUserAgent(userAgent) : userAgent
+
+        if (configuration.onTransportCallback && typeof configuration.onTransportCallback === 'function') {
+            this.onTransportCallback = configuration.onTransportCallback
+        }
 
         // Jssip_id instance parameter. Static random tag of length 5.
         this._configuration.jssip_id = Utils.createRandomToken(5)
@@ -791,8 +797,12 @@ function onTransportData (data) {
     const transport = data.transport
     let message = data.message
 
+    const originalMessage = message
     message = Parser.parseMessage(message, this)
-    //console.log('onTransportData method', message.method)
+
+    if (this.onTransportCallback && typeof this.onTransportCallback === 'function') {
+        this.onTransportCallback(message, originalMessage)
+    }
 
     if (!message) {
         return
