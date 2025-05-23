@@ -55,25 +55,35 @@ export interface CallMetricsData {
 declare global {
     interface Window {
         callMetrics: CallMetricsData
+        scenarioName?: string
+        scenarioId?: string
     }
 }
 
 export class WebRTCMetricsCollector {
-    private static readonly METRICS_INTERVAL = 100 // 1 second
+    private static readonly METRICS_INTERVAL = 100 // 100ms interval
 
     static collectMetrics () {
         const lastStats = window.callMetrics.stats[window.callMetrics.stats.length - 1]
 
         return {
             setupTime: window.callMetrics.connectionTime,
-            totalDuration: Date.now() - window.callMetrics.startTime,
+            totalDuration: Date.now() - (window.callMetrics.startTime || Date.now()),
             connectionSuccessful: window.callMetrics.connected,
             audioMetrics: lastStats?.audio || null,
-            allStats: window.callMetrics.stats
+            allStats: window.callMetrics.stats,
+            scenarioName: window.scenarioName,
+            scenarioId: window.scenarioId
         }
     }
 
     static initializeMetricsAnalyze () {
+        console.log('[WebRTCMetricsCollector] Initializing metrics collection', {
+            hasScenarioName: !!window.scenarioName,
+            hasScenarioId: !!window.scenarioId,
+            scenarioName: window.scenarioName
+        })
+        
         window.callMetrics = {
             startTime: null,
             connectionTime: null,
@@ -82,26 +92,27 @@ export class WebRTCMetricsCollector {
         }
 
         const origRTCPeerConnection = window.RTCPeerConnection
-
         const metricsIntervalMS = this.METRICS_INTERVAL
 
         window.RTCPeerConnection = function (...args) {
-            console.log('HAHAHAHHAHAHA')
+            console.log('[WebRTCMetricsCollector] Creating new RTCPeerConnection')
             const pc = new origRTCPeerConnection(...args)
 
             window.callMetrics.startTime = Date.now()
 
             pc.oniceconnectionstatechange = () => {
-                console.log('ICE Connection State:', pc.iceConnectionState)
+                console.log('[WebRTCMetricsCollector] ICE Connection State:', pc.iceConnectionState)
                 if (pc.iceConnectionState === 'connected') {
                     window.callMetrics.connected = true
-                    window.callMetrics.connectionTime = Date.now() - window.callMetrics.startTime
+                    window.callMetrics.connectionTime = Date.now() - (window.callMetrics.startTime || Date.now())
+                    console.log('[WebRTCMetricsCollector] WebRTC connection established', {
+                        connectionTime: window.callMetrics.connectionTime
+                    })
                 }
             }
 
             const statsInterval = setInterval(
                 async () => {
-                    console.log('IN INTERCAAAAl')
                     if (pc.connectionState === 'connected') {
                         try {
                             const stats = await pc.getStats()
@@ -187,9 +198,18 @@ export class WebRTCMetricsCollector {
                             })
 
                             window.callMetrics.stats.push(metrics)
+
+                            // Only collect metrics - sending happens from Node.js context
+                            if (window.callMetrics.stats.length % 10 === 0) {
+                                console.log('[WebRTCMetricsCollector] Collected metrics batch', {
+                                    totalSamples: window.callMetrics.stats.length,
+                                    connected: window.callMetrics.connected,
+                                    latestAudioLevel: metrics.audio.audioLevel
+                                })
+                            }
                         } catch (e) {
                             console.error('Error collecting stats:', e)
-                            window.callMetrics.lastError = e.message
+                            window.callMetrics.lastError = e instanceof Error ? e.message : String(e)
                         }
                     }
                 },
@@ -204,6 +224,7 @@ export class WebRTCMetricsCollector {
 
             return pc
         }
+        
+        console.log('[WebRTCMetricsCollector] WebRTC metrics collection initialized')
     }
-
 }

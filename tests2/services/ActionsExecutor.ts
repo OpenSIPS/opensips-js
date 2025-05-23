@@ -3,8 +3,10 @@ import fs from 'fs/promises'
 
 import { Browser, Locator, Page } from 'playwright'
 import { WebRTCMetricsCollector } from './WebRTCMetricsCollector'
+import { WebRTCMetricsSender } from './WebRTCMetricsSender'
 import PageWebSocketWorker from './PageWebSocketWorker'
 import WindowMethodsWorker from './WindowMethodsWorker'
+import QrynLogger from './QrynLogger'
 
 import {
     GetActionPayload,
@@ -46,25 +48,30 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     private DTMFSendButton: Locator
     private DTMFInput: Locator
     private transferButton: Locator
+    private logger: QrynLogger
+    private webrtcMetricsSender: WebRTCMetricsSender | null = null
 
     constructor (
         private readonly scenarioId: string,
+        private readonly scenarioName: string,
         private readonly pageWebSocketWorker: PageWebSocketWorker,
         private readonly windowMethodsWorker: WindowMethodsWorker,
         public readonly page: Page,
         public readonly browser: Browser,
-    ) {}
+    ) {
+        this.logger = new QrynLogger('ActionsExecutor', scenarioName, scenarioId)
+    }
 
     public async register (data: GetActionPayload<RegisterAction>): Promise<GetActionResponse<RegisterAction>> {
         const instanceId = `${this.scenarioId}-${Date.now()}`
-        console.log(`[Scenario ${this.scenarioId}] Executing register action`, data)
+        await this.logger.log('Executing register action', { data })
         const {
             username,
             password,
             sip_domain
         } = data
 
-        console.log(`[Scenario ${this.scenarioId}][Instance ${instanceId}] Form elements found, filling form`)
+        await this.logger.log('Form elements found, filling form', { instanceId })
         this.usernameInput = this.page.locator('#loginToAppForm > label:nth-child(2) > input')
         this.passwordInput = this.page.locator('#loginToAppForm > label:nth-child(3) > input')
         this.domainInput = this.page.locator('#loginToAppForm > label:nth-child(5) > input')
@@ -91,9 +98,30 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
 
                         this.pageWebSocketWorker.setConnectedWebsocket(ws)
                         this.pageWebSocketWorker.setWebsocketListener(ws)
+
+                        // Set scenario context for WebRTC metrics collection
+                        await this.page.addInitScript(
+                            ({ scenarioName, scenarioId }) => {
+                                window.scenarioName = scenarioName
+                                window.scenarioId = scenarioId
+                            },
+                            {
+                                scenarioName: this.scenarioName,
+                                scenarioId: this.scenarioId
+                            }
+                        )
+
                         await this.page.evaluate(WebRTCMetricsCollector.initializeMetricsAnalyze)
 
-                        console.log(`[Scenario ${this.scenarioId}] Successfully registered`)
+                        // Start WebRTC metrics collection from Node.js context
+                        this.webrtcMetricsSender = new WebRTCMetricsSender(
+                            this.page,
+                            this.scenarioName,
+                            this.scenarioId
+                        )
+                        this.webrtcMetricsSender.startPeriodicCollection()
+
+                        await this.logger.log('Successfully registered and started WebRTC metrics collection')
 
                         resolve({
                             success: true,
@@ -113,7 +141,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async dial (data: GetActionPayload<DialAction>): Promise<GetActionResponse<DialAction>> {
-        console.log(`[Scenario ${this.scenarioId}] Executing dial action`, data)
+        await this.logger.log('Executing dial action', { data })
 
         this.yourTargetInput = this.page.locator('#makeCallForm input')
         this.callButton = this.page.locator('#makeCallForm button')
@@ -148,7 +176,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async answer (): Promise<GetActionResponse<AnswerAction>> {
-        console.log(`[Scenario ${this.scenarioId}] Executing answer action`)
+        await this.logger.log('Executing answer action')
 
         this.answerButton = this.page.locator('#call-undefined > button:nth-child(7)')
         await this.answerButton.click()
@@ -162,7 +190,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async wait (data: GetActionPayload<WaitAction>): Promise<GetActionResponse<WaitAction>> {
-        console.log(`[Scenario ${this.scenarioId}] Waiting for ${data.time}ms`)
+        await this.logger.log(`Waiting for ${data.time}ms`, { waitTime: data.time })
 
         await this.page.waitForTimeout(data.time)
 
@@ -174,7 +202,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async hold (): Promise<GetActionResponse<HoldAction>> {
-        console.log(`[Scenario ${this.scenarioId}] Executing hold action`)
+        await this.logger.log('Executing hold action')
 
         this.holdButton = this.page.locator('.holdAgent')
 
@@ -188,7 +216,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async unhold (): Promise<GetActionResponse<UnholdAction>> {
-        console.log(`[Scenario ${this.scenarioId}] Executing unhold action`)
+        await this.logger.log('Executing unhold action')
 
         this.holdButton = this.page.locator('.holdAgent')
         await this.holdButton.click()
@@ -201,7 +229,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async hangup (): Promise<GetActionResponse<HangupAction>> {
-        console.log(`[Scenario ${this.scenarioId}] Executing hangup action`)
+        await this.logger.log('Executing hangup action')
         //this.hangupButton = this.page.locator('#call-undefined > button:nth-child(4)')
 
         this.hangupButton = this.page.getByRole('button', { name: 'Hangup' })
@@ -214,7 +242,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async sendDTMF (data: GetActionPayload<SendDTMFAction>): Promise<GetActionResponse<SendDTMFAction>> {
-        console.log(`[Scenario ${this.scenarioId}] Executing send DTMF action`)
+        await this.logger.log('Executing send DTMF action', { dtmf: data.dtmf })
 
         this.DTMFInput = this.page.locator('#dtmfInput')
         this.DTMFSendButton = this.page.locator('#dtmfSendButton')
@@ -231,13 +259,13 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async transfer (data: GetActionPayload<TransferAction>): Promise<GetActionResponse<TransferAction>> {
-        console.log(`[Scenario ${this.scenarioId}] Executing transfer action`)
+        await this.logger.log('Executing transfer action', { target: data.target })
 
         this.transferButton = this.page.getByRole('button', { name: 'Transfer' })
         await this.transferButton.click()
-        this.page.once('dialog', dialog => {
-            console.log(`Dialog message: ${dialog.message()}`)
-            dialog.accept(data.target).catch(e => console.error('Error accepting dialog:', e))
+        this.page.once('dialog', async dialog => {
+            await this.logger.log(`Dialog message: ${dialog.message()}`, { target: data.target })
+            dialog.accept(data.target).catch(e => this.logger.error('Error accepting dialog', { error: e instanceof Error ? e.message : String(e) }))
         })
         await waitMs(200)
 
@@ -248,11 +276,16 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async unregister (): Promise<GetActionResponse<UnregisterAction>> {
-        console.log(`[Scenario ${this.scenarioId}] Executing unregister action`)
+        await this.logger.log('Executing unregister action')
 
         this.logoutButton = this.page.locator('#logoutButton')
 
         const metrics = await this.page.evaluate(WebRTCMetricsCollector.collectMetrics)
+
+        // Send final WebRTC metrics before cleanup
+        if (this.webrtcMetricsSender) {
+            await this.webrtcMetricsSender.sendFinalMetrics()
+        }
 
         // Clean up the WindowMethodsWorker
         if (this.windowMethodsWorker) {
@@ -262,20 +295,20 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         // Clicking the logout button
         await this.logoutButton.click()
 
-        console.log('button clicked')
+        await this.logger.log('Logout button clicked')
 
         // Log metrics
-        console.log(`Call Metrics ${this.scenarioId}:`, {
-            'Setup Time (ms)': metrics.setupTime,
-            'Total Duration (ms)': metrics.totalDuration,
-            'Connection Successful': metrics.connectionSuccessful,
-            'Audio Statistics': metrics.audioMetrics,
+        await this.logger.log('Call metrics collected', {
+            setupTimeMs: metrics.setupTime,
+            totalDurationMs: metrics.totalDuration,
+            connectionSuccessful: metrics.connectionSuccessful,
+            audioStats: metrics.audioMetrics
         })
 
         // Close browser and log after actually closing
         await this.page.close()
         await this.browser.close()
-        console.log(`[Scenario ${this.scenarioId}] Browser closed`)
+        await this.logger.log('Browser closed')
 
         return {
             success: true
@@ -284,7 +317,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
 
     public async playSound (data: GetActionPayload<PlaySoundAction>): Promise<GetActionResponse<PlaySoundAction>> {
         const soundPath = data.sound
-        console.log(`[Scenario ${this.scenarioId}] Playing sound`, soundPath)
+        await this.logger.log('Playing sound', { soundPath })
 
         try {
             let fullPath: string
@@ -330,14 +363,19 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
             const base64Data = fileData.toString('base64')
             const dataUrl = `data:${mimeType};base64,${base64Data}`
 
-            console.log(`[Scenario ${this.scenarioId}] Playing audio file: ${soundFileName} (${mimeType}, ${Math.round(fileData.length / 1024)}KB)`)
+            await this.logger.log(`Playing audio file: ${soundFileName}`, {
+                mimeType,
+                fileSizeKB: Math.round(fileData.length / 1024)
+            })
 
             // Use the WindowMethodsWorker to play the clip
             const startTime = Date.now()
             await this.windowMethodsWorker.playClip(dataUrl)
             const playDuration = Date.now() - startTime
 
-            console.log(`[Scenario ${this.scenarioId}] Sound played successfully: ${soundFileName} (${playDuration}ms)`)
+            await this.logger.log(`Sound played successfully: ${soundFileName}`, {
+                playDurationMs: playDuration
+            })
 
             return {
                 success: true,
@@ -345,7 +383,9 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                 duration: playDuration
             }
         } catch (error) {
-            console.error(`[Scenario ${this.scenarioId}] Error playing sound:`, error)
+            await this.logger.error('Error playing sound', {
+                error: error instanceof Error ? error.message : String(error)
+            })
             return {
                 success: false,
                 error: error instanceof Error ? error.message : 'Unknown error playing sound'
@@ -354,7 +394,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async request (data: GetActionPayload<RequestAction>): Promise<GetActionResponse<RequestAction>> {
-        console.log(`[Scenario ${this.scenarioId}] Executing request action`)
+        await this.logger.log('Executing request action', { url: data.url })
 
         try {
             const response = await this.page.request.fetch(
@@ -369,7 +409,9 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                 response: responseBody
             }
         } catch (error) {
-            console.error(`[Scenario ${this.scenarioId}] Error during request:`, error)
+            await this.logger.error('Error during request', {
+                error: error instanceof Error ? error.message : String(error)
+            })
 
             const message = error instanceof Error ? error.message : 'Unknown error'
 

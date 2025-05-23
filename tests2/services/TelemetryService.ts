@@ -1,12 +1,16 @@
 import { NodeSDK } from '@opentelemetry/sdk-node'
 import { ConsoleSpanExporter } from '@opentelemetry/sdk-trace-node'
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node'
 import {
     PeriodicExportingMetricReader,
     ConsoleMetricExporter,
 } from '@opentelemetry/sdk-metrics'
+import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
 import { metrics, trace, context, Span, SpanStatusCode, Context, Meter, Tracer } from '@opentelemetry/api'
 import axios from 'axios'
+import env from '../env'
+import QrynLogger from './QrynLogger'
 
 // Global SDK initialization - this should happen only once
 let sdkInitialized = false
@@ -16,10 +20,42 @@ let globalTracer: Tracer
 function initializeSDK () {
     if (sdkInitialized) return
 
+    // Get GIGAPIPE configuration for tracing and metrics
+    const gigapipeConfig = env.GIGAPIPE
+    const tracingConfig = gigapipeConfig?.TRACING || gigapipeConfig?.DEFAULT
+    const metricsConfig = gigapipeConfig?.METRICS || gigapipeConfig?.DEFAULT
+
+    // Configure trace exporter
+    let traceExporter
+    if (tracingConfig?.url) {
+        traceExporter = new OTLPTraceExporter({
+            url: `${tracingConfig.url}/v1/traces`,
+            headers: tracingConfig.headers || {}
+        })
+        // Using qryn trace exporter
+    } else {
+        traceExporter = new ConsoleSpanExporter()
+        // No qryn config found, using console trace exporter
+    }
+
+    // Configure metric exporter
+    let metricExporter
+    if (metricsConfig?.url) {
+        metricExporter = new OTLPMetricExporter({
+            url: `${metricsConfig.url}/v1/metrics`,
+            headers: metricsConfig.headers || {}
+        })
+        // Using qryn metric exporter
+    } else {
+        metricExporter = new ConsoleMetricExporter()
+        // No qryn config found, using console metric exporter
+    }
+
     const sdk = new NodeSDK({
-        traceExporter: new ConsoleSpanExporter(),
+        traceExporter,
         metricReader: new PeriodicExportingMetricReader({
-            exporter: new ConsoleMetricExporter(),
+            exporter: metricExporter,
+            exportIntervalMillis: 5000, // Export every 5 seconds
         }),
         instrumentations: [ getNodeAutoInstrumentations() ],
     })
@@ -30,7 +66,7 @@ function initializeSDK () {
     globalTracer = trace.getTracer('event-testing')
 
     sdkInitialized = true
-    console.log('[TelemetryService] OpenTelemetry SDK initialized globally')
+    // OpenTelemetry SDK initialized globally
 }
 
 export interface TelemetryEventAttributes {
@@ -44,6 +80,7 @@ export class TelemetryService {
     private eventCounter: any
     private operationDurationHistogram: any
     private activeSpans: Map<string, { span: Span; context: Context; startTime: number }> = new Map()
+    private logger: QrynLogger
 
     constructor (
         private readonly scenarioId: string,
@@ -54,6 +91,7 @@ export class TelemetryService {
 
         this.meter = globalMeter
         this.tracer = globalTracer
+        this.logger = new QrynLogger('TelemetryService', scenarioName, scenarioId)
 
         // Create scenario-specific metrics with labels
         this.eventCounter = this.meter.createCounter('test_events', {
@@ -65,7 +103,7 @@ export class TelemetryService {
             description: 'Duration of operations',
         })
 
-        console.log(`[TelemetryService] Initialized for scenario: ${scenarioName} (${scenarioId})`)
+        this.logger.log(`Initialized for scenario: ${scenarioName} (${scenarioId})`)
     }
 
     private getOperationKey (eventName: string): string {
@@ -76,6 +114,8 @@ export class TelemetryService {
         return {
             'scenario.id': this.scenarioId,
             'scenario.name': this.scenarioName,
+            'service.name': 'opensips-js-tests',
+            'environment': env.GIGAPIPE?.DEFAULT?.scope || env.GIGAPIPE?.TRACING?.scope || 'test'
         }
     }
 
@@ -113,7 +153,7 @@ export class TelemetryService {
                     startTime: Date.now()
                 })
 
-                console.log(`[TelemetryService][${this.scenarioName}] Started tracking: ${eventName}`)
+                await this.logger.log(`Started tracking: ${eventName}`, { eventName, stage })
 
             } else if (stage === 'completed' || stage === 'listener_error') {
                 // Complete existing span
@@ -145,11 +185,11 @@ export class TelemetryService {
                         currentSpan.setAttribute('event.duration_ms', duration)
                         currentSpan.end()
 
-                        console.log(`[TelemetryService][${this.scenarioName}] Completed tracking: ${eventName} (${duration}ms)`)
+                        await this.logger.log(`Completed tracking: ${eventName} (${duration}ms)`, { eventName, stage, duration })
                     }
                 } else {
                     // Create one-off span if no active span found
-                    console.warn(`[TelemetryService][${this.scenarioName}] No active span found for ${eventName}, creating one-off span`)
+                    await this.logger.warn(`No active span found for ${eventName}, creating one-off span`, { eventName, stage })
 
                     currentSpan = this.tracer.startSpan(`event.${eventName}.${stage}`, {
                         attributes: {
@@ -179,44 +219,90 @@ export class TelemetryService {
                 'event.status': status,
             })
 
-            console.log(`[TelemetryService][${this.scenarioName}] Event: ${eventName}, Stage: ${stage}, Status: ${status}`)
+            await this.logger.log(`Event: ${eventName}, Stage: ${stage}, Status: ${status}`, { eventName, stage, status })
 
-            // Send to visualization server
-            await this.sendToVisualizationServer(eventName, status, stage, allAttributes, currentSpan)
+            // Send metrics to qryn if configured
+            await this.sendMetricsToQryn(eventName, status, stage, allAttributes, currentSpan)
 
         } catch (error) {
-            console.error(`[TelemetryService][${this.scenarioName}] Error logging event ${eventName}:`, error)
+            await this.logger.error(`Error logging event ${eventName}`, { eventName, error: error instanceof Error ? error.message : String(error) })
         }
     }
 
-    private async sendToVisualizationServer (
+    private async sendMetricsToQryn (
         eventName: string,
         status: string,
         stage: string,
         attributes: Record<string, any>,
         span?: Span
     ): Promise<void> {
-        try {
-            const metricData: Record<string, any> = {
-                name: eventName,
-                metricType: stage,
-                event: eventName,
-                scenarioId: this.scenarioId,
-                scenarioName: this.scenarioName,
-                status,
-                timestamp: new Date().toISOString(),
-                ...attributes,
-                displayName: `${eventName} (${stage})`,
-                value: 1,
+        const gigapipeConfig = env.GIGAPIPE
+        const metricsConfig = gigapipeConfig?.METRICS || gigapipeConfig?.DEFAULT
+
+        if (!metricsConfig?.url) {
+            // If no qryn config, still try the visualization server as fallback
+            try {
+                const metricData: Record<string, any> = {
+                    name: eventName,
+                    metricType: stage,
+                    event: eventName,
+                    scenarioId: this.scenarioId,
+                    scenarioName: this.scenarioName,
+                    status,
+                    timestamp: new Date().toISOString(),
+                    ...attributes,
+                    displayName: `${eventName} (${stage})`,
+                    value: 1,
+                }
+
+                if (span && span.attributes['event.duration_ms']) {
+                    metricData.executionTimeMs = span.attributes['event.duration_ms']
+                }
+
+                await axios.post('http://localhost:8080/collect-metrics', metricData)
+            } catch (error: any) {
+                await this.logger.warn(`Failed to send metric to visualization server: ${error.message}`, { eventName, stage })
             }
+            return
+        }
+
+        try {
+            // Send to qryn via Prometheus format
+            const timestamp = Date.now()
+            const labels = {
+                scenario_name: this.scenarioName,
+                scenario_id: this.scenarioId,
+                event_name: eventName,
+                stage: stage,
+                status: status,
+                environment: metricsConfig.scope || 'test'
+            }
+
+            const labelString = Object.entries(labels)
+                .map(([key, value]) => `${key}="${value}"`)
+                .join(',')
+
+            const metrics = [
+                `opensips_test_events_total{${labelString}} 1 ${timestamp}`,
+            ]
 
             if (span && span.attributes['event.duration_ms']) {
-                metricData.executionTimeMs = span.attributes['event.duration_ms']
+                metrics.push(`opensips_test_duration_ms{${labelString}} ${span.attributes['event.duration_ms']} ${timestamp}`)
             }
 
-            await axios.post('http://localhost:8080/collect-metrics', metricData)
+            await axios.post(
+                `${metricsConfig.url}/api/v1/prom/remote/write`,
+                metrics.join('\n'),
+                {
+                    headers: {
+                        'Content-Type': 'text/plain',
+                        ...metricsConfig.headers
+                    },
+                    timeout: 5000
+                }
+            )
         } catch (error: any) {
-            console.error(`[TelemetryService][${this.scenarioName}] Failed to send metric to visualization server:`, error.message)
+            await this.logger.error(`Failed to send metric to qryn: ${error.message}`, { eventName, stage, error: error.message })
         }
     }
 
@@ -258,7 +344,7 @@ export class TelemetryService {
     public cleanup (): void {
         // Clean up any remaining active spans
         for (const [ key, spanEntry ] of this.activeSpans.entries()) {
-            console.warn(`[TelemetryService][${this.scenarioName}] Cleaning up orphaned span: ${key}`)
+            this.logger.warn(`Cleaning up orphaned span: ${key}`, { spanKey: key })
             spanEntry.span.setStatus({
                 code: SpanStatusCode.ERROR,
                 message: 'Span ended during cleanup - possible incomplete operation'
@@ -266,7 +352,7 @@ export class TelemetryService {
             spanEntry.span.end()
         }
         this.activeSpans.clear()
-        console.log(`[TelemetryService][${this.scenarioName}] Cleaned up`)
+        this.logger.log('Cleaned up', { orphanedSpansCount: this.activeSpans.size })
     }
 
     // Getter methods for scenario info

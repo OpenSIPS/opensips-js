@@ -1,16 +1,26 @@
 import CallTestScenarios from './definition'
+import QrynLogger from './services/QrynLogger'
 
 // Run the test
 async function runTest () {
-    console.log('Starting test execution')
+    const logger = new QrynLogger('TestRunner')
+    
+    await logger.log('Starting test execution')
     try {
         const testRunner = new CallTestScenarios()
         await testRunner.run()
-        console.log('Test execution completed successfully')
+        await logger.log('Test execution completed successfully')
     } catch (error) {
-        console.error('Test execution failed:', error)
+        await logger.error('Test execution failed', { 
+            error: error instanceof Error ? error.message : String(error) 
+        })
     }
 }
 
 // Start the test
-runTest().catch(err => console.error('Unhandled error in test execution:', err))
+runTest().catch(async err => {
+    const logger = new QrynLogger('TestRunner')
+    await logger.error('Unhandled error in test execution', { 
+        error: err instanceof Error ? err.message : String(err) 
+    })
+})

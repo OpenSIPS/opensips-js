@@ -7,6 +7,7 @@ import ActionsExecutor from './ActionsExecutor'
 import WindowMethodsWorker from './WindowMethodsWorker'
 import ScenarioManager from './ScenarioManager'
 import { TelemetryService } from './TelemetryService'
+import QrynLogger from './QrynLogger'
 
 import { waitMs } from '../helpers'
 import env from '../env'
@@ -32,6 +33,7 @@ export default class TestExecutor {
     private actionsExecutor!: ActionsExecutor
     private windowMethodsWorker!: WindowMethodsWorker
     private readonly telemetryService: TelemetryService
+    private readonly logger: QrynLogger
 
     private readonly eventBus = EventBus.getInstance()
     private scenarioCompleted = false // Add completion flag
@@ -45,6 +47,7 @@ export default class TestExecutor {
         private readonly scenarioManager: ScenarioManager
     ) {
         this.telemetryService = new TelemetryService(scenarioId, scenarioName)
+        this.logger = new QrynLogger('TestExecutor', scenarioName, scenarioId)
     }
 
     private addEventListener<E extends EventType> (
@@ -60,22 +63,22 @@ export default class TestExecutor {
         this.eventBus.addEventListener<E>(eventName, wrappedListener)
     }
 
-    private triggerLocalEventListener<E extends EventType> (
+    private async triggerLocalEventListener<E extends EventType> (
         eventName: E,
         data: EventListenerData<E>
-    ): void {
-        this.eventBus.triggerEvent(eventName, {
+    ): Promise<void> {
+        await this.eventBus.triggerEvent(eventName, {
             ...data,
             [SCENARIO_THAT_TRIGGERED_EVENT_KEY]: this.scenarioId,
         })
     }
 
-    private triggerSharedEventListener<E extends EventType> (
+    private async triggerSharedEventListener<E extends EventType> (
         eventName: E | string,
         data: EventListenerData<E>
-    ): void {
-        console.log(`[Scenario ${this.scenarioId}] Triggering shared event: ${eventName}`)
-        this.eventBus.triggerEvent(eventName, data)
+    ): Promise<void> {
+        await this.logger.log(`Triggering shared event: ${eventName}`, { eventName })
+        await this.eventBus.triggerEvent(eventName, data)
     }
 
     private shouldReactToEvent <E extends keyof ActionsResponseMap> (eventData: ActionsResponseMap[E]): boolean {
@@ -101,7 +104,7 @@ export default class TestExecutor {
                     )
                 )
             } catch (e) {
-                console.error(`[Scenario ${this.scenarioId}] Error rendering payload:`, e)
+                this.logger.error('Error rendering payload', { error: e instanceof Error ? e.message : String(e) })
             }
         }
 
@@ -111,7 +114,7 @@ export default class TestExecutor {
     private async executeAction<T extends ActionType> (
         action: GetActionDefinition<ActionByActionType<T>>,
     ): Promise<void> {
-        console.log(`[Scenario ${this.scenarioId}] Executing action: ${action.type}`)
+        await this.logger.log(`Executing action: ${action.type}`, { actionType: action.type })
 
         // Start telemetry tracking for this action
         await this.telemetryService.logTriggered(action.type, {
@@ -119,7 +122,10 @@ export default class TestExecutor {
         })
 
         if (action.data && action.data.waitUntil && action.data.waitUntil.event) {
-            console.log(`[Scenario ${this.scenarioId}] Waiting for event: ${action.data.waitUntil.event}`)
+            await this.logger.log(`Waiting for event: ${action.data.waitUntil.event}`, {
+                waitingForEvent: action.data.waitUntil.event,
+                timeout: action.data.waitUntil.timeout || 30000
+            })
 
             try {
                 // Wait for the event globally (not just scenario-specific)
@@ -128,9 +134,14 @@ export default class TestExecutor {
                     (_, data) => this.shouldReactToEvent(data),
                     action.data.waitUntil.timeout || 30000 // Default 30 second timeout
                 )
-                console.log(`[Scenario ${this.scenarioId}] Event received: ${action.data.waitUntil.event}`)
+                await this.logger.log(`Event received: ${action.data.waitUntil.event}`, {
+                    receivedEvent: action.data.waitUntil.event
+                })
             } catch (error) {
-                console.error(`[Scenario ${this.scenarioId}] Error waiting for event:`, error)
+                await this.logger.error('Error waiting for event', {
+                    error: error instanceof Error ? error.message : String(error),
+                    waitingForEvent: action.data.waitUntil.event
+                })
                 await this.telemetryService.logError(action.type, error, {
                     phase: 'waitUntil',
                     waitingFor: action.data.waitUntil.event
@@ -154,7 +165,10 @@ export default class TestExecutor {
 
         const onResult = (result: ActionResponse<BaseActionSuccessResponse>) => {
             if (isActionError(result)) {
-                console.error(`[Scenario ${this.scenarioId}] Action failed:`, result.error)
+                this.logger.error('Action failed', {
+                    actionType: action.type,
+                    error: result.error
+                })
                 throw new Error(result.error)
             }
 
@@ -164,7 +178,10 @@ export default class TestExecutor {
                 this.scenarioManager.updateContext({
                     [action.data.responseToContext.contextKeyToSet]: result
                 })
-                console.log('context after update:', JSON.stringify(this.scenarioManager.getContext()))
+                this.logger.log('Context updated', {
+                    contextKey: action.data.responseToContext.contextKeyToSet,
+                    newContext: this.scenarioManager.getContext()
+                })
             }
         }
 
@@ -222,7 +239,7 @@ export default class TestExecutor {
             const actionsWithoutEvents: Array<ActionType> = [ 'wait' ]
 
             if (!actionsWithoutEvents.includes(actionType)) {
-                this.triggerLocalEventListener(actionType, result)
+                await this.triggerLocalEventListener(actionType, result)
             }
 
             // Always trigger custom events if specified
@@ -236,7 +253,10 @@ export default class TestExecutor {
             })
 
         } catch (error) {
-            console.error(`[Scenario "${this.scenarioName}"] Error executing action:`, error)
+            await this.logger.error('Error executing action', {
+                actionType: action.type,
+                error: error instanceof Error ? error.message : String(error)
+            })
 
             // Log the error with detailed context
             await this.telemetryService.logError(action.type, error, {
@@ -295,6 +315,7 @@ export default class TestExecutor {
 
             this.actionsExecutor = new ActionsExecutor(
                 this.scenarioId,
+                this.scenarioName,
                 this.pageWebSocketWorker,
                 this.windowMethodsWorker,
                 this.page,
@@ -307,7 +328,7 @@ export default class TestExecutor {
             // Log successful scenario start
             await this.telemetryService.logCompleted('scenario_start')
 
-            this.triggerLocalEventListener('ready', { timestamp: Date.now() })
+            await this.triggerLocalEventListener('ready', { timestamp: Date.now() })
         } catch (error) {
             await this.telemetryService.logError('scenario_start', error)
             throw error
@@ -315,7 +336,10 @@ export default class TestExecutor {
     }
 
     public async executeScenario (scenario: TestScenario): Promise<void> {
-        console.log('[Scenario] Executing scenario:', scenario)
+        await this.logger.log('Executing scenario', {
+            scenarioName: scenario.name,
+            actionsCount: scenario.actions.length
+        })
 
         try {
             const eventCounter: Record<string, number> = {} // Changed to string to allow custom events
@@ -330,7 +354,10 @@ export default class TestExecutor {
                 eventHandlers[event].push(actions)
             }
 
-            console.log('eventHandlers', eventHandlers)
+            await this.logger.log('Event handlers initialized', {
+                eventTypes: Object.keys(eventHandlers),
+                totalHandlers: Object.values(eventHandlers).reduce((sum, handlers) => sum + handlers.length, 0)
+            })
 
             // Set up event listeners for all events (including custom ones)
             for (const eventName in eventHandlers) {
@@ -379,7 +406,7 @@ export default class TestExecutor {
 
             // Keep the scenario alive until it's explicitly completed
             // Don't cleanup immediately
-            console.log(`[Scenario ${this.scenarioId}] Scenario setup complete, waiting for events...`)
+            await this.logger.log('Scenario setup complete, waiting for events...')
 
         } catch (error) {
             await this.telemetryService.logError('scenario_execution', error)

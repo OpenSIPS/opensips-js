@@ -145,11 +145,11 @@ export default abstract class TestScenariosBuilder implements ActionsScenariosBu
     abstract getInitialContext(): TestContext
 
     // Abstract method that must be implemented to define scenarios
-    abstract init(): TestScenarios
+    abstract init(): Promise<TestScenarios>
 
     // Method to execute the scenarios
     async run (): Promise<void> {
-        const scenarios = this.init()
+        const scenarios = await this.init()
         const initialContext = this.getInitialContext()
 
         const manager = new ScenarioManager(

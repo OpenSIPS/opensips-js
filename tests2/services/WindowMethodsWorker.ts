@@ -1,4 +1,5 @@
 import { Page } from 'playwright'
+import QrynLogger from './QrynLogger'
 
 type PlayClipFunction = (url: string) => Promise<void>
 
@@ -13,6 +14,7 @@ declare global {
 
 export default class WindowMethodsWorker {
     private isInitialized = false
+    private logger = new QrynLogger('WindowMethodsWorker')
 
     constructor (
         private readonly page: Page
@@ -107,7 +109,7 @@ export default class WindowMethodsWorker {
         })
 
         this.isInitialized = true
-        console.log('WindowMethodsWorker initialized')
+        await this.logger.log('WindowMethodsWorker initialized')
     }
 
     public async playClip (url: string): Promise<void> {
@@ -115,7 +117,7 @@ export default class WindowMethodsWorker {
             throw new Error('WindowMethodsWorker not initialized. Call implementPlayClipMethod() first.')
         }
 
-        console.log('Playing audio clip')
+        await this.logger.log('Playing audio clip')
 
         try {
             await this.page.evaluate(async (url: string) => {
@@ -126,9 +128,9 @@ export default class WindowMethodsWorker {
                 await window.playClip(url)
             }, url)
 
-            console.log('Audio clip played successfully')
+            await this.logger.log('Audio clip played successfully')
         } catch (error) {
-            console.error('Error playing audio clip:', error)
+            await this.logger.error('Error playing audio clip', { error: error instanceof Error ? error.message : String(error) })
             throw error
         }
     }
@@ -157,6 +159,6 @@ export default class WindowMethodsWorker {
         })
 
         this.isInitialized = false
-        console.log('WindowMethodsWorker cleaned up')
+        await this.logger.log('WindowMethodsWorker cleaned up')
     }
 }
