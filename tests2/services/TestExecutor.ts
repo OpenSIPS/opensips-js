@@ -257,8 +257,6 @@ export default class TestExecutor {
             this.browser = await chromium.launch({
                 headless: false,
                 args: [
-                    '--use-fake-ui-for-media-stream',
-                    '--use-fake-device-for-media-stream',
                     '--allow-file-access',
                     '--autoplay-policy=no-user-gesture-required',
                     '--disable-web-security',
@@ -269,7 +267,10 @@ export default class TestExecutor {
             const context = await this.browser.newContext({
                 permissions: [ 'microphone', 'camera' ]
             })
+
             this.page = await context.newPage()
+
+            this.windowMethodsWorker = new WindowMethodsWorker(this.page)
 
             // Pass telemetry service to PageWebSocketWorker
             this.pageWebSocketWorker = new PageWebSocketWorker(
@@ -290,9 +291,6 @@ export default class TestExecutor {
                 this.telemetryService // Pass telemetry service
             )
 
-            this.windowMethodsWorker = new WindowMethodsWorker(this.page)
-            await this.windowMethodsWorker.implementPlayClipMethod()
-
             this.actionsExecutor = new ActionsExecutor(
                 this.scenarioId,
                 this.pageWebSocketWorker,
@@ -302,7 +300,8 @@ export default class TestExecutor {
             )
 
             await this.page.goto(`http://localhost:${env.APPLICATION_PORT}`)
-            await waitMs(100)
+
+            await this.windowMethodsWorker.implementPlayClipMethod()
 
             // Log successful scenario start
             await this.telemetryService.logCompleted('scenario_start')

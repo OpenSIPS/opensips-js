@@ -1,162 +1,204 @@
 import { Page } from 'playwright'
 
-type PlayClipFunction = (url: string) => Promise<void>
-
-declare global {
-    interface Window {
-        playClip: PlayClipFunction
-        audioContext?: AudioContext
-        mediaStreamDestination?: MediaStreamAudioDestinationNode
-        originalGetUserMedia?: typeof navigator.mediaDevices.getUserMedia
-    }
-}
-
 export default class WindowMethodsWorker {
-    private isInitialized = false
-
     constructor (
         private readonly page: Page
     ) {}
 
     public async implementPlayClipMethod (): Promise<void> {
-        if (this.isInitialized) {
-            return
+        try {
+            // Use string evaluation since TypeScript version doesn't work
+            const initScript = `
+                (function() {
+                    console.log('=== INITIALIZING AUDIO SYSTEM FOR HEADLESS/SERVER ===');
+
+                    // Create audio context
+                    window.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+                    // Create the controllable stream destination
+                    window.mediaStreamDestination = window.audioContext.createMediaStreamDestination();
+
+                    // Create gain node with high volume
+                    window.gainNode = window.audioContext.createGain();
+                    window.gainNode.gain.value = 5.0;
+                    window.gainNode.connect(window.mediaStreamDestination);
+
+                    console.log('Audio nodes created - gain value:', window.gainNode.gain.value);
+
+                    // Store original getUserMedia
+                    window.originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+
+                    // Override getUserMedia to return our controllable stream
+                    // This will work even on headless servers with no real audio devices
+                    navigator.mediaDevices.getUserMedia = function(constraints) {
+                        console.log('!!! getUserMedia INTERCEPTED:', constraints);
+
+                        if (constraints && constraints.audio) {
+                            console.log('!!! RETURNING FAKE CONTROLLABLE STREAM (works on headless servers)');
+
+                            var stream = window.mediaStreamDestination.stream.clone();
+                            console.log('Fake stream created with', stream.getAudioTracks().length, 'audio tracks');
+
+                            return Promise.resolve(stream);
+                        }
+
+                        if (constraints && constraints.video) {
+                            console.log('Video requested - using original getUserMedia');
+                            return window.originalGetUserMedia.call(navigator.mediaDevices, constraints);
+                        }
+
+                        return window.originalGetUserMedia.call(navigator.mediaDevices, constraints);
+                    };
+
+                    // Also override enumerateDevices to show fake devices
+                    window.originalEnumerateDevices = navigator.mediaDevices.enumerateDevices.bind(navigator.mediaDevices);
+
+                    navigator.mediaDevices.enumerateDevices = function() {
+                        console.log('!!! enumerateDevices INTERCEPTED - returning fake devices for headless compatibility');
+
+                        return Promise.resolve([
+                            {
+                                deviceId: 'fake-audio-input-1',
+                                groupId: 'fake-group-1',
+                                kind: 'audioinput',
+                                label: 'Fake Microphone (Test Audio Stream)'
+                            },
+                            {
+                                deviceId: 'fake-audio-output-1',
+                                groupId: 'fake-group-1',
+                                kind: 'audiooutput',
+                                label: 'Fake Speaker (Test Audio Output)'
+                            }
+                        ]);
+                    };
+
+                    window.audioSystemReady = true;
+                    console.log('=== HEADLESS-COMPATIBLE AUDIO SYSTEM READY ===');
+                })();
+            `
+
+            await this.page.evaluate(initScript)
+
+        } catch (error) {
+            throw error
         }
-
-        await this.page.addInitScript(() => {
-            // Store original getUserMedia
-            const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
-
-            // Create AudioContext and destination
-            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
-            const mediaStreamDestination = audioContext.createMediaStreamDestination()
-
-            // Store references globally for cleanup and reuse
-            window.audioContext = audioContext
-            window.mediaStreamDestination = mediaStreamDestination
-            window.originalGetUserMedia = originalGetUserMedia
-
-            // Override getUserMedia to return our audio stream when audio is requested
-            navigator.mediaDevices.getUserMedia = async (constraints) => {
-                console.log('getUserMedia called with constraints:', constraints)
-
-                if (constraints && constraints.audio) {
-                    console.log('Returning custom audio stream')
-                    return mediaStreamDestination.stream
-                }
-
-                // For video or other constraints, use original implementation
-                return originalGetUserMedia(constraints)
-            }
-
-            // Implement playClip function
-            window.playClip = async (url: string): Promise<void> => {
-                console.log('playClip called with URL:', url)
-
-                try {
-                    // Resume AudioContext if suspended (required by browser policies)
-                    if (audioContext.state === 'suspended') {
-                        console.log('Resuming suspended AudioContext')
-                        await audioContext.resume()
-                    }
-
-                    console.log('Fetching audio data from URL:', url)
-                    const response = await fetch(url)
-                    if (!response.ok) {
-                        throw new Error(`Failed to fetch audio: ${response.status} ${response.statusText}`)
-                    }
-
-                    const arrayBuffer = await response.arrayBuffer()
-                    console.log('Audio data fetched, size:', arrayBuffer.byteLength, 'bytes')
-
-                    console.log('Decoding audio data...')
-                    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
-                    console.log('Audio decoded successfully, duration:', audioBuffer.duration, 'seconds')
-
-                    // Create and configure audio source
-                    const source = audioContext.createBufferSource()
-                    source.buffer = audioBuffer
-
-                    // Connect to both the destination (for WebRTC) and default output (for monitoring)
-                    source.connect(mediaStreamDestination)
-                    source.connect(audioContext.destination) // This allows you to hear the audio locally
-
-                    console.log('Starting audio playback...')
-                    source.start(0)
-
-                    // Return promise that resolves when audio finishes
-                    return new Promise<void>((resolve, reject) => {
-                        source.onended = () => {
-                            console.log('Audio playback completed')
-                            resolve()
-                        }
-
-                        source.onerror = (error) => {
-                            console.error('Audio playback error:', error)
-                            reject(new Error('Audio playback failed'))
-                        }
-                    })
-
-                } catch (error) {
-                    console.error('Error in playClip:', error)
-                    throw error
-                }
-            }
-
-            console.log('Audio system initialized successfully')
-        })
-
-        this.isInitialized = true
-        console.log('WindowMethodsWorker initialized')
     }
 
     public async playClip (url: string): Promise<void> {
-        if (!this.isInitialized) {
-            throw new Error('WindowMethodsWorker not initialized. Call implementPlayClipMethod() first.')
-        }
-
-        console.log('Playing audio clip')
-
         try {
-            await this.page.evaluate(async (url: string) => {
-                if (!window.playClip) {
-                    throw new Error('playClip method is not available')
-                }
+            // String evaluation to avoid transpilation issues
+            const audioScript = `
+                (function(audioUrl) {
+                    console.log('=== PLAYING AUDIO FOR WEBRTC (HEADLESS COMPATIBLE) ===');
 
-                await window.playClip(url)
-            }, url)
+                    if (!window.audioSystemReady) {
+                        throw new Error('Audio system not ready');
+                    }
 
-            console.log('Audio clip played successfully')
+                    return new Promise(function(resolve, reject) {
+                        try {
+                            var audio = new Audio(audioUrl);
+                            audio.volume = 1.0;
+
+                            console.log('Audio element created (works without real audio hardware)');
+
+                            var audioSource = null;
+
+                            function connectAudio() {
+                                if (!audioSource && audio.readyState >= 1) {
+                                    try {
+                                        console.log('>>> CONNECTING AUDIO TO WEBRTC STREAM <<<');
+
+                                        // This works even on headless servers
+                                        audioSource = window.audioContext.createMediaElementSource(audio);
+                                        audioSource.connect(window.gainNode);
+
+                                        console.log('>>> AUDIO CONNECTED TO WEBRTC STREAM <<<');
+                                        console.log('This works on headless servers without real audio devices');
+
+                                    } catch (error) {
+                                        console.error('Connection error:', error);
+                                        reject(error);
+                                    }
+                                }
+                            }
+
+                            audio.addEventListener('loadedmetadata', function() {
+                                console.log('Metadata loaded, duration:', audio.duration);
+                                connectAudio();
+                            });
+
+                            audio.addEventListener('canplay', function() {
+                                console.log('Can play');
+                                connectAudio();
+                            });
+
+                            audio.addEventListener('playing', function() {
+                                console.log('>>> AUDIO PLAYING TO WEBRTC STREAM <<<');
+                            });
+
+                            audio.addEventListener('ended', function() {
+                                console.log('>>> AUDIO FINISHED <<<');
+                                if (audioSource) {
+                                    audioSource.disconnect();
+                                }
+                                resolve();
+                            });
+
+                            audio.addEventListener('error', function(e) {
+                                console.error('Audio error:', e);
+                                reject(new Error('Audio playback failed'));
+                            });
+
+                            // Set source and play
+                            audio.src = audioUrl;
+                            audio.load();
+
+                            audio.play().then(function() {
+                                console.log('Play started - routing to WebRTC (headless compatible)');
+                                connectAudio();
+                            }).catch(function(error) {
+                                console.error('Play failed:', error);
+                                reject(error);
+                            });
+
+                        } catch (error) {
+                            console.error('Error:', error);
+                            reject(error);
+                        }
+                    });
+                })('${url.replace(/'/g, "\\'")}');
+            `
+
+            await this.page.evaluate(audioScript)
+
         } catch (error) {
-            console.error('Error playing audio clip:', error)
             throw error
         }
     }
 
     public async cleanup (): Promise<void> {
-        if (!this.isInitialized) {
-            return
-        }
+            const cleanupScript = `
+                (function() {
+                    if (window.originalGetUserMedia) {
+                        navigator.mediaDevices.getUserMedia = window.originalGetUserMedia;
+                        console.log('Restored original getUserMedia');
+                    }
 
-        await this.page.evaluate(() => {
-            // Restore original getUserMedia
-            if (window.originalGetUserMedia) {
-                navigator.mediaDevices.getUserMedia = window.originalGetUserMedia
-            }
+                    if (window.originalEnumerateDevices) {
+                        navigator.mediaDevices.enumerateDevices = window.originalEnumerateDevices;
+                        console.log('Restored original enumerateDevices');
+                    }
 
-            // Close AudioContext
-            if (window.audioContext && window.audioContext.state !== 'closed') {
-                window.audioContext.close()
-            }
+                    if (window.audioContext) {
+                        window.audioContext.close();
+                        console.log('Audio context closed');
+                    }
 
-            // Clean up global references
-            delete window.playClip
-            delete window.audioContext
-            delete window.mediaStreamDestination
-            delete window.originalGetUserMedia
-        })
+                    console.log('Audio system cleaned up');
+                })();
+            `
 
-        this.isInitialized = false
-        console.log('WindowMethodsWorker cleaned up')
+            await this.page.evaluate(cleanupScript)
     }
 }
