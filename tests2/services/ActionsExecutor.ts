@@ -25,6 +25,7 @@ import {
 } from '../types/actions'
 
 import { waitMs } from '../helpers'
+import { expect } from '@playwright/test'
 
 /**
  * TestExecutor - Handles the execution of test actions
@@ -152,9 +153,20 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
 
         this.answerButton = this.page.locator('#call-undefined > button:nth-child(7)')
         await this.answerButton.click()
-
-        await waitMs(200)
-
+        try {
+            await this.pageWebSocketWorker.waitForMessage(
+                this.pageWebSocketWorker.getConnectedWebsocket(),
+                {
+                    method: 'ACK',
+                    timeout: 10000
+                }
+            )
+        } catch (error) {
+            return {
+                success: false,
+                error: `Error answer call to ${this.scenarioId}}`
+            }
+        }
         return {
             success: true,
             callId: 'call-' + Math.floor(Math.random() * 10000)
@@ -179,7 +191,21 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         this.holdButton = this.page.locator('.holdAgent')
 
         await this.holdButton.click()
-        await waitMs(100)
+        try {
+            await this.pageWebSocketWorker.waitForMessage(
+                this.pageWebSocketWorker.getConnectedWebsocket(),
+                {
+                    method: 'INVITE',
+                    status_code: 200,
+                    timeout: 10000
+                }
+            )
+        } catch (error) {
+            return {
+                success: false,
+                error: `Error hold call in scenario ${this.scenarioId}`
+            }
+        }
 
         return {
             success: true,
@@ -193,7 +219,21 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         this.holdButton = this.page.locator('.holdAgent')
         await this.holdButton.click()
         await waitMs(100)
-
+        try {
+            await this.pageWebSocketWorker.waitForMessage(
+                this.pageWebSocketWorker.getConnectedWebsocket(),
+                {
+                    method: 'INVITE',
+                    status_code: 200,
+                    timeout: 10000
+                }
+            )
+        } catch (error) {
+            return {
+                success: false,
+                error: `Error unhold call in scenario ${this.scenarioId}`
+            }
+        }
         return {
             success: true,
             callId: 'call-' + Math.floor(Math.random() * 10000)
@@ -206,7 +246,21 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
 
         this.hangupButton = this.page.getByRole('button', { name: 'Hangup' })
         await this.hangupButton.click()
-
+        try {
+            await this.pageWebSocketWorker.waitForMessage(
+                this.pageWebSocketWorker.getConnectedWebsocket(),
+                {
+                    method: 'BYE',
+                    status_code: 200,
+                    timeout: 10000
+                }
+            )
+        } catch (error) {
+            return {
+                success: false,
+                error: `Error hangup call in scenario ${this.scenarioId}`
+            }
+        }
         return {
             success: true,
             callId: 'call-' + Math.floor(Math.random() * 10000)
@@ -221,8 +275,21 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         await this.DTMFInput.fill(data.dtmf)
         await this.DTMFSendButton.click()
 
-        await waitMs(200)
-
+        try {
+            await this.pageWebSocketWorker.waitForMessage(
+                this.pageWebSocketWorker.getConnectedWebsocket(),
+                {
+                    method: 'INFO',
+                    status_code: 200,
+                    timeout: 10000
+                }
+            )
+        } catch (error) {
+            return {
+                success: false,
+                error: `Error send DTMF ${data.dtmf}`
+            }
+        }
         return {
             dtmf: data.dtmf,
             callId: 'call-' + Math.floor(Math.random() * 10000),
@@ -232,18 +299,36 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
 
     public async transfer (data: GetActionPayload<TransferAction>): Promise<GetActionResponse<TransferAction>> {
         console.log(`[Scenario ${this.scenarioId}] Executing transfer action`)
+        this.page.on('dialog', async dialog => {
+            console.log(`Dialog message: ${dialog.message()}`)
+            expect(dialog.type()).toContain('prompt')
+            expect(dialog.message()).toContain('Please enter target:')
+            await dialog.accept(data.target).catch(e => console.error('Error accepting dialog:', e))
+        })
 
         this.transferButton = this.page.getByRole('button', { name: 'Transfer' })
         await this.transferButton.click()
-        this.page.once('dialog', dialog => {
-            console.log(`Dialog message: ${dialog.message()}`)
-            dialog.accept(data.target).catch(e => console.error('Error accepting dialog:', e))
-        })
-        await waitMs(200)
+        console.log(`[Scenario ${this.scenarioId}] Transfer button clicked`)
+        try {
+            await this.pageWebSocketWorker.waitForMessage(
+                this.pageWebSocketWorker.getConnectedWebsocket(),
+                {
+                    method: 'REFER',
+                    status_code: 202,
+                    timeout: 10000
+                }
+            )
+        } catch (error) {
+            return {
+                success: false,
+                error: `Error transfer call to ${data.target}`
+            }
+        }
 
         return {
             callId: 'call-' + Math.floor(Math.random() * 10000),
-            success: true
+            success: true,
+            target: data.target
         }
     }
 
@@ -259,8 +344,26 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
             await this.windowMethodsWorker.cleanup()
         }
 
+
+
         // Clicking the logout button
-        await this.logoutButton.click()
+        this.logoutButton.click()
+
+        try {
+            await this.pageWebSocketWorker.waitForMessage(
+                this.pageWebSocketWorker.getConnectedWebsocket(),
+                {
+                    method: 'REGISTER',
+                    timeout: 10000,
+                    checkSentEvent: true
+                }
+            )
+        } catch (error) {
+            return {
+                success: false,
+                error: `Error unregister to ${this.scenarioId}`
+            }
+        }
 
         console.log('button clicked')
 
