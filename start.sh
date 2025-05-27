@@ -13,7 +13,7 @@ done
 
 echo "Frontend is up! Running tests..."
 
-echo "SAMPLE_TO_EXECUTE=$SAMPLE_TO_EXECUTE"
+echo "SAMPLETOEXECUTE=$SAMPLE_TO_EXECUTE"
 echo "PARAMETERS=$PARAMETERS"
 
 yarn run-test

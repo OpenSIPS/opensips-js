@@ -54,11 +54,11 @@ const gigapipeSchema = z.object({
  */
 const envSchema = z.object({
     // Application configuration
-    SAMPLE_TO_EXECUTE: z.string({
+    SAMPLETOEXECUTE: z.string({
         required_error: 'Sample execution path is required',
         invalid_type_error: 'Sample execution path must be a string'
     }),
-    APPLICATION_PORT: z.coerce.number({
+    PORT: z.coerce.number({
         required_error: 'Application port is required',
         invalid_type_error: 'Application port must be a number'
     }).int({
@@ -87,7 +87,7 @@ export type EnvConfig = z.infer<typeof envSchema>
 export function parseEnv (env: Record<string, string | undefined>): EnvConfig {
     try {
         // First unflatten the environment using dot notation
-        const unflattened = unflatten(env, { delimiter: '.' })
+        const unflattened = unflatten(env, { delimiter: '_' })
 
         // Then validate with our schema
         return envSchema.parse(unflattened)

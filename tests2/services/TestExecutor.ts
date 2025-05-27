@@ -321,7 +321,7 @@ export default class TestExecutor {
                 this.browser
             )
 
-            await this.page.goto(`http://localhost:${env.APPLICATION_PORT}`)
+            await this.page.goto(`http://localhost:${env.PORT}`)
 
             await this.windowMethodsWorker.implementPlayClipMethod()
 

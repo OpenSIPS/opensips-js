@@ -16,8 +16,8 @@
                     "Content-Type": "application/json"
                   },
                   "data": {
-                    "email": "{{CALLER.LOGIN_API.EMAIL}}",
-                    "password": "{{CALLER.LOGIN_API.PASSWORD}}"
+                    "email": "{{CALLER.API.EMAIL}}",
+                    "password": "{{CALLER.API.PASSWORD}}"
                   }
                 }
               },

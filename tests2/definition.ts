@@ -16,7 +16,7 @@ export default class CallTestScenarios extends TestScenariosBuilder {
 
     async init (): Promise<TestScenarios> {
         // Get the sample path from environment
-        const samplePath = path.resolve(env.SAMPLE_TO_EXECUTE)
+        const samplePath = path.resolve(env.SAMPLETOEXECUTE)
 
         // Check if the file exists
         if (!fs.existsSync(samplePath)) {

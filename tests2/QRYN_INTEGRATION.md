@@ -16,8 +16,8 @@ The testing framework now properly integrates with qryn through the GIGAPIPE con
 
 ```json5
 {
-  "SAMPLE_TO_EXECUTE": "tests2/samples/e2e/sample.json",
-  "APPLICATION_PORT": "5173",
+  "SAMPLETOEXECUTE": "tests2/samples/e2e/sample.json",
+  "PORT": "5173",
   
   // GIGAPIPE configuration with qryn endpoints
   "GIGAPIPE": {
