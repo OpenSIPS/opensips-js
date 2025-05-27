@@ -543,7 +543,8 @@ export class AudioModule {
             [callId]: {
                 isMoving: false,
                 isTransferring: false,
-                isMerging: false
+                isMerging: false,
+                isTransferred: false
             }
         }
 
@@ -567,6 +568,10 @@ export class AudioModule {
 
         if (value.isMerging !== undefined) {
             newStatus.isMerging = value.isMerging
+        }
+
+        if (value.isTransferred !== undefined) {
+            newStatus.isTransferred = value.isTransferred
         }
 
         this.callStatus = {
@@ -876,10 +881,28 @@ export class AudioModule {
 
         this.updateCallStatus({
             callId,
-            isTransferring: true
+            isTransferring: true,
+            isTransferred: false
         })
 
-        call.refer(`sip:${target}@${this.context.sipDomain}`)
+        call.refer(`sip:${target}@${this.context.sipDomain}`, {
+            eventHandlers: {
+                requestSucceeded: () => {
+                    this.updateCallStatus({
+                        callId,
+                        isTransferring: false,
+                        isTransferred: true
+                    })
+                },
+                requestFailed: () => {
+                    this.updateCallStatus({
+                        callId,
+                        isTransferring: false,
+                        isTransferred: false
+                    })
+                }
+            }
+        })
         this.updateCall(call)
     }
 

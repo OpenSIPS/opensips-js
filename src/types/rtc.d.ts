@@ -113,6 +113,7 @@ export interface ICallStatus {
     isMoving: boolean
     isTransferring: boolean
     isMerging: boolean
+    isTransferred: boolean
 }
 
 export interface ICallStatusUpdate {
@@ -120,6 +121,7 @@ export interface ICallStatusUpdate {
     isMoving?: boolean
     isTransferring?: boolean
     isMerging?: boolean
+    isTransferred?: boolean
 }
 
 export type IRoomUpdate = Omit<IRoom, 'started'> & {
