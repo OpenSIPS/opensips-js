@@ -1,6 +1,7 @@
 import { NodeSDK } from '@opentelemetry/sdk-node'
 import { ConsoleSpanExporter } from '@opentelemetry/sdk-trace-node'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
+import { ZipkinExporter } from '@opentelemetry/exporter-zipkin'
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node'
 import {
     PeriodicExportingMetricReader,
@@ -29,9 +30,14 @@ function initializeSDK () {
     // Configure trace exporter
     let traceExporter
     if (tracingConfig?.url) {
-        traceExporter = new OTLPTraceExporter({
-            url: `${tracingConfig.url}/v1/traces`,
-            headers: tracingConfig.headers || {}
+        // traceExporter = new OTLPTraceExporter({
+        //     url: `${tracingConfig.url}/v1/traces`,
+        //     headers: tracingConfig.headers || {}
+        // })
+        traceExporter = new ZipkinExporter({
+            url: `${tracingConfig.url}/tempo/spans`,
+            serviceName: 'opensips-tests',
+            headers: tracingConfig.headers || {},
         })
         // Using qryn trace exporter
     } else {
