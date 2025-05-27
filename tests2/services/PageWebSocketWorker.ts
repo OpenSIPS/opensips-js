@@ -7,6 +7,7 @@ interface WaitForMessageOptions {
     method: string
     status_code: number
     timeout: number
+    checkSentEvent?: boolean
 }
 
 export default class PageWebSocketWorker {
@@ -98,7 +99,11 @@ export default class PageWebSocketWorker {
                 }
             }
 
-            ws.on('framereceived', listener.bind(this))
+            if (waitingOptions.checkSentEvent) {
+                ws.on('framesent', listener.bind(this))
+            } else {
+                ws.on('framereceived', listener.bind(this))
+            }
         })
     }
 
