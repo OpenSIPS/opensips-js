@@ -57,8 +57,7 @@ deploy:
     - docker push $GITHUB_IMAGE_NAME:$CI_COMMIT_BRANCH
     - docker push $GITHUB_IMAGE_NAME:latest
   only:
-    - main
-    - master
+    - branches
   dependencies:
     - build
   tags:
