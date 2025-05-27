@@ -1,0 +1,65 @@
+stages:
+  - test_stage
+  - build_stage
+  - deploy_stage
+
+variables:
+  IMAGE_NAME: "registry.voicenter.co/voicenter/mirrored-opensips-js"
+  GITHUB_IMAGE_NAME: "ghcr.io/OpenSIPS/opensips-js"
+
+test:
+  stage: test_stage
+  image: mcr.microsoft.com/playwright:v1.52.0-jammy
+  script:
+    - yarn install --frozen-lockfile
+    - npx playwright install
+    - chmod +x start.sh
+    - ./start.sh
+  only:
+    - branches
+  artifacts:
+    paths:
+      - node_modules/ 
+      - dist/
+    expire_in: 1 hour
+  tags:
+      - gitRunCT
+
+
+build:
+  stage: build_stage
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - docker login registry.voicenter.co -u $dplUser -p $dplPswd
+    - docker build -t $IMAGE_NAME:$CI_COMMIT_BRANCH .
+    - docker tag $IMAGE_NAME:$CI_COMMIT_BRANCH $IMAGE_NAME:latest
+  dependencies:
+    - test
+  only:
+    - branches
+  tags:
+      - gitRunCT
+
+deploy:
+  stage: deploy_stage
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - docker login registry.voicenter.co -u $dplUser -p $dplPswd
+    - docker push $IMAGE_NAME:${CI_COMMIT_BRANCH}
+    - docker push $IMAGE_NAME:latest
+    - echo "$GHCR_TOKEN" | docker login ghcr.io -u $GHCR_USER --password-stdin
+    - docker tag $IMAGE_NAME:$CI_COMMIT_BRANCH $GITHUB_IMAGE_NAME:$CI_COMMIT_BRANCH
+    - docker tag $IMAGE_NAME:$CI_COMMIT_BRANCH $GITHUB_IMAGE_NAME:latest
+    - docker push $GITHUB_IMAGE_NAME:$CI_COMMIT_BRANCH
+    - docker push $GITHUB_IMAGE_NAME:latest
+  only:
+    - main
+    - master
+  dependencies:
+    - build
+  tags:
+      - gitRunCT
