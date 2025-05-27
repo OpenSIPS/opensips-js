@@ -54,9 +54,7 @@ deploy:
     - docker pull $IMAGE_NAME:$CI_COMMIT_BRANCH
     - echo "$GHCR_TOKEN" | docker login ghcr.io -u $GHCR_USER --password-stdin
     - docker tag $IMAGE_NAME:$CI_COMMIT_BRANCH $GITHUB_IMAGE_NAME:$CI_COMMIT_BRANCH
-    - docker tag $IMAGE_NAME:$CI_COMMIT_BRANCH $GITHUB_IMAGE_NAME:latest
     - docker push $GITHUB_IMAGE_NAME:$CI_COMMIT_BRANCH
-    - docker push $GITHUB_IMAGE_NAME:latest
   only:
     - branches
   dependencies:
