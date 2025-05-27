@@ -35,6 +35,8 @@ build:
     - docker login registry.voicenter.co -u $dplUser -p $dplPswd
     - docker build -t $IMAGE_NAME:$CI_COMMIT_BRANCH .
     - docker tag $IMAGE_NAME:$CI_COMMIT_BRANCH $IMAGE_NAME:latest
+    - docker push $IMAGE_NAME:${CI_COMMIT_BRANCH}
+    - docker push $IMAGE_NAME:latest
   dependencies:
     - test
   only:
@@ -49,8 +51,7 @@ deploy:
     - docker:dind
   script:
     - docker login registry.voicenter.co -u $dplUser -p $dplPswd
-    - docker push $IMAGE_NAME:${CI_COMMIT_BRANCH}
-    - docker push $IMAGE_NAME:latest
+    - docker pull $IMAGE_NAME:$CI_COMMIT_BRANCH
     - echo "$GHCR_TOKEN" | docker login ghcr.io -u $GHCR_USER --password-stdin
     - docker tag $IMAGE_NAME:$CI_COMMIT_BRANCH $GITHUB_IMAGE_NAME:$CI_COMMIT_BRANCH
     - docker tag $IMAGE_NAME:$CI_COMMIT_BRANCH $GITHUB_IMAGE_NAME:latest
