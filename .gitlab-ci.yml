@@ -5,7 +5,7 @@ stages:
 
 variables:
   IMAGE_NAME: "registry.voicenter.co/voicenter/mirrored-opensips-js"
-  GITHUB_IMAGE_NAME: "ghcr.io/OpenSIPS/opensips-js"
+  GITHUB_IMAGE_NAME: "ghcr.io/opensips/opensips-js"
 
 test:
   stage: test_stage
@@ -57,8 +57,7 @@ deploy:
     - docker push $GITHUB_IMAGE_NAME:$CI_COMMIT_BRANCH
     - docker push $GITHUB_IMAGE_NAME:latest
   only:
-    - main
-    - master
+    - branches
   dependencies:
     - build
   tags:

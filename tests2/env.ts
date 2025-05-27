@@ -62,7 +62,7 @@ const envSchema = z.object({
     GIGAPIPE: gigapipeSchema.optional(),
 
     // SIP parameters configuration
-    PARAMETERS: z.record(z.any())
+    PARAMETERS: z.any()
 })
 
 /**
