@@ -4,6 +4,7 @@ import {
 } from '../types/intex'
 
 import TestExecutor from './TestExecutor'
+import QrynLogger from './QrynLogger'
 
 /**
  * ScenarioManager - Manages the execution of multiple test scenarios
@@ -12,6 +13,7 @@ export default class ScenarioManager {
     private scenarios: TestScenarios
     protected testContext: TestContext = {}
     private executors: TestExecutor[] = []
+    private logger = new QrynLogger('ScenarioManager')
 
     constructor (scenarios: TestScenarios, testContext: TestContext) {
         this.scenarios = scenarios
@@ -32,12 +34,12 @@ export default class ScenarioManager {
     }
 
     public async runScenarios (): Promise<void> {
-        console.log(`Running ${this.scenarios.length} test scenarios`)
+        await this.logger.log(`Running test scenarios`, { scenarioCount: this.scenarios.length })
 
         // Create an executor for each scenario
         for (let i = 0; i < this.scenarios.length; i++) {
             const scenarioId = `scenario-${i + 1}`
-            console.log(scenarioId, 'created')
+            await this.logger.log('Scenario created', { scenarioId, scenarioName: this.scenarios[i].name })
             const executor = new TestExecutor(
                 scenarioId,
                 this.scenarios[i].name,
@@ -55,7 +57,9 @@ export default class ScenarioManager {
             // Wait for all scenarios to complete
             await Promise.all(scenarioPromises)
         } catch (error) {
-            console.error('Error during scenario execution:', error)
+            await this.logger.error('Error during scenario execution', { 
+                error: error instanceof Error ? error.message : String(error) 
+            })
             throw error
         } finally {
             // Ensure all scenarios are properly cleaned up
@@ -63,11 +67,13 @@ export default class ScenarioManager {
                 try {
                     executor.completeScenario()
                 } catch (e) {
-                    console.warn('Error cleaning up executor:', e)
+                    await this.logger.warn('Error cleaning up executor', { 
+                        error: e instanceof Error ? e.message : String(e) 
+                    })
                 }
             }
         }
 
-        console.log('All scenarios completed')
+        await this.logger.log('All scenarios completed')
     }
 }
