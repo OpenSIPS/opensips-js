@@ -11,14 +11,22 @@ const gigapipeServiceConfig = z.object({
     url: z.string().url({
         message: 'Service URL must be a valid URL'
     }),
+    username: z.string({
+        required_error: 'username is required',
+        invalid_type_error: 'username must be a string'
+    }),
+    password: z.string({
+        required_error: 'password is required',
+        invalid_type_error: 'password must be a string'
+    }),
     scope: z.string({
         required_error: 'Service scope is required',
         invalid_type_error: 'Service scope must be a string'
     }),
-    headers: z.record(z.string().or(z.number()), {
-        required_error: 'Headers object is required',
-        invalid_type_error: 'Headers must be an object with string or number values'
-    })
+    OrgID: z.string( {
+        required_error: 'OrgID is required',
+        invalid_type_error: 'OrgID must be an number'
+    }),
 })
 
 /**

@@ -11,6 +11,7 @@ import { metrics, trace, context, Span, SpanStatusCode, Context, Meter, Tracer }
 import axios from 'axios'
 import env from '../env'
 import QrynLogger from './QrynLogger'
+import {Collector} from 'qryn-client'
 
 // Global SDK initialization - this should happen only once
 let sdkInitialized = false
@@ -278,29 +279,32 @@ export class TelemetryService {
                 environment: metricsConfig.scope || 'test'
             }
 
-            const labelString = Object.entries(labels)
-                .map(([key, value]) => `${key}="${value}"`)
-                .join(',')
-
-            const metrics = [
-                `opensips_test_events_total{${labelString}} 1 ${timestamp}`,
-            ]
-
-            if (span && span.attributes['event.duration_ms']) {
-                metrics.push(`opensips_test_duration_ms{${labelString}} ${span.attributes['event.duration_ms']} ${timestamp}`)
-            }
-
-            await axios.post(
-                `${metricsConfig.url}/api/v1/prom/remote/write`,
-                metrics.join('\n'),
+            const collector = new Collector(
+                this.logger.qrynClient,
                 {
-                    headers: {
-                        'Content-Type': 'text/plain',
-                        ...metricsConfig.headers
-                    },
-                    timeout: 5000
+                    orgId: 40,
+                    maxBulkSize: 50,
+                    maxTimeout: 3000,
+                    async: true,
                 }
             )
+            const metric = collector.createMetric({
+                name: 'opensips_test_events_total',
+                labels
+            })
+            // const metrics = [
+            //     `opensips_test_events_total{${labelString}} 1 ${timestamp}`,
+            // ]
+            //
+            // if (span && span.attributes['event.duration_ms']) {
+            //     metrics.push(`opensips_test_duration_ms{${labelString}} ${span.attributes['event.duration_ms']} ${timestamp}`)
+            // }
+
+            this.logger.qrynClient.prom.push([ metric ]).then(() => {
+                console.log('Metric push successful')
+            }).catch(err => {
+                console.log('Metric push error: ', err.message)
+            })
         } catch (error: any) {
             await this.logger.error(`Failed to send metric to qryn: ${error.message}`, { eventName, stage, error: error.message })
         }
