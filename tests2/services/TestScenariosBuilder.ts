@@ -139,7 +139,7 @@ export default abstract class TestScenariosBuilder implements ActionsScenariosBu
     }
 
     getEnvContext (): TestContext {
-        return env.PARAMETERS
+        return typeof env.PARAMETERS === 'string' ? JSON.parse(env.PARAMETERS) : env.PARAMETERS
     }
 
     abstract getInitialContext(): TestContext
