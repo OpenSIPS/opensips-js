@@ -1,6 +1,7 @@
 import { Browser, chromium, Page } from 'playwright'
 import mustache from 'mustache'
 
+
 import PageWebSocketWorker from './PageWebSocketWorker'
 import EventBus from './EventBus'
 import ActionsExecutor from './ActionsExecutor'
@@ -8,7 +9,6 @@ import WindowMethodsWorker from './WindowMethodsWorker'
 import ScenarioManager from './ScenarioManager'
 import { TelemetryService } from './TelemetryService'
 
-import { waitMs } from '../helpers'
 import env from '../env'
 
 import {
@@ -164,6 +164,7 @@ export default class TestExecutor {
                 this.scenarioManager.updateContext({
                     [action.data.responseToContext.contextKeyToSet]: result
                 })
+
                 console.log('context after update:', JSON.stringify(this.scenarioManager.getContext()))
             }
         }

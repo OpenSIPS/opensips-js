@@ -5,7 +5,7 @@ import { TelemetryService } from './TelemetryService'
 
 interface WaitForMessageOptions {
     method: string
-    status_code: number
+    status_code?: number
     timeout: number
     checkSentEvent?: boolean
 }
@@ -31,6 +31,20 @@ export default class PageWebSocketWorker {
     }
 
     public setWebsocketListener (ws: WebSocket) {
+        ws.on('framesent', async (msg) => {
+            if (typeof msg.payload === 'string') {
+                const message = msg.payload
+                const parsedMessage = Parser.parseMessage(message, {
+                    configuration: {},
+                    contact: {}
+                })
+                console.log('SEND WEBSOCKET FRAME', {
+                    method: parsedMessage.method,
+                    status_code: 'status_code' in parsedMessage ? parsedMessage.status_code : null,
+                })
+
+            }
+        })
         ws.on('framereceived', async (msg) => {
             if (typeof msg.payload === 'string') {
                 const message = msg.payload
@@ -79,18 +93,17 @@ export default class PageWebSocketWorker {
                         configuration: {},
                         contact: {}
                     })
-
                     await this.telemetryService.logEvent(`websocket_wait_${parsedMessage.method}`, 'success', {
                         stage: 'received',
                         method: parsedMessage.method,
                         waiting_for: waitingOptions.method,
-                        expected_status: waitingOptions.status_code.toString()
+                        expected_status: 'status_code' in waitingOptions ? waitingOptions.status_code.toString() : 'none',
                     })
 
                     if (parsedMessage &&
                         parsedMessage.method === waitingOptions.method &&
-                        ('status_code' in parsedMessage && parsedMessage.status_code === waitingOptions.status_code)) {
-
+                        (!('status_code' in waitingOptions) ||
+                            ('status_code' in parsedMessage && parsedMessage.status_code === waitingOptions.status_code))) {
                         this.logger.log('Received expected message:', parsedMessage.method)
                         clearTimeout(timeout)
                         ws.off('framereceived', listener.bind(this))
