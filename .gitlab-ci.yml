@@ -5,7 +5,7 @@ stages:
 
 variables:
   IMAGE_NAME: "registry.voicenter.co/voicenter/mirrored-opensips-js"
-  GITHUB_IMAGE_NAME: "ghcr.io/opensips/opensips-js"
+  GITHUB_IMAGE_NAME: "ghcr.io/VoicenterTeam/opensips-js"
 
 test:
   stage: test_stage
