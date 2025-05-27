@@ -19,6 +19,7 @@ const gigapipeServiceConfig = z.object({
         required_error: 'password is required',
         invalid_type_error: 'password must be a string'
     }),
+    headers: z.record(z.any()),
     scope: z.string({
         required_error: 'Service scope is required',
         invalid_type_error: 'Service scope must be a string'

@@ -11,7 +11,7 @@ import { metrics, trace, context, Span, SpanStatusCode, Context, Meter, Tracer }
 import axios from 'axios'
 import env from '../env'
 import QrynLogger from './QrynLogger'
-import {Collector} from 'qryn-client'
+import { QrynClient, Metric } from 'qryn-client'
 
 // Global SDK initialization - this should happen only once
 let sdkInitialized = false
@@ -82,6 +82,8 @@ export class TelemetryService {
     private operationDurationHistogram: any
     private activeSpans: Map<string, { span: Span; context: Context; startTime: number }> = new Map()
     private logger: QrynLogger
+    private readonly metricsConfig: any
+    private readonly qrynClient: QrynClient
 
     constructor (
         private readonly scenarioId: string,
@@ -105,6 +107,17 @@ export class TelemetryService {
         })
 
         this.logger.log(`Initialized for scenario: ${scenarioName} (${scenarioId})`)
+
+        const gigapipeConfig = env.GIGAPIPE
+        this.metricsConfig = gigapipeConfig?.METRICS || gigapipeConfig?.DEFAULT || null
+        this.qrynClient = new QrynClient({
+            baseUrl: this.metricsConfig.url,
+            auth: {
+                username: this.metricsConfig.username,
+                password: this.metricsConfig.password,
+            },
+            timeout: 10000,
+        })
     }
 
     private getOperationKey (eventName: string): string {
@@ -237,10 +250,10 @@ export class TelemetryService {
         attributes: Record<string, any>,
         span?: Span
     ): Promise<void> {
-        const gigapipeConfig = env.GIGAPIPE
-        const metricsConfig = gigapipeConfig?.METRICS || gigapipeConfig?.DEFAULT
+        // const gigapipeConfig = env.GIGAPIPE
+        // const metricsConfig = gigapipeConfig?.METRICS || gigapipeConfig?.DEFAULT
 
-        if (!metricsConfig?.url) {
+        if (!this.metricsConfig?.url) {
             // If no qryn config, still try the visualization server as fallback
             try {
                 const metricData: Record<string, any> = {
@@ -269,6 +282,30 @@ export class TelemetryService {
 
         try {
             // Send to qryn via Prometheus format
+            // const timestamp = Date.now()
+            // const labels = {
+            //     scenario_name: this.scenarioName,
+            //     scenario_id: this.scenarioId,
+            //     event_name: eventName,
+            //     stage: stage,
+            //     status: status,
+            //     environment: metricsConfig.scope || 'test'
+            // }
+            //
+            // const collector = new Collector(
+            //     this.logger.qrynClient,
+            //     {
+            //         orgId: 40,
+            //         maxBulkSize: 50,
+            //         maxTimeout: 3000,
+            //         async: true,
+            //     }
+            // )
+            // const metric = collector.createMetric({
+            //     name: 'opensips_test_events_total',
+            //     labels
+            // })
+
             const timestamp = Date.now()
             const labels = {
                 scenario_name: this.scenarioName,
@@ -276,31 +313,24 @@ export class TelemetryService {
                 event_name: eventName,
                 stage: stage,
                 status: status,
-                environment: metricsConfig.scope || 'test'
+                environment: this.metricsConfig.scope || 'test'
             }
 
-            const collector = new Collector(
-                this.logger.qrynClient,
-                {
-                    orgId: 40,
-                    maxBulkSize: 50,
-                    maxTimeout: 3000,
-                    async: true,
-                }
-            )
-            const metric = collector.createMetric({
-                name: 'opensips_test_events_total',
-                labels
-            })
-            // const metrics = [
-            //     `opensips_test_events_total{${labelString}} 1 ${timestamp}`,
-            // ]
-            //
-            // if (span && span.attributes['event.duration_ms']) {
-            //     metrics.push(`opensips_test_duration_ms{${labelString}} ${span.attributes['event.duration_ms']} ${timestamp}`)
-            // }
+            const metrics: Metric[] = []
 
-            this.logger.qrynClient.prom.push([ metric ]).then(() => {
+            const testEventsTotal = new Metric('opensips_test_events_total', labels)
+            testEventsTotal.addSample(1, timestamp)
+
+            metrics.push(testEventsTotal)
+
+            if (span && span.attributes['event.duration_ms']) {
+                const testDurationMs = new Metric('opensips_test_duration_ms', labels)
+                testDurationMs.addSample(span.attributes['event.duration_ms'], timestamp)
+
+                metrics.push(testDurationMs)
+            }
+
+            await this.qrynClient.prom.push(metrics, { orgId: this.metricsConfig.OrgID }).then(() => {
                 console.log('Metric push successful')
             }).catch(err => {
                 console.log('Metric push error: ', err.message)
