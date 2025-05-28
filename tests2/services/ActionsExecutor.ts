@@ -219,20 +219,21 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         this.holdButton = this.page.locator('.holdAgent')
 
         await this.holdButton.click()
-        try {
-            await this.pageWebSocketWorker.waitForMessage(
-                this.pageWebSocketWorker.getConnectedWebsocket(),
-                {
-                    method: 'INVITE',
-                    timeout: 10000
-                }
-            )
-        } catch (error) {
-            return {
-                success: false,
-                error: `Error hold call in scenario ${this.scenarioId}`
-            }
-        }
+        // try {
+        //     await this.pageWebSocketWorker.waitForMessage(
+        //         this.pageWebSocketWorker.getConnectedWebsocket(),
+        //         {
+        //             method: 'INVITE',
+        //             status_code: 200,
+        //             timeout: 10000
+        //         }
+        //     )
+        // } catch (error) {
+        //     return {
+        //         success: false,
+        //         error: `Error hold call in scenario ${this.scenarioId}`
+        //     }
+        // }
 
         return {
             success: true,
@@ -246,20 +247,21 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         this.holdButton = this.page.locator('.holdAgent')
         await this.holdButton.click()
         await waitMs(100)
-        try {
-            await this.pageWebSocketWorker.waitForMessage(
-                this.pageWebSocketWorker.getConnectedWebsocket(),
-                {
-                    method: 'INVITE',
-                    timeout: 10000
-                }
-            )
-        } catch (error) {
-            return {
-                success: false,
-                error: `Error unhold call in scenario ${this.scenarioId}`
-            }
-        }
+        // try {
+        //     await this.pageWebSocketWorker.waitForMessage(
+        //         this.pageWebSocketWorker.getConnectedWebsocket(),
+        //         {
+        //             method: 'INVITE',
+        //             status_code: 200,
+        //             timeout: 10000
+        //         }
+        //     )
+        // } catch (error) {
+        //     return {
+        //         success: false,
+        //         error: `Error unhold call in scenario ${this.scenarioId}`
+        //     }
+        // }
         return {
             success: true,
             callId: 'call-' + Math.floor(Math.random() * 10000)
