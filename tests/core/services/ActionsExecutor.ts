@@ -205,9 +205,6 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         await this.logger.log(`Waiting for ${data.time}ms`, { waitTime: data.time })
 
         await this.page.waitForTimeout(data.time)
-
-        await waitMs(data.time)
-
         return {
             success: true
         }
@@ -224,7 +221,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                 this.pageWebSocketWorker.getConnectedWebsocket(),
                 {
                     method: 'INVITE',
-                    status_code: 200,
+                    status_code: 100,
                     timeout: 10000
                 }
             )
@@ -246,13 +243,13 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
 
         this.holdButton = this.page.locator('.holdAgent')
         await this.holdButton.click()
-        await waitMs(100)
+
         try {
             await this.pageWebSocketWorker.waitForMessage(
                 this.pageWebSocketWorker.getConnectedWebsocket(),
                 {
                     method: 'INVITE',
-                    status_code: 200,
+                    status_code: 100,
                     timeout: 10000
                 }
             )
