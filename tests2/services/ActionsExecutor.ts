@@ -220,6 +220,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
 
         await this.holdButton.click()
         try {
+            console.log(1)
             await this.pageWebSocketWorker.waitForMessage(
                 this.pageWebSocketWorker.getConnectedWebsocket(),
                 {
