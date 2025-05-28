@@ -702,7 +702,7 @@ class TestExecutor {
         }
 
         this.browser = await chromium.launch({
-            headless: false, // This makes the browser visible
+            headless: true, // This makes the browser visible
             args: [
                 '--use-fake-ui-for-media-stream',
                 '--use-fake-device-for-media-stream',
