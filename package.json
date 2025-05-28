@@ -18,7 +18,7 @@
     "docs-build": "cd docs && yarn && yarn run build",
     "docs-publish": "yarn docs-genereate && node scripts/upload-doc.js",
     "docs-genereate": "yarn build && yarn demo-build && cd docs && yarn && yarn run generate && cd ..",
-    "run-test": "tsx tests2/test.ts",
+    "run-test": "tsx tests/core/test.ts",
     "debug-server": "node debug-server.js",
     "run-test-debug": "cp .env.debug .env && tsx tests2/test.ts",
     "ts-check": "tsc --noEmit",

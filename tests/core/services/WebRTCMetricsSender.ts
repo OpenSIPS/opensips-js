@@ -1,7 +1,6 @@
-import axios from 'axios'
 import { Page } from 'playwright'
-import env from '../env'
 import QrynLogger from './QrynLogger'
+import QrynClient from './QrynClient'
 
 export interface WebRTCMetricsData {
     setupTime: number | null
@@ -15,7 +14,8 @@ export interface WebRTCMetricsData {
 
 export class WebRTCMetricsSender {
     private logger: QrynLogger
-    private intervalId: NodeJS.Timeout | null = null
+    private qrynClient: QrynClient
+    private intervalId: ReturnType<typeof setInterval> | null = null
     private lastSentCount = 0
 
     constructor (
@@ -24,6 +24,7 @@ export class WebRTCMetricsSender {
         private readonly scenarioId: string
     ) {
         this.logger = new QrynLogger('WebRTCMetricsSender', scenarioName, scenarioId)
+        this.qrynClient = new QrynClient('METRICS')
     }
 
     public startPeriodicCollection (): void {
@@ -82,10 +83,7 @@ export class WebRTCMetricsSender {
     }
 
     private async sendMetricsToQryn (metricsData: WebRTCMetricsData): Promise<void> {
-        const gigapipeConfig = env.GIGAPIPE
-        const metricsConfig = gigapipeConfig?.METRICS || gigapipeConfig?.DEFAULT
-
-        if (!metricsConfig?.url) {
+        if (!this.qrynClient.isQrynConfigured) {
             await this.logger.warn('No qryn metrics configuration found, skipping WebRTC metrics')
             return
         }
@@ -95,7 +93,7 @@ export class WebRTCMetricsSender {
             const labels = {
                 scenario_name: this.scenarioName,
                 scenario_id: this.scenarioId,
-                environment: metricsConfig.scope || 'test',
+                environment: this.qrynClient.getEffectiveConfig?.scope || 'test',
                 metric_type: 'webrtc_audio'
             }
 
@@ -128,17 +126,7 @@ export class WebRTCMetricsSender {
             }
 
             // Send to qryn via Prometheus format
-            await axios.post(
-                `${metricsConfig.url}/api/v1/prom/remote/write`,
-                metricsLines.join('\n'),
-                {
-                    headers: {
-                        'Content-Type': 'text/plain',
-                        ...metricsConfig.headers
-                    },
-                    timeout: 5000
-                }
-            )
+            // TODO
 
             await this.logger.log('WebRTC metrics sent to qryn', {
                 metricsCount: metricsLines.length,
@@ -150,7 +138,7 @@ export class WebRTCMetricsSender {
         } catch (error) {
             await this.logger.error('Failed to send WebRTC metrics to qryn', {
                 error: error instanceof Error ? error.message : String(error),
-                url: metricsConfig?.url
+                url: this.qrynClient.getEffectiveConfig.url
             })
         }
     }

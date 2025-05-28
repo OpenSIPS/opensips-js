@@ -1,5 +1,5 @@
 import { Page, WebSocket } from 'playwright'
-import Parser from '../../src/lib/janus/Parser'
+import Parser from '../../../src/lib/janus/Parser'
 import QrynLogger from './QrynLogger'
 import { TelemetryService } from './TelemetryService'
 

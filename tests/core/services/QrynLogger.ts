@@ -1,6 +1,5 @@
-import axios from 'axios'
-import { QrynClient, Stream } from 'qryn-client'
-import env from '../env'
+import { Stream } from 'qryn-client'
+import QrynClient from './QrynClient'
 
 export interface LogEntry {
     timestamp: string
@@ -20,32 +19,13 @@ export interface QrynLogPayload {
 }
 
 export default class QrynLogger {
-    private readonly logsConfig: any
-    private readonly fallbackToConsole: boolean
-    public qrynClient: QrynClient
+    public qrynClient = new QrynClient('LOGS')
 
     constructor (
         private readonly section: string,
         private readonly scenarioName?: string,
         private readonly scenarioId?: string
-    ) {
-        // Get LOGS configuration with DEFAULT fallback
-        const gigapipeConfig = env.GIGAPIPE
-        this.logsConfig = gigapipeConfig?.LOGS || gigapipeConfig?.DEFAULT || null
-        this.fallbackToConsole = !this.logsConfig?.url
-        this.qrynClient = new QrynClient({
-            baseUrl: this.logsConfig.url,
-            auth: {
-                username: this.logsConfig.username,
-                password: this.logsConfig.password,
-            },
-            timeout: 10000,
-        })
-
-        if (this.fallbackToConsole) {
-            console.warn('[QrynLogger] No GIGAPIPE.LOGS or DEFAULT config found, falling back to console logging')
-        }
-    }
+    ) {}
 
     private createLogEntry (level: LogEntry['level'], message: string, metadata?: Record<string, any>): LogEntry {
         return {
@@ -60,7 +40,7 @@ export default class QrynLogger {
     }
 
     private async sendToQryn (logEntry: LogEntry): Promise<void> {
-        if (this.fallbackToConsole) {
+        if (!this.qrynClient.isQrynConfigured) {
             // Fallback to console with structured format
             const prefix = this.scenarioName ? `[${this.scenarioName}]` : this.scenarioId ? `[${this.scenarioId}]` : ''
             const logMessage = `${prefix} [${this.section}] ${logEntry.message}`
@@ -82,38 +62,6 @@ export default class QrynLogger {
         }
 
         try {
-            // Create Loki-compatible payload for qryn
-            // const payload: QrynLogPayload = {
-            //     streams: [ {
-            //         stream: {
-            //             level: logEntry.level,
-            //             section: this.section,
-            //             ...(this.scenarioName && { scenario_name: this.scenarioName }),
-            //             ...(this.scenarioId && { scenario_id: this.scenarioId }),
-            //             job: 'opensips-js-tests',
-            //             environment: this.logsConfig.scope || 'test'
-            //         },
-            //         values: [ [
-            //             (Date.parse(logEntry.timestamp) * 1000000).toString(), // Loki expects nanoseconds
-            //             JSON.stringify({
-            //                 message: logEntry.message,
-            //                 ...(logEntry.metadata && { metadata: logEntry.metadata })
-            //             })
-            //         ] ]
-            //     } ]
-            // }
-            //
-            // await axios.post(
-            //     `${this.logsConfig.url}/loki/api/v1/push`,
-            //     payload,
-            //     {
-            //         headers: {
-            //             'Content-Type': 'application/json',
-            //             ...this.logsConfig.headers
-            //         },
-            //         timeout: 5000
-            //     }
-            // )
             const stream = new Stream({
                 level: logEntry.level,
                 section: this.section,
@@ -130,7 +78,7 @@ export default class QrynLogger {
                 })
             )
 
-            this.qrynClient.loki.push([ stream ], { orgId: this.logsConfig.OrgID }).then(() => {
+            this.qrynClient.client.loki.push([ stream ], { orgId: this.qrynClient.getEffectiveConfig.OrgID }).then(() => {
                 console.log('Loki push successful')
             }).catch((err) => console.log('Loki push error: ', err.message))
         } catch (error) {
@@ -158,17 +106,5 @@ export default class QrynLogger {
     public async debug (message: string, metadata?: Record<string, any>): Promise<void> {
         const logEntry = this.createLogEntry('debug', message, metadata)
         await this.sendToQryn(logEntry)
-    }
-
-    // Static method to get configuration status
-    public static isQrynConfigured (): boolean {
-        const gigapipeConfig = env.GIGAPIPE
-        return Boolean(gigapipeConfig?.LOGS?.url || gigapipeConfig?.DEFAULT?.url)
-    }
-
-    // Static method to get effective configuration
-    public static getEffectiveConfig (): any {
-        const gigapipeConfig = env.GIGAPIPE
-        return gigapipeConfig?.LOGS || gigapipeConfig?.DEFAULT || null
     }
 }

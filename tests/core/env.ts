@@ -90,6 +90,8 @@ const envSchema = z.object({
  * Type for the validated environment configuration
  */
 export type EnvConfig = z.infer<typeof envSchema>
+export type GigapipeConfigType = z.infer<typeof gigapipeServiceConfig>
+export type GIGAPIPE_TYPES = keyof z.infer<typeof gigapipeSchema>
 
 /**
  * Parses and validates the environment variables

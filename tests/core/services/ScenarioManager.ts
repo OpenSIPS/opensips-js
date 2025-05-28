@@ -34,12 +34,15 @@ export default class ScenarioManager {
     }
 
     public async runScenarios (): Promise<void> {
-        await this.logger.log(`Running test scenarios`, { scenarioCount: this.scenarios.length })
+        await this.logger.log('Running test scenarios', { scenarioCount: this.scenarios.length })
 
         // Create an executor for each scenario
         for (let i = 0; i < this.scenarios.length; i++) {
             const scenarioId = `scenario-${i + 1}`
-            await this.logger.log('Scenario created', { scenarioId, scenarioName: this.scenarios[i].name })
+            await this.logger.log('Scenario created', {
+                scenarioId,
+                scenarioName: this.scenarios[i].name
+            })
             const executor = new TestExecutor(
                 scenarioId,
                 this.scenarios[i].name,
@@ -57,8 +60,8 @@ export default class ScenarioManager {
             // Wait for all scenarios to complete
             await Promise.all(scenarioPromises)
         } catch (error) {
-            await this.logger.error('Error during scenario execution', { 
-                error: error instanceof Error ? error.message : String(error) 
+            await this.logger.error('Error during scenario execution', {
+                error: error instanceof Error ? error.message : String(error)
             })
             throw error
         } finally {
@@ -67,8 +70,8 @@ export default class ScenarioManager {
                 try {
                     executor.completeScenario()
                 } catch (e) {
-                    await this.logger.warn('Error cleaning up executor', { 
-                        error: e instanceof Error ? e.message : String(e) 
+                    await this.logger.warn('Error cleaning up executor', {
+                        error: e instanceof Error ? e.message : String(e)
                     })
                 }
             }

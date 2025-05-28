@@ -1,4 +1,4 @@
-import { WebRTCMetricsAnalyzer } from '../webRTCMetricsAnalyzer'
+import WebRTCMetricsAnalyzer from './WebRTCMetricsAnalyzer'
 
 export class GoogleChatService {
     private readonly webhookUrl: string
