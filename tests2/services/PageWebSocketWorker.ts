@@ -84,47 +84,37 @@ export default class PageWebSocketWorker {
     }
 
     public waitForMessage (ws: WebSocket, waitingOptions: WaitForMessageOptions): Promise<void> {
-        console.log(2)
         return new Promise((resolve, reject) => {
-            console.log(3)
             const timeout = setTimeout(
                 () => {
-                    console.log(4)
                     this.logger.warn('Timeout waiting for message', {
                         method: waitingOptions.method,
                         timeout: waitingOptions.timeout
                     })
-                    console.log(5)
                     this.telemetryService.logError(`websocket_wait_${waitingOptions.method}`,
                         `Timeout waiting for ${waitingOptions.method}`)
                     reject(new Error(`Timeout waiting for message ${waitingOptions.method}`))
                 },
                 waitingOptions.timeout
             )
-            console.log(6)
 
             const listener = async (msg: {payload: string | Buffer}) => {
-                console.log(7)
                 if (typeof msg.payload === 'string') {
-                    console.log(8)
                     const message = msg.payload
                     const parsedMessage = Parser.parseMessage(message, {
                         configuration: {},
                         contact: {}
                     })
-                    console.log('8.1')
                     await this.telemetryService.logEvent(`websocket_wait_${parsedMessage.method}`, 'success', {
                         stage: 'received',
                         method: parsedMessage.method,
                         waiting_for: waitingOptions.method,
                         expected_status: 'status_code' in waitingOptions ? waitingOptions.status_code.toString() : 'none',
                     })
-                    console.log('8.2')
                     if (parsedMessage &&
                         parsedMessage.method === waitingOptions.method &&
                         (!('status_code' in waitingOptions) ||
                             ('status_code' in parsedMessage && parsedMessage.status_code === waitingOptions.status_code))) {
-                        console.log('8.3')
                         await this.logger.log('Received expected message', {
                             method: parsedMessage.method,
                             status_code: 'status_code' in parsedMessage ? parsedMessage.status_code : 'none'
@@ -133,16 +123,12 @@ export default class PageWebSocketWorker {
                         ws.off('framereceived', listener.bind(this))
                         resolve()
                     }
-                    console.log('8.4')
                 }
-                console.log(9)
             }
 
             if (waitingOptions.checkSentEvent) {
-                console.log(10)
                 ws.on('framesent', listener.bind(this))
             } else {
-                console.log(11)
                 ws.on('framereceived', listener.bind(this))
             }
         })
