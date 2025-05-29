@@ -78,9 +78,9 @@ export default class QrynLogger {
                 })
             )
 
-            this.qrynClient.client.loki.push([ stream ], { orgId: this.qrynClient.getEffectiveConfig.OrgID }).then(() => {
-                console.log('Loki push successful')
-            }).catch((err) => console.log('Loki push error: ', err.message))
+            // this.qrynClient.client.loki.push([ stream ], { orgId: this.qrynClient.getEffectiveConfig.OrgID }).then(() => {
+            //     console.log('Loki push successful')
+            // }).catch((err) => console.log('Loki push error: ', err.message))
         } catch (error) {
             // If qryn fails, fallback to console but log the error
             console.error(`[QrynLogger] Failed to send log to qryn: ${error instanceof Error ? error.message : error}`)

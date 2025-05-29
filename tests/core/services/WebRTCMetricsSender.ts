@@ -1,6 +1,7 @@
 import { Page } from 'playwright'
 import QrynLogger from './QrynLogger'
 import QrynClient from './QrynClient'
+import { Metric } from 'qryn-client'
 
 export interface WebRTCMetricsData {
     setupTime: number | null
@@ -97,39 +98,60 @@ export class WebRTCMetricsSender {
                 metric_type: 'webrtc_audio'
             }
 
-            const labelString = Object.entries(labels)
-                .map(([ key, value ]) => `${key}="${value}"`)
-                .join(',')
-
-            const metricsLines = [
+            // Define metric definitions
+            const metricDefinitions = {
                 // Connection metrics
-                `opensips_webrtc_setup_time_ms{${labelString}} ${metricsData.setupTime || 0} ${timestamp}`,
-                `opensips_webrtc_total_duration_ms{${labelString}} ${metricsData.totalDuration || 0} ${timestamp}`,
-                `opensips_webrtc_connection_successful{${labelString}} ${metricsData.connectionSuccessful ? 1 : 0} ${timestamp}`,
-            ]
+                opensips_webrtc_setup_time_ms: metricsData.setupTime || 0,
+                opensips_webrtc_total_duration_ms: metricsData.totalDuration || 0,
+                opensips_webrtc_connection_successful: metricsData.connectionSuccessful ? 1 : 0,
 
-            // Audio quality metrics
-            if (metricsData.audioMetrics) {
-                const audio = metricsData.audioMetrics
-                metricsLines.push(
-                    `opensips_webrtc_packets_received_total{${labelString}} ${audio.packetsReceived || 0} ${timestamp}`,
-                    `opensips_webrtc_packets_sent_total{${labelString}} ${audio.packetsSent || 0} ${timestamp}`,
-                    `opensips_webrtc_packets_lost_total{${labelString}} ${audio.packetsLost || 0} ${timestamp}`,
-                    `opensips_webrtc_jitter_ms{${labelString}} ${audio.jitter || 0} ${timestamp}`,
-                    `opensips_webrtc_round_trip_time_ms{${labelString}} ${audio.roundTripTime || 0} ${timestamp}`,
-                    `opensips_webrtc_audio_level{${labelString}} ${audio.audioLevel || 0} ${timestamp}`,
-                    `opensips_webrtc_total_audio_energy{${labelString}} ${audio.totalAudioEnergy || 0} ${timestamp}`,
-                    `opensips_webrtc_bytes_received_total{${labelString}} ${audio.bytesReceived || 0} ${timestamp}`,
-                    `opensips_webrtc_bytes_sent_total{${labelString}} ${audio.bytesSent || 0} ${timestamp}`,
-                    `opensips_webrtc_current_delay_ms{${labelString}} ${audio.currentDelay || 0} ${timestamp}`
-                )
+                // Audio metrics (conditionally added)
+                ...(metricsData.audioMetrics && {
+                    opensips_webrtc_packets_received_total: metricsData.audioMetrics.packetsReceived || 0,
+                    opensips_webrtc_packets_sent_total: metricsData.audioMetrics.packetsSent || 0,
+                    opensips_webrtc_packets_lost_total: metricsData.audioMetrics.packetsLost || 0,
+                    opensips_webrtc_jitter_ms: metricsData.audioMetrics.jitter || 0,
+                    opensips_webrtc_round_trip_time_ms: metricsData.audioMetrics.roundTripTime || 0,
+                    opensips_webrtc_audio_level: metricsData.audioMetrics.audioLevel || 0,
+                    opensips_webrtc_total_audio_energy: metricsData.audioMetrics.totalAudioEnergy || 0,
+                    opensips_webrtc_bytes_received_total: metricsData.audioMetrics.bytesReceived || 0,
+                    opensips_webrtc_bytes_sent_total: metricsData.audioMetrics.bytesSent || 0,
+                    opensips_webrtc_current_delay_ms: metricsData.audioMetrics.currentDelay || 0
+                })
             }
 
-            // Send to qryn via Prometheus format
-            // TODO
+            // Recursively create metrics
+            const createMetrics = (definitions: Record<string, number>, metrics: Metric[] = []): Metric[] => {
+                const [name, value, ...rest] = Object.entries(definitions).flat()
+
+                if (!name) return metrics
+
+                const metric = new Metric('opensips_test_webrtc', definitions)
+                metric.addSample(value as number, timestamp)
+                metrics.push(metric)
+
+                // Recursive call with remaining definitions
+                const remainingDefs = Object.fromEntries(
+                    Object.entries(definitions).slice(1)
+                )
+
+                return Object.keys(remainingDefs).length > 0
+                    ? createMetrics(remainingDefs, metrics)
+                    : metrics
+            }
+
+            const metrics = createMetrics(metricDefinitions)
+
+            this.qrynClient.client.prom.push(metrics, {
+                orgId: this.qrynClient.getEffectiveConfig.OrgID
+            }).then(() => {
+                console.log('webrtc pushed!')
+            }).catch(() => {
+                console.log('not pushed((')
+            })
 
             await this.logger.log('WebRTC metrics sent to qryn', {
-                metricsCount: metricsLines.length,
+                metricsCount: metrics.length,
                 totalSamples: metricsData.allStats.length,
                 connectionSuccessful: metricsData.connectionSuccessful,
                 hasAudioMetrics: !!metricsData.audioMetrics
@@ -138,7 +160,7 @@ export class WebRTCMetricsSender {
         } catch (error) {
             await this.logger.error('Failed to send WebRTC metrics to qryn', {
                 error: error instanceof Error ? error.message : String(error),
-                url: this.qrynClient.getEffectiveConfig.url
+                url: this.qrynClient.getEffectiveConfig?.url
             })
         }
     }

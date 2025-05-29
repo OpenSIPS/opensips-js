@@ -461,11 +461,11 @@ export class TelemetryService {
                 metrics.push(testDurationMs)
             }
 
-            await this.qrynClient.client.prom.push(metrics, { orgId: this.qrynClient.getEffectiveConfig.OrgID }).then(() => {
-                console.log('Metric push successful')
-            }).catch(err => {
-                console.log('Metric push error: ', err.message)
-            })
+            // await this.qrynClient.client.prom.push(metrics, { orgId: this.qrynClient.getEffectiveConfig.OrgID }).then(() => {
+            //     console.log('Metric push successful')
+            // }).catch(err => {
+            //     console.log('Metric push error: ', err.message)
+            // })
         } catch (error: any) {
             await this.logger.error(`Failed to send metric to qryn: ${error.message}`, {
                 eventName,
