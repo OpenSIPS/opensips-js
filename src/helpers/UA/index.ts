@@ -631,7 +631,6 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
     }
 
     stop (closeSessions = true) {
-        console.log('IN STOP')
         logger.debug('stop()')
 
         // Remove dynamic settings.
