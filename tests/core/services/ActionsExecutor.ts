@@ -58,7 +58,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         private readonly pageWebSocketWorker: PageWebSocketWorker,
         private readonly windowMethodsWorker: WindowMethodsWorker,
         public readonly page: Page,
-        public readonly browser: Browser,
+        public readonly browser: Browser
     ) {
         this.logger = new QrynLogger('ActionsExecutor', scenarioName, scenarioId)
     }

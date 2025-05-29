@@ -186,6 +186,9 @@ export default class TestExecutor {
             }
         }
 
+        // Start action span for ALL actions consistently
+        const actionSpan = this.telemetryService.startActionSpan(action.type, action.data)
+
         try {
             const actionType = action.type
             let result: ActionResponse<BaseActionSuccessResponse>
@@ -253,6 +256,8 @@ export default class TestExecutor {
                 hasCustomEvent: !!action.data?.customSharedEvent
             })
 
+            // Finish action span with success
+            this.telemetryService.finishActionSpan(actionSpan, true, undefined, result)
         } catch (error) {
             await this.logger.error('Error executing action', {
                 actionType: action.type,
@@ -265,6 +270,9 @@ export default class TestExecutor {
                 actionData: JSON.stringify(action.data),
                 errorMessage: error instanceof Error ? error.message : String(error)
             })
+
+            // Finish action span with error
+            this.telemetryService.finishActionSpan(actionSpan, false, error)
 
             throw error
         }
@@ -382,22 +390,41 @@ export default class TestExecutor {
                     if (actions) {
                         eventCounter[eventName]++
 
-                        // Log event handling
-                        await this.telemetryService.logEvent(`event_${eventName}`, 'success', {
-                            stage: 'triggered',
-                            eventIndex: currentIndex.toString(),
-                            actionsCount: actions.length.toString()
-                        })
+                        // Start event span for detailed tracing
+                        const eventSpan = this.telemetryService.startEventSpan(eventName, eventData)
 
-                        for (const action of actions) {
-                            await this.executeAction(action)
+                        try {
+                            // Log event handling
+                            await this.telemetryService.logEvent(`event_${eventName}`, 'success', {
+                                stage: 'triggered',
+                                eventIndex: currentIndex.toString(),
+                                actionsCount: actions.length.toString()
+                            })
+
+                            for (const action of actions) {
+                                await this.executeAction(action)
+                            }
+
+                            await this.telemetryService.logEvent(`event_${eventName}`, 'success', {
+                                stage: 'completed',
+                                eventIndex: currentIndex.toString(),
+                                actionsCount: actions.length.toString()
+                            })
+
+                            // Finish event span with success
+                            this.telemetryService.finishEventSpan(eventSpan, true, undefined, actions.length)
+
+                        } catch (error) {
+                            await this.logger.error('Error handling event', {
+                                eventName,
+                                error: error instanceof Error ? error.message : String(error)
+                            })
+
+                            // Finish event span with error
+                            this.telemetryService.finishEventSpan(eventSpan, false, error, actions.length)
+
+                            throw error
                         }
-
-                        await this.telemetryService.logEvent(`event_${eventName}`, 'success', {
-                            stage: 'completed',
-                            eventIndex: currentIndex.toString(),
-                            actionsCount: actions.length.toString()
-                        })
                     }
                 })
             }

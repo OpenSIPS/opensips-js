@@ -7,7 +7,7 @@ import {
     ConsoleMetricExporter,
 } from '@opentelemetry/sdk-metrics'
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
-import { metrics, trace, context, Span, SpanStatusCode, Context, Meter, Tracer } from '@opentelemetry/api'
+import { metrics, trace, context, Span, SpanStatusCode, Context, Meter, Tracer, SpanKind } from '@opentelemetry/api'
 import env from '../env'
 import QrynLogger from './QrynLogger'
 import QrynClient from './QrynClient'
@@ -78,6 +78,8 @@ export class TelemetryService {
     private eventCounter: any
     private operationDurationHistogram: any
     private activeSpans: Map<string, { span: Span; context: Context; startTime: number }> = new Map()
+    private scenarioRootSpan: Span | null = null
+    private currentEventSpan: Span | null = null
     private logger: QrynLogger
     private readonly qrynClient: QrynClient
 
@@ -105,6 +107,9 @@ export class TelemetryService {
         this.logger.log(`Initialized for scenario: ${scenarioName} (${scenarioId})`)
 
         this.qrynClient = new QrynClient('TRACING')
+
+        // Create root span for the entire scenario
+        this.createScenarioRootSpan()
     }
 
     private getOperationKey (eventName: string): string {
@@ -118,6 +123,143 @@ export class TelemetryService {
             'service.name': 'opensips-js-tests',
             environment: this.qrynClient.getEffectiveConfig?.scope || 'test'
         }
+    }
+
+    private createScenarioRootSpan (): void {
+        this.scenarioRootSpan = this.tracer.startSpan(`scenario.${this.scenarioName}`, {
+            kind: SpanKind.SERVER,
+            attributes: {
+                ...this.getBaseAttributes(),
+                'scenario.type': 'test_execution',
+                'scenario.start_time': new Date().toISOString()
+            }
+        })
+
+        this.logger.log('Created scenario root span', { spanId: this.scenarioRootSpan.spanContext().spanId })
+    }
+
+    public startActionSpan (actionType: string, actionData?: any): Span {
+        // Actions should always be children of the current event span
+        const parentSpan = this.currentEventSpan || this.scenarioRootSpan
+        const parentContext = parentSpan ? trace.setSpan(context.active(), parentSpan) : context.active()
+
+        const actionSpan = this.tracer.startSpan(`action.${actionType}`, {
+            kind: SpanKind.INTERNAL,
+            attributes: {
+                ...this.getBaseAttributes(),
+                'action.type': actionType,
+                'action.data': actionData ? JSON.stringify(actionData) : undefined,
+                'action.start_time': new Date().toISOString()
+            }
+        }, parentContext)
+
+        this.logger.log(`Started action span: ${actionType}`, {
+            spanId: actionSpan.spanContext().spanId,
+            parentSpanId: parentSpan?.spanContext().spanId,
+            parentType: this.currentEventSpan ? 'event' : 'scenario'
+        })
+
+        return actionSpan
+    }
+
+    public finishActionSpan (actionSpan: Span, success: boolean, error?: Error | string, result?: any): void {
+        if (!actionSpan) return
+
+        actionSpan.setStatus({
+            code: success ? SpanStatusCode.OK : SpanStatusCode.ERROR,
+            message: error ? (error instanceof Error ? error.message : error) : undefined
+        })
+
+        if (result) {
+            actionSpan.setAttributes({
+                'action.result': JSON.stringify(result),
+                'action.success': success.toString()
+            })
+        }
+
+        if (error) {
+            actionSpan.recordException(error instanceof Error ? error : new Error(error))
+        }
+
+        actionSpan.end()
+
+        this.logger.log('Finished action span', {
+            spanId: actionSpan.spanContext().spanId,
+            success,
+            error: error ? (error instanceof Error ? error.message : error) : undefined
+        })
+    }
+
+    public startEventSpan (eventType: string, eventData?: any): Span {
+        // Events should always be children of the scenario root span
+        const parentContext = this.scenarioRootSpan ? trace.setSpan(context.active(), this.scenarioRootSpan) : context.active()
+
+        const eventSpan = this.tracer.startSpan(`event.${eventType}`, {
+            kind: SpanKind.INTERNAL,
+            attributes: {
+                ...this.getBaseAttributes(),
+                'event.type': eventType,
+                'event.data': eventData ? JSON.stringify(eventData) : undefined,
+                'event.start_time': new Date().toISOString()
+            }
+        }, parentContext)
+
+        // Set this as the current event span so actions become its children
+        this.currentEventSpan = eventSpan
+
+        this.logger.log(`Started event span: ${eventType}`, {
+            spanId: eventSpan.spanContext().spanId,
+            parentSpanId: this.scenarioRootSpan?.spanContext().spanId
+        })
+
+        return eventSpan
+    }
+
+    public finishEventSpan (eventSpan: Span, success: boolean, error?: Error | string, actionsCount?: number): void {
+        if (!eventSpan) return
+
+        eventSpan.setStatus({
+            code: success ? SpanStatusCode.OK : SpanStatusCode.ERROR,
+            message: error ? (error instanceof Error ? error.message : error) : undefined
+        })
+
+        if (actionsCount !== undefined) {
+            eventSpan.setAttribute('event.actions_count', actionsCount)
+        }
+
+        if (error) {
+            eventSpan.recordException(error instanceof Error ? error : new Error(error))
+        }
+
+        eventSpan.end()
+
+        // Clear current event span when this event finishes
+        if (this.currentEventSpan === eventSpan) {
+            this.currentEventSpan = null
+        }
+
+        this.logger.log('Finished event span', {
+            spanId: eventSpan.spanContext().spanId,
+            success,
+            actionsCount
+        })
+    }
+
+    public getCurrentSpan (): Span | null {
+        return this.currentEventSpan || this.scenarioRootSpan
+    }
+
+    public getCurrentEventSpan (): Span | null {
+        return this.currentEventSpan
+    }
+
+    public getScenarioRootSpan (): Span | null {
+        return this.scenarioRootSpan
+    }
+
+    public withSpanContext<T> (span: Span, fn: () => T | Promise<T>): T | Promise<T> {
+        const spanContext = trace.setSpan(context.active(), span)
+        return context.with(spanContext, fn)
     }
 
     public async logEvent (
@@ -379,7 +521,33 @@ export class TelemetryService {
             spanEntry.span.end()
         }
         this.activeSpans.clear()
-        this.logger.log('Cleaned up', { orphanedSpansCount: this.activeSpans.size })
+
+        // Clean up current event span if still active
+        if (this.currentEventSpan) {
+            this.currentEventSpan.setStatus({
+                code: SpanStatusCode.ERROR,
+                message: 'Event span ended during cleanup - possible incomplete operation'
+            })
+            this.currentEventSpan.end()
+            this.currentEventSpan = null
+        }
+
+        // Finish scenario root span
+        if (this.scenarioRootSpan) {
+            this.scenarioRootSpan.setStatus({
+                code: SpanStatusCode.OK,
+                message: 'Scenario completed'
+            })
+            this.scenarioRootSpan.setAttribute('scenario.end_time', new Date().toISOString())
+            this.scenarioRootSpan.end()
+        }
+
+        this.scenarioRootSpan = null
+
+        this.logger.log('Cleaned up all spans', {
+            orphanedSpansCount: this.activeSpans.size,
+            hadActiveEventSpan: this.currentEventSpan !== null
+        })
     }
 
     // Getter methods for scenario info

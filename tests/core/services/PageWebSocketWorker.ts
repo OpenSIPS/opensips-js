@@ -44,6 +44,7 @@ export default class PageWebSocketWorker {
                     configuration: {},
                     contact: {}
                 })
+                
                 console.log('SEND WEBSOCKET FRAME', {
                     method: parsedMessage.method,
                     status_code: 'status_code' in parsedMessage ? parsedMessage.status_code : null,
