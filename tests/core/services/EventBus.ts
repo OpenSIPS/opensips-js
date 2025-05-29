@@ -1,10 +1,8 @@
 import { EventListener, EventListenerData, EventType } from '../types/events'
-import QrynLogger from './QrynLogger'
 
 export default class EventBus {
     private static instance: EventBus
     private eventListeners: Map<EventType, EventListener<any>[]> = new Map()
-    private logger = new QrynLogger('EventBus')
 
     public static getInstance (): EventBus {
         if (!EventBus.instance) {
@@ -38,10 +36,7 @@ export default class EventBus {
         data?: EventListenerData<E>
     ): Promise<void> {
         const listeners = [ ...(this.eventListeners.get(eventName) || []) ]
-        await this.logger.log(`Event triggered: ${eventName}`, {
-            eventName,
-            listenersCount: listeners.length
-        })
+        console.log(`[EventBus] Event triggered: ${eventName} (${listeners.length} listeners)`)
 
         for (const listener of listeners) {
             listener(eventName, data)

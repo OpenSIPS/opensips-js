@@ -1,165 +1,231 @@
-import { NodeSDK } from '@opentelemetry/sdk-node'
-import { ConsoleSpanExporter } from '@opentelemetry/sdk-trace-node'
-import { ZipkinExporter } from '@opentelemetry/exporter-zipkin'
-import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node'
-import {
-    PeriodicExportingMetricReader,
-    ConsoleMetricExporter,
-} from '@opentelemetry/sdk-metrics'
-import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
-import { metrics, trace, context, Span, SpanStatusCode, Context, Meter, Tracer, SpanKind } from '@opentelemetry/api'
-import env from '../env'
-import QrynLogger from './QrynLogger'
+import { Span, trace, context, SpanStatusCode } from '@opentelemetry/api'
+import { NodeSDK } from '@opentelemetry/auto-instrumentations-node'
+import { ConsoleSpanExporter } from '@opentelemetry/sdk-trace-base'
+import { Resource } from '@opentelemetry/resources'
+import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions'
+import { Page } from 'playwright'
+import { Metric, Stream } from 'qryn-client'
 import QrynClient from './QrynClient'
-import { Metric } from 'qryn-client'
 
-// Global SDK initialization - this should happen only once
-let sdkInitialized = false
-let globalMeter: Meter
-let globalTracer: Tracer
-
-function initializeSDK () {
-    if (sdkInitialized) return
-
-    // Get GIGAPIPE configuration for tracing and metrics
-    const gigapipeConfig = env.GIGAPIPE
-    const tracingConfig = gigapipeConfig?.TRACING || gigapipeConfig?.DEFAULT
-    const metricsConfig = gigapipeConfig?.METRICS || gigapipeConfig?.DEFAULT
-
-    // Configure trace exporter
-    let traceExporter
-    if (tracingConfig?.url) {
-        traceExporter = new ZipkinExporter({
-            url: `${tracingConfig.url}/tempo/spans`,
-            serviceName: 'opensips-tests',
-            headers: tracingConfig.headers || {},
-        })
-    } else {
-        return // No tracing config, skip SDK initialization
-    }
-
-    // Configure metric exporter
-    let metricExporter
-    let metricReader
-    if (metricsConfig?.url) {
-        metricExporter = new OTLPMetricExporter({
-            url: `${metricsConfig.url}/v1/metrics`,
-            headers: metricsConfig.headers || {}
-        })
-        metricReader = new PeriodicExportingMetricReader({
-            exporter: metricExporter,
-            exportIntervalMillis: 5000, // Export every 5 seconds
-        })
-    }
-
-    const sdk = new NodeSDK({
-        traceExporter,
-        metricReader,
-        instrumentations: [ getNodeAutoInstrumentations() ],
-    })
-
-    sdk.start()
-
-    globalMeter = metrics.getMeter('event-testing-metrics')
-    globalTracer = trace.getTracer('event-testing')
-
-    sdkInitialized = true
-    // OpenTelemetry SDK initialized globally
+export interface WebRTCMetricsData {
+    setupTime: number | null
+    totalDuration: number
+    connectionSuccessful: boolean
+    audioMetrics: any
+    allStats: any[]
+    scenarioName?: string
+    scenarioId?: string
 }
 
-export interface TelemetryEventAttributes {
-    stage?: string
-    [key: string]: any
-}
-
+/**
+ * TelemetryService - CENTRALIZED telemetry service
+ *
+ * This is the ONLY service that should:
+ * - Import and use QrynClient
+ * - Actually send data to qryn (traces, logs, metrics)
+ * - Handle all telemetry operations
+ *
+ * All other services should use TelemetryService methods.
+ */
 export class TelemetryService {
-    private meter: Meter
-    private tracer: Tracer
-    private eventCounter: any
-    private operationDurationHistogram: any
-    private activeSpans: Map<string, { span: Span; context: Context; startTime: number }> = new Map()
+    // Centralized qryn clients - ONLY here!
+    private readonly tracingClient: QrynClient
+    private readonly metricsClient: QrynClient
+    private readonly logsClient: QrynClient
+
+    // OpenTelemetry setup
+    private tracer: any
     private scenarioRootSpan: Span | null = null
     private currentEventSpan: Span | null = null
-    private logger: QrynLogger
-    private readonly qrynClient: QrynClient
+
+    // WebRTC metrics
+    private webrtcCollectionInterval: ReturnType<typeof setInterval> | null = null
+    private webrtcPage: Page | null = null
+    private lastWebrtcSentCount = 0
 
     constructor (
         private readonly scenarioId: string,
         private readonly scenarioName: string
     ) {
-        // Ensure global SDK is initialized
-        initializeSDK()
+        // Initialize qryn clients - CENTRALIZED
+        this.tracingClient = new QrynClient('TRACING')
+        this.metricsClient = new QrynClient('METRICS')
+        this.logsClient = new QrynClient('LOGS')
 
-        this.meter = globalMeter || metrics.getMeter('event-testing-metrics-fallback')
-        this.tracer = globalTracer || trace.getTracer('event-testing-fallback')
-        this.logger = new QrynLogger('TelemetryService', scenarioName, scenarioId)
+        // Initialize OpenTelemetry tracing
+        this.initializeTracing()
 
-        // Create scenario-specific metrics with labels
-        this.eventCounter = this.meter.createCounter('test_events', {
-            description: 'Count of events during test scenarios',
-        })
-
-        this.operationDurationHistogram = this.meter.createHistogram('operation_duration', {
-            unit: 'ms',
-            description: 'Duration of operations',
-        })
-
-        this.logger.log(`Initialized for scenario: ${scenarioName} (${scenarioId})`)
-
-        this.qrynClient = new QrynClient('TRACING')
-
-        // Create root span for the entire scenario
-        this.createScenarioRootSpan()
+        console.log(`🚀 Initialized CENTRALIZED telemetry for scenario: ${scenarioName} (${scenarioId})`)
+        this.logScenarioStart()
     }
 
-    private getOperationKey (eventName: string): string {
-        return `${eventName}-${this.scenarioId}`
-    }
+    private initializeTracing (): void {
+        // Initialize OpenTelemetry
+        const sdk = new NodeSDK({
+            resource: new Resource({
+                [SemanticResourceAttributes.SERVICE_NAME]: 'opensips-js-tests',
+                [SemanticResourceAttributes.SERVICE_VERSION]: '1.0.0',
+                [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: this.tracingClient.getEffectiveConfig?.scope || 'test',
+            }),
+            traceExporter: new ConsoleSpanExporter(),
+        })
 
-    private getBaseAttributes (): Record<string, string> {
-        return {
-            'scenario.id': this.scenarioId,
-            'scenario.name': this.scenarioName,
-            'service.name': 'opensips-js-tests',
-            environment: this.qrynClient.getEffectiveConfig?.scope || 'test'
+        try {
+            sdk.start()
+            this.tracer = trace.getTracer('opensips-js-tests', '1.0.0')
+
+            // Create scenario root span
+            this.scenarioRootSpan = this.tracer.startSpan(`scenario_${this.scenarioName}`, {
+                attributes: {
+                    'scenario.id': this.scenarioId,
+                    'scenario.name': this.scenarioName,
+                    'scenario.start_time': new Date().toISOString(),
+                    'telemetry.source': 'opensips-js-tests'
+                }
+            })
+        } catch (error) {
+            console.error('Failed to initialize OpenTelemetry:', error)
         }
     }
 
-    private createScenarioRootSpan (): void {
-        this.scenarioRootSpan = this.tracer.startSpan(`scenario.${this.scenarioName}`, {
-            kind: SpanKind.SERVER,
-            attributes: {
-                ...this.getBaseAttributes(),
-                'scenario.type': 'test_execution',
-                'scenario.start_time': new Date().toISOString()
-            }
-        })
-
-        this.logger.log('Created scenario root span', { spanId: this.scenarioRootSpan.spanContext().spanId })
+    // === CENTRALIZED LOGGING METHODS ===
+    public async log (message: string, data?: Record<string, any>): Promise<void> {
+        await this.sendLog('info', message, data)
     }
 
-    public startActionSpan (actionType: string, actionData?: any): Span {
-        // Actions should always be children of the current event span
-        const parentSpan = this.currentEventSpan || this.scenarioRootSpan
-        const parentContext = parentSpan ? trace.setSpan(context.active(), parentSpan) : context.active()
+    public async error (message: string, errorOrData?: Error | string | Record<string, any>, additionalData?: Record<string, any>): Promise<void> {
+        if (errorOrData instanceof Error || typeof errorOrData === 'string') {
+            await this.sendLog('error', message, {
+                error: errorOrData instanceof Error ? errorOrData.message : errorOrData,
+                ...additionalData
+            })
+        } else {
+            await this.sendLog('error', message, errorOrData)
+        }
+    }
 
-        const actionSpan = this.tracer.startSpan(`action.${actionType}`, {
-            kind: SpanKind.INTERNAL,
-            attributes: {
-                ...this.getBaseAttributes(),
-                'action.type': actionType,
-                'action.data': actionData ? JSON.stringify(actionData) : undefined,
-                'action.start_time': new Date().toISOString()
+    public async warn (message: string, data?: Record<string, any>): Promise<void> {
+        await this.sendLog('warn', message, data)
+    }
+
+    public async debug (message: string, data?: Record<string, any>): Promise<void> {
+        await this.sendLog('debug', message, data)
+    }
+
+    private async sendLog (level: 'info' | 'error' | 'warn' | 'debug', message: string, metadata?: Record<string, any>): Promise<void> {
+        if (!this.logsClient.isQrynConfigured) {
+            // Fallback to console
+            const prefix = `[${this.scenarioName}] [TelemetryService]`
+            const logMessage = `${prefix} ${message}`
+
+            switch (level) {
+                case 'error': console.error(logMessage, metadata || ''); break
+                case 'warn': console.warn(logMessage, metadata || ''); break
+                case 'debug': console.debug(logMessage, metadata || ''); break
+                default: console.log(logMessage, metadata || '')
             }
-        }, parentContext)
+            return
+        }
 
-        this.logger.log(`Started action span: ${actionType}`, {
-            spanId: actionSpan.spanContext().spanId,
-            parentSpanId: parentSpan?.spanContext().spanId,
-            parentType: this.currentEventSpan ? 'event' : 'scenario'
+        try {
+            const stream = new Stream({
+                level,
+                section: 'TelemetryService',
+                scenario_name: this.scenarioName,
+                scenario_id: this.scenarioId,
+                job: 'opensips-js-tests',
+            })
+
+            stream.addEntry(
+                Date.now(),
+                JSON.stringify({
+                    message,
+                    ...(metadata && { metadata })
+                })
+            )
+
+            await this.logsClient.client.loki.push([ stream ], { orgId: this.logsClient.getEffectiveConfig.OrgID })
+            console.log('✅ Log sent to qryn loki')
+        } catch (error) {
+            console.error(`[TelemetryService] Failed to send log to qryn: ${error instanceof Error ? error.message : error}`)
+        }
+    }
+
+    // === CENTRALIZED METRICS METHODS ===
+    public recordEvent (eventName: string, stage = 'triggered', status: 'success' | 'failure' = 'success'): void {
+        this.sendMetric('opensips_test_events_total', 1, {
+            event_name: eventName,
+            stage,
+            status,
+            scenario_name: this.scenarioName,
+            scenario_id: this.scenarioId
+        })
+    }
+
+    public recordActionDuration (actionType: string, durationMs: number, status: 'success' | 'failure' = 'success'): void {
+        this.sendMetric('opensips_action_duration_ms', durationMs, {
+            action_type: actionType,
+            status,
+            scenario_name: this.scenarioName,
+            scenario_id: this.scenarioId
+        })
+    }
+
+    public recordWebSocketEvent (method: string, direction: 'sent' | 'received', statusCode?: number): void {
+        this.sendMetric('opensips_websocket_messages_total', 1, {
+            sip_method: method,
+            direction,
+            ...(statusCode && { status_code: statusCode.toString() }),
+            scenario_name: this.scenarioName,
+            scenario_id: this.scenarioId
+        })
+    }
+
+    public recordCustomMetric (metricName: string, value: number, additionalLabels: Record<string, string> = {}): void {
+        this.sendMetric(metricName, value, {
+            ...additionalLabels,
+            scenario_name: this.scenarioName,
+            scenario_id: this.scenarioId
+        })
+    }
+
+    private async sendMetric (metricName: string, value: number, labels: Record<string, string>): Promise<void> {
+        if (!this.metricsClient.isQrynConfigured) {
+            console.log(`[METRIC] ${metricName}=${value} ${JSON.stringify(labels)}`)
+            return
+        }
+
+        try {
+            const metric = new Metric(metricName, labels)
+            metric.addSample(value, Date.now())
+
+            await this.metricsClient.client.prom.push([ metric ], { orgId: this.metricsClient.getEffectiveConfig.OrgID })
+            console.log('✅ Metric sent to qryn prometheus')
+        } catch (error) {
+            console.error(`[TelemetryService] Failed to send metric to qryn: ${error instanceof Error ? error.message : error}`)
+        }
+    }
+
+    // === CENTRALIZED TRACING METHODS ===
+    public startActionSpan (actionType: string, actionData?: any): Span {
+        if (!this.tracer) {
+            return null as any // Return null if tracing not available
+        }
+
+        const parentSpan = this.currentEventSpan || this.scenarioRootSpan
+        const span = this.tracer.startSpan(`action_${actionType}`, {
+            parent: parentSpan,
+            attributes: {
+                'action.type': actionType,
+                'action.start_time': new Date().toISOString(),
+                'scenario.id': this.scenarioId,
+                'scenario.name': this.scenarioName,
+                ...(actionData && { 'action.data': JSON.stringify(actionData) })
+            }
         })
 
-        return actionSpan
+        this.log(`Started action span: ${actionType}`, { actionData })
+        return span
     }
 
     public finishActionSpan (actionSpan: Span, success: boolean, error?: Error | string, result?: any): void {
@@ -167,52 +233,40 @@ export class TelemetryService {
 
         actionSpan.setStatus({
             code: success ? SpanStatusCode.OK : SpanStatusCode.ERROR,
-            message: error ? (error instanceof Error ? error.message : error) : undefined
+            message: success ? 'Action completed successfully' : (error instanceof Error ? error.message : String(error))
         })
 
         if (result) {
-            actionSpan.setAttributes({
-                'action.result': JSON.stringify(result),
-                'action.success': success.toString()
-            })
-        }
-
-        if (error) {
-            actionSpan.recordException(error instanceof Error ? error : new Error(error))
+            actionSpan.setAttributes({ 'action.result': JSON.stringify(result) })
         }
 
         actionSpan.end()
 
-        this.logger.log('Finished action span', {
-            spanId: actionSpan.spanContext().spanId,
+        const actionType = actionSpan.attributes['action.type'] as string
+        this.log(`Finished action span: ${actionType}`, {
             success,
-            error: error ? (error instanceof Error ? error.message : error) : undefined
+            error: error instanceof Error ? error.message : error
         })
     }
 
     public startEventSpan (eventType: string, eventData?: any): Span {
-        // Events should always be children of the scenario root span
-        const parentContext = this.scenarioRootSpan ? trace.setSpan(context.active(), this.scenarioRootSpan) : context.active()
+        if (!this.tracer) {
+            return null as any
+        }
 
-        const eventSpan = this.tracer.startSpan(`event.${eventType}`, {
-            kind: SpanKind.INTERNAL,
+        this.currentEventSpan = this.tracer.startSpan(`event_${eventType}`, {
+            parent: this.scenarioRootSpan,
             attributes: {
-                ...this.getBaseAttributes(),
                 'event.type': eventType,
-                'event.data': eventData ? JSON.stringify(eventData) : undefined,
-                'event.start_time': new Date().toISOString()
+                'event.start_time': new Date().toISOString(),
+                'scenario.id': this.scenarioId,
+                'scenario.name': this.scenarioName,
+                ...(eventData && { 'event.data': JSON.stringify(eventData) })
             }
-        }, parentContext)
-
-        // Set this as the current event span so actions become its children
-        this.currentEventSpan = eventSpan
-
-        this.logger.log(`Started event span: ${eventType}`, {
-            spanId: eventSpan.spanContext().spanId,
-            parentSpanId: this.scenarioRootSpan?.spanContext().spanId
         })
 
-        return eventSpan
+        this.log(`Started event span: ${eventType}`, { eventData })
+        return this.currentEventSpan
     }
 
     public finishEventSpan (eventSpan: Span, success: boolean, error?: Error | string, actionsCount?: number): void {
@@ -220,26 +274,22 @@ export class TelemetryService {
 
         eventSpan.setStatus({
             code: success ? SpanStatusCode.OK : SpanStatusCode.ERROR,
-            message: error ? (error instanceof Error ? error.message : error) : undefined
+            message: success ? 'Event completed successfully' : (error instanceof Error ? error.message : String(error))
         })
 
-        if (actionsCount !== undefined) {
-            eventSpan.setAttribute('event.actions_count', actionsCount)
-        }
-
-        if (error) {
-            eventSpan.recordException(error instanceof Error ? error : new Error(error))
+        if (actionsCount) {
+            eventSpan.setAttributes({ 'event.actions_count': actionsCount })
         }
 
         eventSpan.end()
 
-        // Clear current event span when this event finishes
-        if (this.currentEventSpan === eventSpan) {
+        // Clear current event span
+        if (eventSpan === this.currentEventSpan) {
             this.currentEventSpan = null
         }
 
-        this.logger.log('Finished event span', {
-            spanId: eventSpan.spanContext().spanId,
+        const eventType = eventSpan.attributes['event.type'] as string
+        this.log(`Finished event span: ${eventType}`, {
             success,
             actionsCount
         })
@@ -258,299 +308,192 @@ export class TelemetryService {
     }
 
     public withSpanContext<T> (span: Span, fn: () => T | Promise<T>): T | Promise<T> {
-        const spanContext = trace.setSpan(context.active(), span)
-        return context.with(spanContext, fn)
+        if (!span) return fn()
+        return context.with(trace.setSpan(context.active(), span), fn)
     }
 
-    public async logEvent (
-        eventName: string,
-        status: 'success' | 'failure' = 'success',
-        additionalAttributes: TelemetryEventAttributes = {}
-    ): Promise<void> {
-        const stage = additionalAttributes.stage || 'unknown'
-        const key = this.getOperationKey(eventName)
-        const baseAttributes = this.getBaseAttributes()
-        let currentSpan: Span | undefined
-        let spanContext: Context | undefined
-
-        // Merge base attributes with additional ones
-        const allAttributes = {
-            ...baseAttributes,
-            'event.name': eventName,
-            'event.stage': stage,
-            ...additionalAttributes,
-        }
-
-        try {
-            if (stage === 'triggered') {
-                // Create new span for triggered events
-                currentSpan = this.tracer.startSpan(`event.${eventName}.triggered`, {
-                    attributes: allAttributes,
-                })
-
-                spanContext = trace.setSpan(context.active(), currentSpan)
-
-                this.activeSpans.set(key, {
-                    span: currentSpan,
-                    context: spanContext,
-                    startTime: Date.now()
-                })
-
-                await this.logger.log(`Started tracking: ${eventName}`, {
-                    eventName,
-                    stage
-                })
-
-            } else if (stage === 'completed' || stage === 'listener_error') {
-                // Complete existing span
-                const activeSpanEntry = this.activeSpans.get(key)
-
-                if (activeSpanEntry) {
-                    currentSpan = activeSpanEntry.span
-                    spanContext = activeSpanEntry.context
-                    this.activeSpans.delete(key)
-
-                    if (currentSpan) {
-                        currentSpan.setStatus({
-                            code: status === 'success' ? SpanStatusCode.OK : SpanStatusCode.ERROR,
-                            message: status === 'failure' ? `Event ${eventName} failed at stage ${stage}` : undefined,
-                        })
-
-                        currentSpan.setAttributes({
-                            'event.status': status,
-                            ...additionalAttributes,
-                        })
-
-                        const duration = Date.now() - activeSpanEntry.startTime
-
-                        this.operationDurationHistogram.record(duration, {
-                            ...allAttributes,
-                            'event.status': status,
-                        })
-
-                        currentSpan.setAttribute('event.duration_ms', duration)
-                        currentSpan.end()
-
-                        await this.logger.log(`Completed tracking: ${eventName} (${duration}ms)`, {
-                            eventName,
-                            stage,
-                            duration
-                        })
-                    }
-                } else {
-                    // Create one-off span if no active span found
-                    await this.logger.warn(`No active span found for ${eventName}, creating one-off span`, {
-                        eventName,
-                        stage
-                    })
-
-                    currentSpan = this.tracer.startSpan(`event.${eventName}.${stage}`, {
-                        attributes: {
-                            ...allAttributes,
-                            'event.status': status,
-                            warning: 'Span for completed/error stage started without a preceding triggered stage.',
-                        },
-                    })
-
-                    currentSpan.setAttribute('event.duration_ms', 0)
-                    currentSpan.end()
-                }
-            } else {
-                // Create short-lived span for intermediate stages
-                currentSpan = this.tracer.startSpan(`event.${eventName}.${stage}`, {
-                    attributes: {
-                        ...allAttributes,
-                        'event.status': status,
-                    },
-                })
-                currentSpan.end()
-            }
-
-            // Record event counter
-            this.eventCounter.add(1, {
-                ...allAttributes,
-                'event.status': status,
-            })
-
-            await this.logger.log(`Event: ${eventName}, Stage: ${stage}, Status: ${status}`, {
-                eventName,
-                stage,
-                status
-            })
-
-            // Send metrics to qryn if configured
-            await this.sendMetricsToQryn(eventName, status, stage, allAttributes, currentSpan)
-        } catch (error) {
-            await this.logger.error(`Error logging event ${eventName}`, {
-                eventName,
-                error: error instanceof Error ? error.message : String(error)
-            })
-        }
+    // === CENTRALIZED WEBRTC METRICS ===
+    public initializeWebRTCMetrics (page: Page): void {
+        this.webrtcPage = page
+        this.log('WebRTC metrics initialized for page')
     }
 
-    private async sendMetricsToQryn (
-        eventName: string,
-        status: string,
-        stage: string,
-        attributes: Record<string, any>,
-        span?: Span
-    ): Promise<void> {
-        // const gigapipeConfig = env.GIGAPIPE
-        // const metricsConfig = gigapipeConfig?.METRICS || gigapipeConfig?.DEFAULT
-
-        if (!this.qrynClient.isQrynConfigured) {
-            // Fallback to console with structured format
-
-            // console.log('Qryn client not configured, skipping metric push', {
-            //     eventName,
-            //     status,
-            //     stage,
-            //     attributes
-            // })
-
+    public startWebRTCMetricsCollection (): void {
+        if (!this.webrtcPage) {
+            this.warn('Cannot start WebRTC metrics collection - page not initialized')
             return
         }
 
+        this.webrtcCollectionInterval = setInterval(async () => {
+            await this.collectAndSendWebRTCMetrics()
+        }, 5000)
+
+        this.log('Started WebRTC metrics collection', { interval: '5s' })
+    }
+
+    public stopWebRTCMetricsCollection (): void {
+        if (this.webrtcCollectionInterval) {
+            clearInterval(this.webrtcCollectionInterval)
+            this.webrtcCollectionInterval = null
+            this.log('Stopped WebRTC metrics collection')
+        }
+    }
+
+    public async finalizeWebRTCMetrics (): Promise<void> {
+        await this.log('Collecting final WebRTC metrics before cleanup')
+        await this.collectAndSendWebRTCMetrics()
+        this.stopWebRTCMetricsCollection()
+    }
+
+    private async collectAndSendWebRTCMetrics (): Promise<void> {
+        if (!this.webrtcPage) return
+
         try {
-            // Send to qryn via Prometheus format
-            // const timestamp = Date.now()
-            // const labels = {
-            //     scenario_name: this.scenarioName,
-            //     scenario_id: this.scenarioId,
-            //     event_name: eventName,
-            //     stage: stage,
-            //     status: status,
-            //     environment: metricsConfig.scope || 'test'
-            // }
-            //
-            // const collector = new Collector(
-            //     this.logger.qrynClient,
-            //     {
-            //         orgId: 40,
-            //         maxBulkSize: 50,
-            //         maxTimeout: 3000,
-            //         async: true,
-            //     }
-            // )
-            // const metric = collector.createMetric({
-            //     name: 'opensips_test_events_total',
-            //     labels
-            // })
+            const metricsData = await this.webrtcPage.evaluate(() => {
+                if (typeof window !== 'undefined' && window.callMetrics) {
+                    return window.WebRTCMetricsCollector?.collectMetrics() || {
+                        setupTime: window.callMetrics.connectionTime,
+                        totalDuration: Date.now() - (window.callMetrics.startTime || Date.now()),
+                        connectionSuccessful: window.callMetrics.connected,
+                        audioMetrics: window.callMetrics.stats[window.callMetrics.stats.length - 1]?.audio || null,
+                        allStats: window.callMetrics.stats,
+                        scenarioName: window.scenarioName,
+                        scenarioId: window.scenarioId
+                    }
+                }
+                return null
+            }) as WebRTCMetricsData | null
 
-            const timestamp = Date.now()
-            const labels = {
-                scenario_name: this.scenarioName,
-                scenario_id: this.scenarioId,
-                event_name: eventName,
-                stage: stage,
-                status: status,
-                environment: this.qrynClient.getEffectiveConfig?.scope || 'test'
+            if (!metricsData || metricsData.allStats.length <= this.lastWebrtcSentCount) {
+                return
             }
 
-            const metrics: Metric[] = []
+            // Send WebRTC metrics using centralized methods
+            this.recordCustomMetric('opensips_webrtc_setup_time_ms', metricsData.setupTime || 0, {
+                metric_type: 'webrtc_audio',
+                connection_status: metricsData.connectionSuccessful ? 'connected' : 'failed'
+            })
 
-            const testEventsTotal = new Metric('opensips_test_events_total', labels)
-            testEventsTotal.addSample(1, timestamp)
+            this.recordCustomMetric('opensips_webrtc_total_duration_ms', metricsData.totalDuration || 0, {
+                metric_type: 'webrtc_audio',
+                connection_status: metricsData.connectionSuccessful ? 'connected' : 'failed'
+            })
 
-            metrics.push(testEventsTotal)
+            this.recordCustomMetric('opensips_webrtc_connection_successful', metricsData.connectionSuccessful ? 1 : 0, {
+                metric_type: 'webrtc_audio',
+                connection_status: metricsData.connectionSuccessful ? 'connected' : 'failed'
+            })
 
-            if (span && span.attributes['event.duration_ms']) {
-                const testDurationMs = new Metric('opensips_test_duration_ms', labels)
-                testDurationMs.addSample(span.attributes['event.duration_ms'], timestamp)
+            if (metricsData.audioMetrics) {
+                const audio = metricsData.audioMetrics
+                const audioLabels = {
+                    metric_type: 'webrtc_audio',
+                    stream_type: 'audio'
+                }
 
-                metrics.push(testDurationMs)
+                this.recordCustomMetric('opensips_webrtc_packets_received_total', audio.packetsReceived || 0, audioLabels)
+                this.recordCustomMetric('opensips_webrtc_packets_sent_total', audio.packetsSent || 0, audioLabels)
+                this.recordCustomMetric('opensips_webrtc_packets_lost_total', audio.packetsLost || 0, audioLabels)
+                this.recordCustomMetric('opensips_webrtc_jitter_ms', audio.jitter || 0, audioLabels)
+                this.recordCustomMetric('opensips_webrtc_round_trip_time_ms', audio.roundTripTime || 0, audioLabels)
+                this.recordCustomMetric('opensips_webrtc_audio_level', audio.audioLevel || 0, audioLabels)
+                this.recordCustomMetric('opensips_webrtc_total_audio_energy', audio.totalAudioEnergy || 0, audioLabels)
+                this.recordCustomMetric('opensips_webrtc_bytes_received_total', audio.bytesReceived || 0, audioLabels)
+                this.recordCustomMetric('opensips_webrtc_bytes_sent_total', audio.bytesSent || 0, audioLabels)
+                this.recordCustomMetric('opensips_webrtc_current_delay_ms', audio.currentDelay || 0, audioLabels)
             }
 
-            await this.qrynClient.client.prom.push(metrics, { orgId: this.qrynClient.getEffectiveConfig.OrgID }).then(() => {
-                console.log('Metric push successful')
-            }).catch(err => {
-                console.log('Metric push error: ', err.message)
+            this.lastWebrtcSentCount = metricsData.allStats.length
+            await this.log('WebRTC metrics collected and sent', {
+                totalSamples: metricsData.allStats.length,
+                connectionSuccessful: metricsData.connectionSuccessful,
+                hasAudioMetrics: !!metricsData.audioMetrics
             })
-        } catch (error: any) {
-            await this.logger.error(`Failed to send metric to qryn: ${error.message}`, {
-                eventName,
-                stage,
-                error: error.message
-            })
+
+        } catch (error) {
+            await this.error('Error collecting WebRTC metrics', error)
         }
     }
 
-    public async logSuccess (eventName: string, additionalAttributes: TelemetryEventAttributes = {}): Promise<void> {
-        await this.logEvent(eventName, 'success', additionalAttributes)
-    }
-
-    public async logFailure (eventName: string, error?: string | Error, additionalAttributes: TelemetryEventAttributes = {}): Promise<void> {
-        const errorMessage = error instanceof Error ? error.message : error
-        await this.logEvent(eventName, 'failure', {
-            ...additionalAttributes,
-            errorMessage,
+    // === LIFECYCLE LOGGING METHODS ===
+    public async logScenarioStart (): Promise<void> {
+        await this.log('Scenario execution started', {
+            scenario_id: this.scenarioId,
+            scenario_name: this.scenarioName
         })
     }
 
-    public async logTriggered (eventName: string, additionalAttributes: TelemetryEventAttributes = {}): Promise<void> {
-        await this.logEvent(eventName, 'success', {
-            ...additionalAttributes,
-            stage: 'triggered',
+    public async logScenarioEnd (success: boolean, durationMs?: number): Promise<void> {
+        await this.log('Scenario execution completed', {
+            scenario_id: this.scenarioId,
+            scenario_name: this.scenarioName,
+            success,
+            ...(durationMs && { duration_ms: durationMs })
         })
     }
 
-    public async logCompleted (eventName: string, additionalAttributes: TelemetryEventAttributes = {}): Promise<void> {
-        await this.logEvent(eventName, 'success', {
-            ...additionalAttributes,
-            stage: 'completed',
+    public async logEventStart (eventType: string, eventData?: any): Promise<void> {
+        await this.log(`Event started: ${eventType}`, {
+            event_type: eventType,
+            event_data: eventData
         })
     }
 
-    public async logError (eventName: string, error?: string | Error, additionalAttributes: TelemetryEventAttributes = {}): Promise<void> {
-        const errorMessage = error instanceof Error ? error.message : error
-        await this.logEvent(eventName, 'failure', {
-            ...additionalAttributes,
-            stage: 'listener_error',
-            errorMessage,
+    public async logEventEnd (eventType: string, success: boolean, actionsCount?: number): Promise<void> {
+        await this.log(`Event completed: ${eventType}`, {
+            event_type: eventType,
+            success,
+            ...(actionsCount && { actions_count: actionsCount })
         })
     }
 
-    public cleanup (): void {
-        // Clean up any remaining active spans
-        for (const [ key, spanEntry ] of this.activeSpans.entries()) {
-            this.logger.warn(`Cleaning up orphaned span: ${key}`, { spanKey: key })
-            spanEntry.span.setStatus({
-                code: SpanStatusCode.ERROR,
-                message: 'Span ended during cleanup - possible incomplete operation'
-            })
-            spanEntry.span.end()
-        }
-        this.activeSpans.clear()
+    public async logActionStart (actionType: string, actionData?: any): Promise<void> {
+        await this.debug(`Action started: ${actionType}`, {
+            action_type: actionType,
+            action_data: actionData
+        })
+    }
 
-        // Clean up current event span if still active
-        if (this.currentEventSpan) {
-            this.currentEventSpan.setStatus({
-                code: SpanStatusCode.ERROR,
-                message: 'Event span ended during cleanup - possible incomplete operation'
-            })
-            this.currentEventSpan.end()
-            this.currentEventSpan = null
-        }
+    public async logActionEnd (actionType: string, success: boolean, result?: any, durationMs?: number): Promise<void> {
+        await this.debug(`Action completed: ${actionType}`, {
+            action_type: actionType,
+            success,
+            ...(result && { result }),
+            ...(durationMs && { duration_ms: durationMs })
+        })
+    }
 
-        // Finish scenario root span
+    public async logWebSocketMessage (direction: 'sent' | 'received', method: string, statusCode?: number): Promise<void> {
+        await this.debug(`WebSocket message ${direction}: ${method}`, {
+            direction,
+            sip_method: method,
+            ...(statusCode && { status_code: statusCode })
+        })
+    }
+
+    // === CLEANUP ===
+    public async cleanup (): Promise<void> {
+        // Record final scenario duration
+        const scenarioDuration = this.scenarioRootSpan ?
+            Date.now() - new Date(this.scenarioRootSpan.attributes['scenario.start_time'] as string).getTime() : 0
+
+        this.recordCustomMetric('opensips_scenario_duration_ms', scenarioDuration, { status: 'success' })
+
+        // Cleanup WebRTC metrics
+        await this.finalizeWebRTCMetrics()
+
+        // End scenario span
         if (this.scenarioRootSpan) {
-            this.scenarioRootSpan.setStatus({
-                code: SpanStatusCode.OK,
-                message: 'Scenario completed'
-            })
-            this.scenarioRootSpan.setAttribute('scenario.end_time', new Date().toISOString())
+            this.scenarioRootSpan.setStatus({ code: SpanStatusCode.OK })
             this.scenarioRootSpan.end()
         }
 
-        this.scenarioRootSpan = null
+        await this.logScenarioEnd(true, scenarioDuration)
 
-        this.logger.log('Cleaned up all spans', {
-            orphanedSpansCount: this.activeSpans.size,
-            hadActiveEventSpan: this.currentEventSpan !== null
-        })
+        console.log('🚀 CENTRALIZED telemetry cleanup completed - ALL DATA SENT TO QRYN')
     }
 
-    // Getter methods for scenario info
+    // === GETTERS ===
     public getScenarioId (): string {
         return this.scenarioId
     }

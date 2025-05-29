@@ -107,4 +107,75 @@ export default class QrynLogger {
         const logEntry = this.createLogEntry('debug', message, metadata)
         await this.sendToQryn(logEntry)
     }
+
+    // === LIFECYCLE LOGGING METHODS ===
+    public async logScenarioStart(): Promise<void> {
+        await this.log('Scenario execution started', {
+            scenario_id: this.scenarioId,
+            scenario_name: this.scenarioName
+        })
+    }
+
+    public async logScenarioEnd(success: boolean, durationMs?: number): Promise<void> {
+        await this.log('Scenario execution completed', {
+            scenario_id: this.scenarioId,
+            scenario_name: this.scenarioName,
+            success,
+            ...(durationMs && { duration_ms: durationMs })
+        })
+    }
+
+    public async logEventStart(eventType: string, eventData?: any): Promise<void> {
+        await this.log(`Event started: ${eventType}`, {
+            event_type: eventType,
+            event_data: eventData
+        })
+    }
+
+    public async logEventEnd(eventType: string, success: boolean, actionsCount?: number): Promise<void> {
+        await this.log(`Event completed: ${eventType}`, {
+            event_type: eventType,
+            success,
+            ...(actionsCount && { actions_count: actionsCount })
+        })
+    }
+
+    public async logActionStart(actionType: string, actionData?: any): Promise<void> {
+        await this.debug(`Action started: ${actionType}`, {
+            action_type: actionType,
+            action_data: actionData
+        })
+    }
+
+    public async logActionEnd(actionType: string, success: boolean, result?: any, durationMs?: number): Promise<void> {
+        await this.debug(`Action completed: ${actionType}`, {
+            action_type: actionType,
+            success,
+            ...(result && { result }),
+            ...(durationMs && { duration_ms: durationMs })
+        })
+    }
+
+    public async logWebSocketMessage(direction: 'sent' | 'received', method: string, statusCode?: number): Promise<void> {
+        await this.debug(`WebSocket message ${direction}: ${method}`, {
+            direction,
+            sip_method: method,
+            ...(statusCode && { status_code: statusCode })
+        })
+    }
+
+    public async logActionError(actionType: string, error: Error | string, phase: string = 'execution'): Promise<void> {
+        await this.error(`Action failed: ${actionType}`, {
+            action_type: actionType,
+            phase,
+            error: error instanceof Error ? error.message : error
+        })
+    }
+
+    public async logEventError(eventType: string, error: Error | string): Promise<void> {
+        await this.error(`Event failed: ${eventType}`, {
+            event_type: eventType,
+            error: error instanceof Error ? error.message : error
+        })
+    }
 }
