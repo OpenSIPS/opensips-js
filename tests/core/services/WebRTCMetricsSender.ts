@@ -95,7 +95,37 @@ export class WebRTCMetricsSender {
                 scenario_name: this.scenarioName,
                 scenario_id: this.scenarioId,
                 environment: this.qrynClient.getEffectiveConfig?.scope || 'test',
-                metric_type: 'webrtc_audio'
+                metric_type: 'webrtc_audio',
+                // Connection status labels
+                connection_successful: metricsData.connectionSuccessful ? 'true' : 'false',
+                has_audio_metrics: metricsData.audioMetrics ? 'true' : 'false',
+                // Audio metrics as labels (when available)
+                ...(metricsData.audioMetrics && {
+                    audio_level_range: metricsData.audioMetrics.audioLevel
+                        ? (metricsData.audioMetrics.audioLevel > 0.5 ? 'high' : 'low')
+                        : 'unknown',
+                    jitter_category: metricsData.audioMetrics.jitter
+                        ? (metricsData.audioMetrics.jitter > 50 ? 'high' : 'normal')
+                        : 'unknown',
+                    rtt_category: metricsData.audioMetrics.roundTripTime
+                        ? (metricsData.audioMetrics.roundTripTime > 200 ? 'high' : 'normal')
+                        : 'unknown',
+                    packets_lost_status: metricsData.audioMetrics.packetsLost,
+                    current_delay_category: metricsData.audioMetrics.currentDelay
+                        ? (metricsData.audioMetrics.currentDelay > 100 ? 'high' : 'normal')
+                        : 'unknown',
+                    audio_energy_level: metricsData.audioMetrics.totalAudioEnergy
+                        ? (metricsData.audioMetrics.totalAudioEnergy > 1000 ? 'high' : 'low')
+                        : 'unknown'
+                }),
+                // Connection timing labels
+                setup_time_category: metricsData.setupTime
+                    ? (metricsData.setupTime > 5000 ? 'slow' : 'fast')
+                    : 'unknown',
+                duration_category: metricsData.totalDuration > 60000 ? 'long' : 'short',
+                // Stats collection info
+                stats_count: metricsData.allStats.length.toString(),
+                timestamp_category: new Date(timestamp).getHours() < 12 ? 'morning' : 'afternoon'
             }
 
             // Define metric definitions
@@ -122,19 +152,16 @@ export class WebRTCMetricsSender {
 
             // Recursively create metrics
             const createMetrics = (definitions: Record<string, number>, metrics: Metric[] = []): Metric[] => {
-                const [name, value, ...rest] = Object.entries(definitions).flat()
+                const entries = Object.entries(definitions)
+                if (entries.length === 0) return metrics
 
-                if (!name) return metrics
-
-                const metric = new Metric('opensips_test_webrtc', definitions)
+                const [metricName, value] = entries[0]
+                const metric = new Metric(metricName, labels)
                 metric.addSample(value as number, timestamp)
                 metrics.push(metric)
 
                 // Recursive call with remaining definitions
-                const remainingDefs = Object.fromEntries(
-                    Object.entries(definitions).slice(1)
-                )
-
+                const remainingDefs = Object.fromEntries(entries.slice(1))
                 return Object.keys(remainingDefs).length > 0
                     ? createMetrics(remainingDefs, metrics)
                     : metrics
