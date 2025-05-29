@@ -111,7 +111,6 @@ export default class PageWebSocketWorker {
                         waiting_for: waitingOptions.method,
                         expected_status: 'status_code' in waitingOptions ? waitingOptions.status_code.toString() : 'none',
                     })
-
                     if (parsedMessage &&
                         parsedMessage.method === waitingOptions.method &&
                         (!('status_code' in waitingOptions) ||

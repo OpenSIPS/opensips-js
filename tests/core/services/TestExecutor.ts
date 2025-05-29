@@ -276,7 +276,7 @@ export default class TestExecutor {
 
         try {
             this.browser = await chromium.launch({
-                headless: false,
+                headless: true,
                 args: [
                     '--allow-file-access',
                     '--autoplay-policy=no-user-gesture-required',
