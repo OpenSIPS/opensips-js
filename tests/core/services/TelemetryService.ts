@@ -13,66 +13,13 @@ import QrynLogger from './QrynLogger'
 import QrynClient from './QrynClient'
 import { Metric } from 'qryn-client'
 
-// Global SDK initialization - this should happen only once
-let sdkInitialized = false
-let globalMeter: Meter
-let globalTracer: Tracer
-
-function initializeSDK () {
-    if (sdkInitialized) return
-
-    // Get GIGAPIPE configuration for tracing and metrics
-    const gigapipeConfig = env.GIGAPIPE
-    const tracingConfig = gigapipeConfig?.TRACING || gigapipeConfig?.DEFAULT
-    const metricsConfig = gigapipeConfig?.METRICS || gigapipeConfig?.DEFAULT
-
-    // Configure trace exporter
-    let traceExporter
-    if (tracingConfig?.url) {
-        traceExporter = new ZipkinExporter({
-            url: `${tracingConfig.url}/tempo/spans`,
-            serviceName: 'opensips-tests',
-            headers: tracingConfig.headers || {},
-        })
-    } else {
-        return // No tracing config, skip SDK initialization
-    }
-
-    // Configure metric exporter
-    let metricExporter
-    let metricReader
-    if (metricsConfig?.url) {
-        metricExporter = new OTLPMetricExporter({
-            url: `${metricsConfig.url}/v1/metrics`,
-            headers: metricsConfig.headers || {}
-        })
-        metricReader = new PeriodicExportingMetricReader({
-            exporter: metricExporter,
-            exportIntervalMillis: 5000, // Export every 5 seconds
-        })
-    }
-
-    const sdk = new NodeSDK({
-        traceExporter,
-        metricReader,
-        instrumentations: [ getNodeAutoInstrumentations() ],
-    })
-
-    sdk.start()
-
-    globalMeter = metrics.getMeter('event-testing-metrics')
-    globalTracer = trace.getTracer('event-testing')
-
-    sdkInitialized = true
-    // OpenTelemetry SDK initialized globally
-}
-
 export interface TelemetryEventAttributes {
     stage?: string
     [key: string]: any
 }
 
 export class TelemetryService {
+    private sdkInitialized = false
     private meter: Meter
     private tracer: Tracer
     private eventCounter: any
@@ -87,14 +34,13 @@ export class TelemetryService {
         private readonly scenarioId: string,
         private readonly scenarioName: string
     ) {
-        // Ensure global SDK is initialized
-        initializeSDK()
+        this.initializeSDK()
 
-        this.meter = globalMeter || metrics.getMeter('event-testing-metrics-fallback')
-        this.tracer = globalTracer || trace.getTracer('event-testing-fallback')
+        this.meter = metrics.getMeter('event-testing-metrics') || metrics.getMeter('event-testing-metrics-fallback')
+        this.tracer = trace.getTracer('event-testing') || trace.getTracer('event-testing-fallback')
         this.logger = new QrynLogger('TelemetryService', scenarioName, scenarioId)
+        this.qrynClient = new QrynClient('TRACING')
 
-        // Create scenario-specific metrics with labels
         this.eventCounter = this.meter.createCounter('test_events', {
             description: 'Count of events during test scenarios',
         })
@@ -106,23 +52,49 @@ export class TelemetryService {
 
         this.logger.log(`Initialized for scenario: ${scenarioName} (${scenarioId})`)
 
-        this.qrynClient = new QrynClient('TRACING')
-
-        // Create root span for the entire scenario
         this.createScenarioRootSpan()
     }
 
-    private getOperationKey (eventName: string): string {
-        return `${eventName}-${this.scenarioId}`
-    }
+    private initializeSDK () {
+        if (this.sdkInitialized) return
 
-    private getBaseAttributes (): Record<string, string> {
-        return {
-            'scenario.id': this.scenarioId,
-            'scenario.name': this.scenarioName,
-            'service.name': 'opensips-js-tests',
-            environment: this.qrynClient.getEffectiveConfig?.scope || 'test'
+        const gigapipeConfig = env.GIGAPIPE
+        const tracingConfig = gigapipeConfig?.TRACING || gigapipeConfig?.DEFAULT
+        const metricsConfig = gigapipeConfig?.METRICS || gigapipeConfig?.DEFAULT
+
+        let traceExporter
+        if (tracingConfig?.url) {
+            traceExporter = new ZipkinExporter({
+                url: `${tracingConfig.url}/tempo/spans`,
+                serviceName: 'opensips-tests',
+                headers: tracingConfig.headers || {},
+            })
+        } else {
+            return
         }
+
+        let metricExporter
+        let metricReader
+        if (metricsConfig?.url) {
+            metricExporter = new OTLPMetricExporter({
+                url: `${metricsConfig.url}/v1/metrics`,
+                headers: metricsConfig.headers || {}
+            })
+            metricReader = new PeriodicExportingMetricReader({
+                exporter: metricExporter,
+                exportIntervalMillis: 5000, // Export every 5 seconds
+            })
+        }
+
+        const sdk = new NodeSDK({
+            traceExporter,
+            metricReader,
+            instrumentations: [ getNodeAutoInstrumentations() ],
+        })
+
+        sdk.start()
+
+        this.sdkInitialized = true
     }
 
     private createScenarioRootSpan (): void {
@@ -245,23 +217,6 @@ export class TelemetryService {
         })
     }
 
-    public getCurrentSpan (): Span | null {
-        return this.currentEventSpan || this.scenarioRootSpan
-    }
-
-    public getCurrentEventSpan (): Span | null {
-        return this.currentEventSpan
-    }
-
-    public getScenarioRootSpan (): Span | null {
-        return this.scenarioRootSpan
-    }
-
-    public withSpanContext<T> (span: Span, fn: () => T | Promise<T>): T | Promise<T> {
-        const spanContext = trace.setSpan(context.active(), span)
-        return context.with(spanContext, fn)
-    }
-
     public async logEvent (
         eventName: string,
         status: 'success' | 'failure' = 'success',
@@ -273,7 +228,6 @@ export class TelemetryService {
         let currentSpan: Span | undefined
         let spanContext: Context | undefined
 
-        // Merge base attributes with additional ones
         const allAttributes = {
             ...baseAttributes,
             'event.name': eventName,
@@ -283,7 +237,6 @@ export class TelemetryService {
 
         try {
             if (stage === 'triggered') {
-                // Create new span for triggered events
                 currentSpan = this.tracer.startSpan(`event.${eventName}.triggered`, {
                     attributes: allAttributes,
                 })
@@ -338,7 +291,6 @@ export class TelemetryService {
                         })
                     }
                 } else {
-                    // Create one-off span if no active span found
                     await this.logger.warn(`No active span found for ${eventName}, creating one-off span`, {
                         eventName,
                         stage
@@ -356,7 +308,6 @@ export class TelemetryService {
                     currentSpan.end()
                 }
             } else {
-                // Create short-lived span for intermediate stages
                 currentSpan = this.tracer.startSpan(`event.${eventName}.${stage}`, {
                     attributes: {
                         ...allAttributes,
@@ -366,7 +317,6 @@ export class TelemetryService {
                 currentSpan.end()
             }
 
-            // Record event counter
             this.eventCounter.add(1, {
                 ...allAttributes,
                 'event.status': status,
@@ -377,9 +327,6 @@ export class TelemetryService {
                 stage,
                 status
             })
-
-            // Send metrics to qryn if configured
-            await this.sendMetricsToQryn(eventName, status, stage, allAttributes, currentSpan)
         } catch (error) {
             await this.logger.error(`Error logging event ${eventName}`, {
                 eventName,
@@ -388,91 +335,42 @@ export class TelemetryService {
         }
     }
 
-    private async sendMetricsToQryn (
-        eventName: string,
-        status: string,
-        stage: string,
-        attributes: Record<string, any>,
-        span?: Span
-    ): Promise<void> {
-        // const gigapipeConfig = env.GIGAPIPE
-        // const metricsConfig = gigapipeConfig?.METRICS || gigapipeConfig?.DEFAULT
-
-        if (!this.qrynClient.isQrynConfigured) {
-            // Fallback to console with structured format
-
-            // console.log('Qryn client not configured, skipping metric push', {
-            //     eventName,
-            //     status,
-            //     stage,
-            //     attributes
-            // })
-
-            return
-        }
-
-        try {
-            // Send to qryn via Prometheus format
-            // const timestamp = Date.now()
-            // const labels = {
-            //     scenario_name: this.scenarioName,
-            //     scenario_id: this.scenarioId,
-            //     event_name: eventName,
-            //     stage: stage,
-            //     status: status,
-            //     environment: metricsConfig.scope || 'test'
-            // }
-            //
-            // const collector = new Collector(
-            //     this.logger.qrynClient,
-            //     {
-            //         orgId: 40,
-            //         maxBulkSize: 50,
-            //         maxTimeout: 3000,
-            //         async: true,
-            //     }
-            // )
-            // const metric = collector.createMetric({
-            //     name: 'opensips_test_events_total',
-            //     labels
-            // })
-
-            const timestamp = Date.now()
-            const labels = {
-                scenario_name: this.scenarioName,
-                scenario_id: this.scenarioId,
-                event_name: eventName,
-                stage: stage,
-                status: status,
-                environment: this.qrynClient.getEffectiveConfig?.scope || 'test'
-            }
-
-            const metrics: Metric[] = []
-
-            const testEventsTotal = new Metric('opensips_test_events_total', labels)
-            testEventsTotal.addSample(1, timestamp)
-
-            metrics.push(testEventsTotal)
-
-            if (span && span.attributes['event.duration_ms']) {
-                const testDurationMs = new Metric('opensips_test_duration_ms', labels)
-                testDurationMs.addSample(span.attributes['event.duration_ms'], timestamp)
-
-                metrics.push(testDurationMs)
-            }
-
-            // await this.qrynClient.client.prom.push(metrics, { orgId: this.qrynClient.getEffectiveConfig.OrgID }).then(() => {
-            //     console.log('Metric push successful')
-            // }).catch(err => {
-            //     console.log('Metric push error: ', err.message)
-            // })
-        } catch (error: any) {
-            await this.logger.error(`Failed to send metric to qryn: ${error.message}`, {
-                eventName,
-                stage,
-                error: error.message
+    public cleanup (): void {
+        // Clean up any remaining active spans
+        for (const [ key, spanEntry ] of this.activeSpans.entries()) {
+            this.logger.warn(`Cleaning up orphaned span: ${key}`, { spanKey: key })
+            spanEntry.span.setStatus({
+                code: SpanStatusCode.ERROR,
+                message: 'Span ended during cleanup - possible incomplete operation'
             })
+            spanEntry.span.end()
         }
+        this.activeSpans.clear()
+
+        if (this.currentEventSpan) {
+            this.currentEventSpan.setStatus({
+                code: SpanStatusCode.ERROR,
+                message: 'Event span ended during cleanup - possible incomplete operation'
+            })
+            this.currentEventSpan.end()
+            this.currentEventSpan = null
+        }
+
+        if (this.scenarioRootSpan) {
+            this.scenarioRootSpan.setStatus({
+                code: SpanStatusCode.OK,
+                message: 'Scenario completed'
+            })
+            this.scenarioRootSpan.setAttribute('scenario.end_time', new Date().toISOString())
+            this.scenarioRootSpan.end()
+        }
+
+        this.scenarioRootSpan = null
+
+        this.logger.log('Cleaned up all spans', {
+            orphanedSpansCount: this.activeSpans.size,
+            hadActiveEventSpan: this.currentEventSpan !== null
+        })
     }
 
     public async logSuccess (eventName: string, additionalAttributes: TelemetryEventAttributes = {}): Promise<void> {
@@ -510,47 +408,36 @@ export class TelemetryService {
         })
     }
 
-    public cleanup (): void {
-        // Clean up any remaining active spans
-        for (const [ key, spanEntry ] of this.activeSpans.entries()) {
-            this.logger.warn(`Cleaning up orphaned span: ${key}`, { spanKey: key })
-            spanEntry.span.setStatus({
-                code: SpanStatusCode.ERROR,
-                message: 'Span ended during cleanup - possible incomplete operation'
-            })
-            spanEntry.span.end()
-        }
-        this.activeSpans.clear()
-
-        // Clean up current event span if still active
-        if (this.currentEventSpan) {
-            this.currentEventSpan.setStatus({
-                code: SpanStatusCode.ERROR,
-                message: 'Event span ended during cleanup - possible incomplete operation'
-            })
-            this.currentEventSpan.end()
-            this.currentEventSpan = null
-        }
-
-        // Finish scenario root span
-        if (this.scenarioRootSpan) {
-            this.scenarioRootSpan.setStatus({
-                code: SpanStatusCode.OK,
-                message: 'Scenario completed'
-            })
-            this.scenarioRootSpan.setAttribute('scenario.end_time', new Date().toISOString())
-            this.scenarioRootSpan.end()
-        }
-
-        this.scenarioRootSpan = null
-
-        this.logger.log('Cleaned up all spans', {
-            orphanedSpansCount: this.activeSpans.size,
-            hadActiveEventSpan: this.currentEventSpan !== null
-        })
+    public withSpanContext<T> (span: Span, fn: () => T | Promise<T>): T | Promise<T> {
+        const spanContext = trace.setSpan(context.active(), span)
+        return context.with(spanContext, fn)
     }
 
-    // Getter methods for scenario info
+    public getCurrentSpan (): Span | null {
+        return this.currentEventSpan || this.scenarioRootSpan
+    }
+
+    public getCurrentEventSpan (): Span | null {
+        return this.currentEventSpan
+    }
+
+    public getScenarioRootSpan (): Span | null {
+        return this.scenarioRootSpan
+    }
+
+    private getOperationKey (eventName: string): string {
+        return `${eventName}-${this.scenarioId}`
+    }
+
+    private getBaseAttributes (): Record<string, string> {
+        return {
+            'scenario.id': this.scenarioId,
+            'scenario.name': this.scenarioName,
+            'service.name': 'opensips-js-tests',
+            environment: this.qrynClient.getEffectiveConfig?.scope || 'test'
+        }
+    }
+
     public getScenarioId (): string {
         return this.scenarioId
     }
