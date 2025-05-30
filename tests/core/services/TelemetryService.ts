@@ -9,7 +9,6 @@ import {
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
 import { metrics, trace, context, Span, SpanStatusCode, Context, Meter, Tracer, SpanKind } from '@opentelemetry/api'
 import env from '../env'
-import QrynLogger from './QrynLogger'
 import QrynClient from './QrynClient'
 import { Metric } from 'qryn-client'
 
@@ -27,7 +26,6 @@ export class TelemetryService {
     private activeSpans: Map<string, { span: Span; context: Context; startTime: number }> = new Map()
     private scenarioRootSpan: Span | null = null
     private currentEventSpan: Span | null = null
-    private logger: QrynLogger
     private readonly qrynClient: QrynClient
 
     constructor (
@@ -38,7 +36,7 @@ export class TelemetryService {
 
         this.meter = metrics.getMeter('event-testing-metrics') || metrics.getMeter('event-testing-metrics-fallback')
         this.tracer = trace.getTracer('event-testing') || trace.getTracer('event-testing-fallback')
-        this.logger = new QrynLogger('TelemetryService', scenarioName, scenarioId)
+        // this.logger = new QrynLogger('TelemetryService', scenarioName, scenarioId)
         this.qrynClient = new QrynClient('TRACING')
 
         this.eventCounter = this.meter.createCounter('test_events', {
@@ -50,7 +48,7 @@ export class TelemetryService {
             description: 'Duration of operations',
         })
 
-        this.logger.log(`Initialized for scenario: ${scenarioName} (${scenarioId})`)
+        // this.logger.log(`Initialized for scenario: ${scenarioName} (${scenarioId})`)
 
         this.createScenarioRootSpan()
     }
@@ -107,7 +105,7 @@ export class TelemetryService {
             }
         })
 
-        this.logger.log('Created scenario root span', { spanId: this.scenarioRootSpan.spanContext().spanId })
+        // this.logger.log('Created scenario root span', { spanId: this.scenarioRootSpan.spanContext().spanId })
     }
 
     public startActionSpan (actionType: string, actionData?: any): Span {
@@ -125,11 +123,11 @@ export class TelemetryService {
             }
         }, parentContext)
 
-        this.logger.log(`Started action span: ${actionType}`, {
-            spanId: actionSpan.spanContext().spanId,
-            parentSpanId: parentSpan?.spanContext().spanId,
-            parentType: this.currentEventSpan ? 'event' : 'scenario'
-        })
+        // this.logger.log(`Started action span: ${actionType}`, {
+        //     spanId: actionSpan.spanContext().spanId,
+        //     parentSpanId: parentSpan?.spanContext().spanId,
+        //     parentType: this.currentEventSpan ? 'event' : 'scenario'
+        // })
 
         return actionSpan
     }
@@ -155,11 +153,11 @@ export class TelemetryService {
 
         actionSpan.end()
 
-        this.logger.log('Finished action span', {
-            spanId: actionSpan.spanContext().spanId,
-            success,
-            error: error ? (error instanceof Error ? error.message : error) : undefined
-        })
+        // this.logger.log('Finished action span', {
+        //     spanId: actionSpan.spanContext().spanId,
+        //     success,
+        //     error: error ? (error instanceof Error ? error.message : error) : undefined
+        // })
     }
 
     public startEventSpan (eventType: string, eventData?: any): Span {
@@ -179,10 +177,10 @@ export class TelemetryService {
         // Set this as the current event span so actions become its children
         this.currentEventSpan = eventSpan
 
-        this.logger.log(`Started event span: ${eventType}`, {
-            spanId: eventSpan.spanContext().spanId,
-            parentSpanId: this.scenarioRootSpan?.spanContext().spanId
-        })
+        // this.logger.log(`Started event span: ${eventType}`, {
+        //     spanId: eventSpan.spanContext().spanId,
+        //     parentSpanId: this.scenarioRootSpan?.spanContext().spanId
+        // })
 
         return eventSpan
     }
@@ -210,11 +208,11 @@ export class TelemetryService {
             this.currentEventSpan = null
         }
 
-        this.logger.log('Finished event span', {
-            spanId: eventSpan.spanContext().spanId,
-            success,
-            actionsCount
-        })
+        // this.logger.log('Finished event span', {
+        //     spanId: eventSpan.spanContext().spanId,
+        //     success,
+        //     actionsCount
+        // })
     }
 
     public async logEvent (
@@ -249,10 +247,10 @@ export class TelemetryService {
                     startTime: Date.now()
                 })
 
-                await this.logger.log(`Started tracking: ${eventName}`, {
-                    eventName,
-                    stage
-                })
+                // await this.logger.log(`Started tracking: ${eventName}`, {
+                //     eventName,
+                //     stage
+                // })
 
             } else if (stage === 'completed' || stage === 'listener_error') {
                 // Complete existing span
@@ -284,17 +282,17 @@ export class TelemetryService {
                         currentSpan.setAttribute('event.duration_ms', duration)
                         currentSpan.end()
 
-                        await this.logger.log(`Completed tracking: ${eventName} (${duration}ms)`, {
-                            eventName,
-                            stage,
-                            duration
-                        })
+                        // await this.logger.log(`Completed tracking: ${eventName} (${duration}ms)`, {
+                        //     eventName,
+                        //     stage,
+                        //     duration
+                        // })
                     }
                 } else {
-                    await this.logger.warn(`No active span found for ${eventName}, creating one-off span`, {
-                        eventName,
-                        stage
-                    })
+                    // await this.logger.warn(`No active span found for ${eventName}, creating one-off span`, {
+                    //     eventName,
+                    //     stage
+                    // })
 
                     currentSpan = this.tracer.startSpan(`event.${eventName}.${stage}`, {
                         attributes: {
@@ -322,23 +320,23 @@ export class TelemetryService {
                 'event.status': status,
             })
 
-            await this.logger.log(`Event: ${eventName}, Stage: ${stage}, Status: ${status}`, {
-                eventName,
-                stage,
-                status
-            })
+            // await this.logger.log(`Event: ${eventName}, Stage: ${stage}, Status: ${status}`, {
+            //     eventName,
+            //     stage,
+            //     status
+            // })
         } catch (error) {
-            await this.logger.error(`Error logging event ${eventName}`, {
-                eventName,
-                error: error instanceof Error ? error.message : String(error)
-            })
+            // await this.logger.error(`Error logging event ${eventName}`, {
+            //     eventName,
+            //     error: error instanceof Error ? error.message : String(error)
+            // })
         }
     }
 
     public cleanup (): void {
         // Clean up any remaining active spans
         for (const [ key, spanEntry ] of this.activeSpans.entries()) {
-            this.logger.warn(`Cleaning up orphaned span: ${key}`, { spanKey: key })
+            // this.logger.warn(`Cleaning up orphaned span: ${key}`, { spanKey: key })
             spanEntry.span.setStatus({
                 code: SpanStatusCode.ERROR,
                 message: 'Span ended during cleanup - possible incomplete operation'
@@ -367,10 +365,10 @@ export class TelemetryService {
 
         this.scenarioRootSpan = null
 
-        this.logger.log('Cleaned up all spans', {
-            orphanedSpansCount: this.activeSpans.size,
-            hadActiveEventSpan: this.currentEventSpan !== null
-        })
+        // this.logger.log('Cleaned up all spans', {
+        //     orphanedSpansCount: this.activeSpans.size,
+        //     hadActiveEventSpan: this.currentEventSpan !== null
+        // })
     }
 
     public async logSuccess (eventName: string, additionalAttributes: TelemetryEventAttributes = {}): Promise<void> {

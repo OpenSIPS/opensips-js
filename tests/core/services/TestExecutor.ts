@@ -8,7 +8,6 @@ import ActionsExecutor from './ActionsExecutor'
 import WindowMethodsWorker from './WindowMethodsWorker'
 import ScenarioManager from './ScenarioManager'
 import { TelemetryService } from './TelemetryService'
-import QrynLogger from './QrynLogger'
 
 import env from '../env'
 
@@ -33,7 +32,6 @@ export default class TestExecutor {
     private actionsExecutor!: ActionsExecutor
     private windowMethodsWorker!: WindowMethodsWorker
     private readonly telemetryService: TelemetryService
-    private readonly logger: QrynLogger
 
     private readonly eventBus = EventBus.getInstance()
     private scenarioCompleted = false // Add completion flag
@@ -47,7 +45,7 @@ export default class TestExecutor {
         private readonly scenarioManager: ScenarioManager
     ) {
         this.telemetryService = new TelemetryService(scenarioId, scenarioName)
-        this.logger = new QrynLogger('TestExecutor', scenarioName, scenarioId)
+        // this.logger = new QrynLogger('TestExecutor', scenarioName, scenarioId)
     }
 
     private addEventListener<E extends EventType> (
@@ -77,7 +75,7 @@ export default class TestExecutor {
         eventName: E | string,
         data: EventListenerData<E>
     ): Promise<void> {
-        await this.logger.log(`Triggering shared event: ${eventName}`, { eventName })
+        // await this.logger.log(`Triggering shared event: ${eventName}`, { eventName })
         await this.eventBus.triggerEvent(eventName, data)
     }
 
@@ -104,7 +102,7 @@ export default class TestExecutor {
                     )
                 )
             } catch (e) {
-                this.logger.error('Error rendering payload', { error: e instanceof Error ? e.message : String(e) })
+                // this.logger.error('Error rendering payload', { error: e instanceof Error ? e.message : String(e) })
             }
         }
 
@@ -114,7 +112,7 @@ export default class TestExecutor {
     private async executeAction<T extends ActionType> (
         action: GetActionDefinition<ActionByActionType<T>>,
     ): Promise<void> {
-        await this.logger.log(`Executing action: ${action.type}`, { actionType: action.type })
+        // await this.logger.log(`Executing action: ${action.type}`, { actionType: action.type })
 
         // Start telemetry tracking for this action
         await this.telemetryService.logTriggered(action.type, {
@@ -122,10 +120,10 @@ export default class TestExecutor {
         })
 
         if (action.data && action.data.waitUntil && action.data.waitUntil.event) {
-            await this.logger.log(`Waiting for event: ${action.data.waitUntil.event}`, {
-                waitingForEvent: action.data.waitUntil.event,
-                timeout: action.data.waitUntil.timeout || 30000
-            })
+            // await this.logger.log(`Waiting for event: ${action.data.waitUntil.event}`, {
+            //     waitingForEvent: action.data.waitUntil.event,
+            //     timeout: action.data.waitUntil.timeout || 30000
+            // })
 
             try {
                 // Wait for the event globally (not just scenario-specific)
@@ -134,14 +132,14 @@ export default class TestExecutor {
                     (_, data) => this.shouldReactToEvent(data),
                     action.data.waitUntil.timeout || 30000 // Default 30 second timeout
                 )
-                await this.logger.log(`Event received: ${action.data.waitUntil.event}`, {
-                    receivedEvent: action.data.waitUntil.event
-                })
+                // await this.logger.log(`Event received: ${action.data.waitUntil.event}`, {
+                //     receivedEvent: action.data.waitUntil.event
+                // })
             } catch (error) {
-                await this.logger.error('Error waiting for event', {
-                    error: error instanceof Error ? error.message : String(error),
-                    waitingForEvent: action.data.waitUntil.event
-                })
+                // await this.logger.error('Error waiting for event', {
+                //     error: error instanceof Error ? error.message : String(error),
+                //     waitingForEvent: action.data.waitUntil.event
+                // })
                 await this.telemetryService.logError(action.type, error, {
                     phase: 'waitUntil',
                     waitingFor: action.data.waitUntil.event
@@ -165,10 +163,10 @@ export default class TestExecutor {
 
         const onResult = (result: ActionResponse<BaseActionSuccessResponse>) => {
             if (isActionError(result)) {
-                this.logger.error('Action failed', {
-                    actionType: action.type,
-                    error: result.error
-                })
+                // this.logger.error('Action failed', {
+                //     actionType: action.type,
+                //     error: result.error
+                // })
                 throw new Error(result.error)
             }
 
@@ -179,10 +177,10 @@ export default class TestExecutor {
                     [action.data.responseToContext.contextKeyToSet]: result
                 })
 
-                this.logger.log('Context updated', {
-                    contextKey: action.data.responseToContext.contextKeyToSet,
-                    newContext: this.scenarioManager.getContext()
-                })
+                // this.logger.log('Context updated', {
+                //     contextKey: action.data.responseToContext.contextKeyToSet,
+                //     newContext: this.scenarioManager.getContext()
+                // })
             }
         }
 
@@ -259,10 +257,10 @@ export default class TestExecutor {
             // Finish action span with success
             this.telemetryService.finishActionSpan(actionSpan, true, undefined, result)
         } catch (error) {
-            await this.logger.error('Error executing action', {
-                actionType: action.type,
-                error: error instanceof Error ? error.message : String(error)
-            })
+            // await this.logger.error('Error executing action', {
+            //     actionType: action.type,
+            //     error: error instanceof Error ? error.message : String(error)
+            // })
 
             // Log the error with detailed context
             await this.telemetryService.logError(action.type, error, {
@@ -284,7 +282,7 @@ export default class TestExecutor {
 
         try {
             this.browser = await chromium.launch({
-                headless: true,
+                headless: false,
                 args: [
                     '--allow-file-access',
                     '--autoplay-policy=no-user-gesture-required',
@@ -344,10 +342,10 @@ export default class TestExecutor {
     }
 
     public async executeScenario (scenario: TestScenario): Promise<void> {
-        await this.logger.log('Executing scenario', {
-            scenarioName: scenario.name,
-            actionsCount: scenario.actions.length
-        })
+        // await this.logger.log('Executing scenario', {
+        //     scenarioName: scenario.name,
+        //     actionsCount: scenario.actions.length
+        // })
 
         try {
             const eventCounter: Record<string, number> = {} // Changed to string to allow custom events
@@ -362,10 +360,10 @@ export default class TestExecutor {
                 eventHandlers[event].push(actions)
             }
 
-            await this.logger.log('Event handlers initialized', {
-                eventTypes: Object.keys(eventHandlers),
-                totalHandlers: Object.values(eventHandlers).reduce((sum, handlers) => sum + handlers.length, 0)
-            })
+            // await this.logger.log('Event handlers initialized', {
+            //     eventTypes: Object.keys(eventHandlers),
+            //     totalHandlers: Object.values(eventHandlers).reduce((sum, handlers) => sum + handlers.length, 0)
+            // })
 
             // Set up event listeners for all events (including custom ones)
             for (const eventName in eventHandlers) {
@@ -415,10 +413,10 @@ export default class TestExecutor {
                             this.telemetryService.finishEventSpan(eventSpan, true, undefined, actions.length)
 
                         } catch (error) {
-                            await this.logger.error('Error handling event', {
-                                eventName,
-                                error: error instanceof Error ? error.message : String(error)
-                            })
+                            // await this.logger.error('Error handling event', {
+                            //     eventName,
+                            //     error: error instanceof Error ? error.message : String(error)
+                            // })
 
                             // Finish event span with error
                             this.telemetryService.finishEventSpan(eventSpan, false, error, actions.length)
@@ -433,7 +431,7 @@ export default class TestExecutor {
 
             // Keep the scenario alive until it's explicitly completed
             // Don't cleanup immediately
-            await this.logger.log('Scenario setup complete, waiting for events...')
+            // await this.logger.log('Scenario setup complete, waiting for events...')
 
         } catch (error) {
             await this.telemetryService.logError('scenario_execution', error)

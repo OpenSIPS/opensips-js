@@ -6,7 +6,6 @@ import { WebRTCMetricsCollector } from './WebRTCMetricsCollector'
 import { WebRTCMetricsSender } from './WebRTCMetricsSender'
 import PageWebSocketWorker from './PageWebSocketWorker'
 import WindowMethodsWorker from './WindowMethodsWorker'
-import QrynLogger from './QrynLogger'
 
 import {
     GetActionPayload,
@@ -49,7 +48,6 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     private DTMFSendButton: Locator
     private DTMFInput: Locator
     private transferButton: Locator
-    private logger: QrynLogger
     private webrtcMetricsSender: WebRTCMetricsSender | null = null
 
     constructor (
@@ -60,19 +58,19 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         public readonly page: Page,
         public readonly browser: Browser
     ) {
-        this.logger = new QrynLogger('ActionsExecutor', scenarioName, scenarioId)
+        // this.logger = new QrynLogger('ActionsExecutor', scenarioName, scenarioId)
     }
 
     public async register (data: GetActionPayload<RegisterAction>): Promise<GetActionResponse<RegisterAction>> {
         const instanceId = `${this.scenarioId}-${Date.now()}`
-        await this.logger.log('Executing register action', { data })
+        // await this.logger.log('Executing register action', { data })
         const {
             username,
             password,
             sip_domain
         } = data
 
-        await this.logger.log('Form elements found, filling form', { instanceId })
+        // await this.logger.log('Form elements found, filling form', { instanceId })
         this.usernameInput = this.page.locator('#loginToAppForm > label:nth-child(2) > input')
         this.passwordInput = this.page.locator('#loginToAppForm > label:nth-child(3) > input')
         this.domainInput = this.page.locator('#loginToAppForm > label:nth-child(5) > input')
@@ -122,7 +120,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                         )
                         this.webrtcMetricsSender.startPeriodicCollection()
 
-                        await this.logger.log('Successfully registered and started WebRTC metrics collection')
+                        // await this.logger.log('Successfully registered and started WebRTC metrics collection')
 
                         resolve({
                             success: true,
@@ -142,7 +140,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async dial (data: GetActionPayload<DialAction>): Promise<GetActionResponse<DialAction>> {
-        await this.logger.log('Executing dial action', { data })
+        // await this.logger.log('Executing dial action', { data })
 
         this.yourTargetInput = this.page.locator('#makeCallForm input')
         this.callButton = this.page.locator('#makeCallForm button')
@@ -177,7 +175,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async answer (): Promise<GetActionResponse<AnswerAction>> {
-        await this.logger.log('Executing answer action')
+        // await this.logger.log('Executing answer action')
 
         this.answerButton = this.page.locator('#call-undefined > button:nth-child(7)')
         await this.answerButton.click()
@@ -202,7 +200,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async wait (data: GetActionPayload<WaitAction>): Promise<GetActionResponse<WaitAction>> {
-        await this.logger.log(`Waiting for ${data.time}ms`, { waitTime: data.time })
+        // await this.logger.log(`Waiting for ${data.time}ms`, { waitTime: data.time })
 
         await this.page.waitForTimeout(data.time)
         return {
@@ -211,7 +209,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async hold (): Promise<GetActionResponse<HoldAction>> {
-        await this.logger.log('Executing hold action')
+        // await this.logger.log('Executing hold action')
 
         this.holdButton = this.page.locator('.holdAgent')
 
@@ -239,7 +237,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async unhold (): Promise<GetActionResponse<UnholdAction>> {
-        await this.logger.log('Executing unhold action')
+        // await this.logger.log('Executing unhold action')
 
         this.holdButton = this.page.locator('.holdAgent')
         await this.holdButton.click()
@@ -266,7 +264,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async hangup (): Promise<GetActionResponse<HangupAction>> {
-        await this.logger.log('Executing hangup action')
+        // await this.logger.log('Executing hangup action')
         //this.hangupButton = this.page.locator('#call-undefined > button:nth-child(4)')
 
         this.hangupButton = this.page.getByRole('button', { name: 'Hangup' })
@@ -293,7 +291,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async sendDTMF (data: GetActionPayload<SendDTMFAction>): Promise<GetActionResponse<SendDTMFAction>> {
-        await this.logger.log('Executing send DTMF action', { dtmf: data.dtmf })
+        // await this.logger.log('Executing send DTMF action', { dtmf: data.dtmf })
 
         this.DTMFInput = this.page.locator('#dtmfInput')
         this.DTMFSendButton = this.page.locator('#dtmfSendButton')
@@ -323,18 +321,18 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async transfer (data: GetActionPayload<TransferAction>): Promise<GetActionResponse<TransferAction>> {
-        await this.logger.log('Executing transfer action', { target: data.target })
+        // await this.logger.log('Executing transfer action', { target: data.target })
 
         this.page.on('dialog', async dialog => {
-            await this.logger.log(`Dialog message: ${dialog.message()}`, { target: data.target })
+            // await this.logger.log(`Dialog message: ${dialog.message()}`, { target: data.target })
             expect(dialog.type()).toContain('prompt')
             expect(dialog.message()).toContain('Please enter target:')
-            await dialog.accept(data.target).catch(e => this.logger.error('Error accepting dialog', { error: e instanceof Error ? e.message : String(e) }))
+            await dialog.accept(data.target) //.catch(e => this.logger.error('Error accepting dialog', { error: e instanceof Error ? e.message : String(e) }))
         })
 
         this.transferButton = this.page.getByRole('button', { name: 'Transfer' })
         await this.transferButton.click()
-        this.logger.log('Transfer button clicked')
+        // this.logger.log('Transfer button clicked')
         try {
             await this.pageWebSocketWorker.waitForMessage(
                 this.pageWebSocketWorker.getConnectedWebsocket(),
@@ -359,7 +357,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async unregister (): Promise<GetActionResponse<UnregisterAction>> {
-        await this.logger.log('Executing unregister action')
+        // await this.logger.log('Executing unregister action')
 
         this.logoutButton = this.page.locator('#logoutButton')
 
@@ -396,20 +394,20 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
             }
         }
 
-        await this.logger.log('Logout button clicked')
+        // await this.logger.log('Logout button clicked')
 
         // Log metrics
-        await this.logger.log('Call metrics collected', {
-            setupTimeMs: metrics.setupTime,
-            totalDurationMs: metrics.totalDuration,
-            connectionSuccessful: metrics.connectionSuccessful,
-            audioStats: metrics.audioMetrics
-        })
+        // await this.logger.log('Call metrics collected', {
+        //     setupTimeMs: metrics.setupTime,
+        //     totalDurationMs: metrics.totalDuration,
+        //     connectionSuccessful: metrics.connectionSuccessful,
+        //     audioStats: metrics.audioMetrics
+        // })
 
         // Close browser and log after actually closing
         await this.page.close()
         await this.browser.close()
-        await this.logger.log('Browser closed')
+        // await this.logger.log('Browser closed')
 
         return {
             success: true
@@ -418,7 +416,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
 
     public async playSound (data: GetActionPayload<PlaySoundAction>): Promise<GetActionResponse<PlaySoundAction>> {
         const soundPath = data.sound
-        await this.logger.log('Playing sound', { soundPath })
+        // await this.logger.log('Playing sound', { soundPath })
 
         try {
             let fullPath: string
@@ -464,19 +462,19 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
             const base64Data = fileData.toString('base64')
             const dataUrl = `data:${mimeType};base64,${base64Data}`
 
-            await this.logger.log(`Playing audio file: ${soundFileName}`, {
-                mimeType,
-                fileSizeKB: Math.round(fileData.length / 1024)
-            })
+            // await this.logger.log(`Playing audio file: ${soundFileName}`, {
+            //     mimeType,
+            //     fileSizeKB: Math.round(fileData.length / 1024)
+            // })
 
             // Use the WindowMethodsWorker to play the clip
             const startTime = Date.now()
             await this.windowMethodsWorker.playClip(dataUrl)
             const playDuration = Date.now() - startTime
 
-            await this.logger.log(`Sound played successfully: ${soundFileName}`, {
-                playDurationMs: playDuration
-            })
+            // await this.logger.log(`Sound played successfully: ${soundFileName}`, {
+            //     playDurationMs: playDuration
+            // })
 
             return {
                 success: true,
@@ -484,9 +482,9 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                 duration: playDuration
             }
         } catch (error) {
-            await this.logger.error('Error playing sound', {
-                error: error instanceof Error ? error.message : String(error)
-            })
+            // await this.logger.error('Error playing sound', {
+            //     error: error instanceof Error ? error.message : String(error)
+            // })
             return {
                 success: false,
                 error: error instanceof Error ? error.message : 'Unknown error playing sound'
@@ -495,7 +493,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async request (data: GetActionPayload<RequestAction>): Promise<GetActionResponse<RequestAction>> {
-        await this.logger.log('Executing request action', { url: data.url })
+        // await this.logger.log('Executing request action', { url: data.url })
 
         try {
             const response = await this.page.request.fetch(
@@ -510,9 +508,9 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                 response: responseBody
             }
         } catch (error) {
-            await this.logger.error('Error during request', {
-                error: error instanceof Error ? error.message : String(error)
-            })
+            // await this.logger.error('Error during request', {
+            //     error: error instanceof Error ? error.message : String(error)
+            // })
 
             const message = error instanceof Error ? error.message : 'Unknown error'
 

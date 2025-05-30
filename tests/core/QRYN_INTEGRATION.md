@@ -76,7 +76,7 @@ The testing framework now properly integrates with qryn through the GIGAPIPE con
 
 ### 1. QrynLogger Service
 
-- **Location**: `tests2/services/QrynLogger.ts`
+- **Location**: `tests2/services/QrynClient.ts`
 - **Purpose**: Replaces console.log calls with structured logging to qryn's Loki endpoint
 - **Features**:
   - Automatic fallback to console logging if no qryn config
