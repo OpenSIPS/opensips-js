@@ -30,7 +30,8 @@ import { CallOptionsExtended, OnTransportCallback } from '@/types/rtc'
 import { UAExtendedInterface } from '@/lib/msrp/session'
 
 //import Registrator from 'jssip/lib/Registrator'
-import Registrator from '@/lib/janus/Registrator'
+//import Registrator from '@/lib/janus/Registrator'
+import Registrator from '@/helpers/Registrator'
 
 const logger = console
 
@@ -412,6 +413,7 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
          * They are processed as if they had been received outside the dialog.
          */
         if (method === JsSIP_C.OPTIONS) {
+            console.log('on options')
             if (this.listeners('newOptions').length === 0) {
                 request.reply(200)
 
@@ -763,6 +765,7 @@ function onTransportConnect (data) {
     this.emit('connected', data)
 
     if (this._dynConfiguration.register) {
+        console.log('do register')
         this._registrator.register()
     }
 }
