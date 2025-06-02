@@ -43,6 +43,8 @@ import { useTemplateRef } from 'vue'
 import type { TJsonSetupForm } from '~/types/scenaries'
 import useNotifyService from '~/composable/useNotifyService'
 
+const { seo } = useAppConfig()
+
 /* Data */
 const loading = ref(true)
 const jsonData = ref<Array<string>>([])
@@ -139,6 +141,18 @@ function showNotifyMessage (message: string) {
         message
     })
 }
+
+useHead({
+    title: seo.siteName
+})
+
+useSeoMeta({
+    titleTemplate: seo.indexHeaderTemplate ?? '',
+    title: seo.siteName,
+    ogTitle: seo.siteName,
+    description: seo.siteDescription,
+    ogDescription: seo.siteDescription
+})
 
 /* Mounted */
 onMounted(fetchFiles)

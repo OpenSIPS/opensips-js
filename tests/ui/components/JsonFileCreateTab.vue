@@ -49,7 +49,6 @@
                 />
             </VcForm>
         </div>
-        <pre>{{ formLocalModel }}</pre>
     </div>
 </template>
 

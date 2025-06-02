@@ -32,8 +32,8 @@ export default defineAppConfig({
         }
     },
     seo: {
-        siteName: 'Opensips JS',
-        siteDescription: 'Opensips JS',
+        siteName: 'Opensips JS | Tests',
+        siteDescription: 'Opensips JS | Tests',
         docsHeaderTemplate: '%s | Opensips JS',
         apiHeaderTemplate: '%s | Opensips JS',
         indexHeaderTemplate: ''
