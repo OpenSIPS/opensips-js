@@ -163,12 +163,12 @@ export class WebRTCMetricsSender {
 
             this.qrynClient.sendMetricsToQryn(metrics)
 
-            // await this.qrynClient.log('WebRTC metrics sent to qryn', {
-            //     metricsCount: metrics.length,
-            //     totalSamples: metricsData.allStats.length,
-            //     connectionSuccessful: metricsData.connectionSuccessful,
-            //     hasAudioMetrics: !!metricsData.audioMetrics
-            // })
+            await this.qrynClient.log('WebRTC metrics sent to qryn', {
+                metricsCount: metrics.length,
+                totalSamples: metricsData.allStats.length,
+                connectionSuccessful: metricsData.connectionSuccessful,
+                hasAudioMetrics: !!metricsData.audioMetrics
+            })
 
         } catch (error) {
             // await this.qrynClient.error('Failed to send WebRTC metrics to qryn', {
