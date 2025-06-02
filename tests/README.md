@@ -1295,13 +1295,18 @@ JSON_FILES_PATH=tests/core/samples/e2e
 
 ### Run UI System in dev mode
 
-```shell[Terminal]
+```bash [Terminal]
+# open directory
 cd tests/ui 
-or
+# or
 cd ui
 
+# Make sure to install dependencies
+yarn 
+
+# run project
 yarn dev
-or 
+# or
 nuxt dev
 ```
 
