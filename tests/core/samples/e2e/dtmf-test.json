@@ -81,10 +81,8 @@
               "customSharedEvent": "call_initiated"
             }
           }
-
         ]
       },
-
       {
         "event": "call_initiated",
         "actions": [
@@ -104,4 +102,3 @@
     ]
   }
 ]
-

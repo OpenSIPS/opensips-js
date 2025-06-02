@@ -11,7 +11,7 @@ type AllowedActions <T extends ActionType> = T
 export interface EventsMap {
     register: AllowedActions<'dial' | 'wait' | 'request'>
     dial: AllowedActions<'request'>
-    answer: AllowedActions<'hold' | 'unhold' | 'wait' | 'play_sound' | 'hangup' | 'request'>
+    answer: AllowedActions<'hold' | 'unhold' | 'wait' | 'playSound' | 'hangup' | 'request'>
     hold: AllowedActions<'unhold' | 'wait' | 'request'>
     unhold: AllowedActions<'hold' | 'wait' | 'request'>
     hangup: AllowedActions<'unregister' | 'request'>

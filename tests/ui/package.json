@@ -1,0 +1,46 @@
+{
+  "name": "nuxt-app",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx,.vue"
+  },
+  "dependencies": {
+    "@nuxt/image": "^1.7.0",
+    "@nuxt/ui": "^2.17.0",
+    "@voicenter-team/voicenter-ui-plus": "^0.7.49",
+    "@vueuse/core": "^13.3.0",
+    "dotenv": "^16.5.0",
+    "nuxt": "^3.12.4"
+  },
+  "devDependencies": {
+    "@iconify-json/heroicons": "^1.2.1",
+    "@iconify-json/vscode-icons": "^1.2.0",
+    "@nuxt/devtools": "latest",
+    "@nuxt/eslint-config": "^0.5.0",
+    "@nuxt/fonts": "^0.7.2",
+    "@types/node": "^22.15.24",
+    "@typescript-eslint/eslint-plugin": "^7.12.0",
+    "@typescript-eslint/parser": "^7.12.0",
+    "@voicenter-team/eslint-config-vue": "^1.0.24",
+    "@vue/eslint-config-typescript": "^13.0.0",
+    "@vueuse/nuxt": "^13.3.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-vue": "^9.26.0",
+    "node-fetch": "^3.3.2",
+    "nuxt-og-image": "^3.0.0-rc.64",
+    "sass": "1.77.6",
+    "ts-node": "^10.9.2",
+    "ts-node-esm": "^0.0.6",
+    "typedoc": "^0.26.6",
+    "typedoc-plugin-markdown": "^4.2.5",
+    "typescript": "5.3.3",
+    "vite-plugin-static-copy": "^1.0.6",
+    "vue-tsc": "^2.0.26"
+  }
+}

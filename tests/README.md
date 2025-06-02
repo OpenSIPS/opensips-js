@@ -1,6 +1,7 @@
 # OpenSIPS-JS Testing Framework
 
-A powerful, scenario-based testing framework for the OpenSIPS-JS library that enables end-to-end testing of SIP communication flows, WebRTC operations, and related functionalities.
+A powerful, scenario-based testing framework for the OpenSIPS-JS library that enables end-to-end testing of SIP
+communication flows, WebRTC operations, and related functionalities.
 
 ## Table of Contents
 
@@ -9,18 +10,18 @@ A powerful, scenario-based testing framework for the OpenSIPS-JS library that en
 - [Key Concepts](#key-concepts)
 - [Setting Up Tests](#setting-up-tests)
 - [Defining Test Scenarios](#defining-test-scenarios)
-  - [Method-Based Definition](#method-based-definition)
-  - [JSON-Based Definition](#json-based-definition)
+    - [Method-Based Definition](#method-based-definition)
+    - [JSON-Based Definition](#json-based-definition)
 - [Actions Reference](#actions-reference)
 - [Events Reference](#events-reference)
-  - [Events and Event Scoping](#events-and-event-scoping)
-  - [Custom Shared Events](#custom-shared-events)
+    - [Events and Event Scoping](#events-and-event-scoping)
+    - [Custom Shared Events](#custom-shared-events)
 - [Context and Data Flow](#context-and-data-flow)
-  - [Initial Context](#initial-context)
-  - [Environment Variables](#environment-variables)
-  - [Nested Environment Variables](#nested-environment-variables)
-  - [Dynamic Context Updates](#dynamic-context-updates)
-  - [Data Templating](#data-templating)
+    - [Initial Context](#initial-context)
+    - [Environment Variables](#environment-variables)
+    - [Nested Environment Variables](#nested-environment-variables)
+    - [Dynamic Context Updates](#dynamic-context-updates)
+    - [Data Templating](#data-templating)
 - [Test Execution Flow](#test-execution-flow)
 - [WebRTC Metrics Collection](#webrtc-metrics-collection)
 - [Extending the Framework](#extending-the-framework)
@@ -28,7 +29,8 @@ A powerful, scenario-based testing framework for the OpenSIPS-JS library that en
 
 ## Overview
 
-The OpenSIPS-JS testing framework is designed to automate the testing of SIP/WebRTC communications by defining and executing test scenarios that simulate real-world interactions. It provides a structured way to:
+The OpenSIPS-JS testing framework is designed to automate the testing of SIP/WebRTC communications by defining and
+executing test scenarios that simulate real-world interactions. It provides a structured way to:
 
 - Test SIP registration, call flows, and media operations
 - Simulate user interactions with the OpenSIPS-JS library
@@ -50,19 +52,23 @@ The framework is built with a modular, event-driven architecture:
 
 ### Scenarios
 
-A scenario is a collection of event handlers, each specifying what actions to take when certain events occur. Scenarios allow you to script complex interactions between SIP endpoints.
+A scenario is a collection of event handlers, each specifying what actions to take when certain events occur. Scenarios
+allow you to script complex interactions between SIP endpoints.
 
 ### Events
 
-Events represent significant occurrences during testing such as incoming calls, registration completion, or call termination. Event handlers define how the test should respond to these events.
+Events represent significant occurrences during testing such as incoming calls, registration completion, or call
+termination. Event handlers define how the test should respond to these events.
 
 ### Actions
 
-Actions are operations that can be performed during testing such as registering, dialing, answering calls, or playing sounds. Actions can trigger events and affect the state of the test.
+Actions are operations that can be performed during testing such as registering, dialing, answering calls, or playing
+sounds. Actions can trigger events and affect the state of the test.
 
 ### Context
 
-The test context stores state and data that can be shared across scenarios. It's useful for passing information between different parts of the test.
+The test context stores state and data that can be shared across scenarios. It's useful for passing information between
+different parts of the test.
 
 ## Setting Up Tests
 
@@ -74,14 +80,15 @@ The test context stores state and data that can be shared across scenarios. It's
 
 ### Basic Setup
 
-To use the testing framework, you don't need to create any new files. The framework provides all the necessary infrastructure. You only need to:
+To use the testing framework, you don't need to create any new files. The framework provides all the necessary
+infrastructure. You only need to:
 
 1. Define your test scenarios in the `init()` method
 2. Optionally override the `getInitialContext()` method to provide test-specific data
 
 ```typescript
 import TestScenariosBuilder from './services/TestScenariosBuilder'
-import type { TestScenarios } from './types/intex'
+import type {TestScenarios} from './types/intex'
 
 export default class MyTestScenarios extends TestScenariosBuilder {
     getInitialContext() {
@@ -166,10 +173,14 @@ this.createScenario(
 
 ### JSON-Based Definition
 
-Since all of the helper methods in `TestScenariosBuilder` simply return plain objects, you can define your scenarios directly using JSON objects with the same structure:
+Since all of the helper methods in `TestScenariosBuilder` simply return plain objects, you can define your scenarios
+directly using JSON objects with the same structure:
 
 ```typescript
-init(): TestScenarios {
+init()
+:
+TestScenarios
+{
     return [
         // A scenario defined directly as a JSON structure
         {
@@ -215,7 +226,9 @@ The structure of a JSON-defined scenario follows this pattern:
 ```javascript
 {
     name: 'scenarioName',  // Required name for the scenario
-    actions: [  // Array of event handlers
+        actions
+:
+    [  // Array of event handlers
         {
             event: 'eventName',  // Name of the event to handle
             actions: [  // Array of actions to execute when the event occurs
@@ -247,7 +260,8 @@ The structure of a JSON-defined scenario follows this pattern:
 
 #### Combining Both Approaches
 
-You can mix both approaches, using the method-based approach for type safety during development, and then serializing to JSON for storage or dynamic scenarios:
+You can mix both approaches, using the method-based approach for type safety during development, and then serializing to
+JSON for storage or dynamic scenarios:
 
 ```typescript
 // Define a scenario using methods for type safety
@@ -278,7 +292,10 @@ const parsedScenario = JSON.parse(jsonScenario);
 Multiple scenarios can run in parallel, representing different endpoints in a call flow:
 
 ```typescript
-init(): TestScenarios {
+init()
+:
+TestScenarios
+{
     return [
         // Scenario 1 - Caller
         this.createScenario(
@@ -287,7 +304,7 @@ init(): TestScenarios {
                 // Caller event handlers...
             ]
         ),
-        
+
         // Scenario 2 - Callee
         this.createScenario(
             'callee', // Scenario name
@@ -446,7 +463,7 @@ this.request({
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ key: 'value' })
+            body: JSON.stringify({key: 'value'})
         }
     },
     customSharedEvent: 'request_completed' // Optional
@@ -482,11 +499,14 @@ this.dial({
 
 The framework has two types of events with different scoping:
 
-1. **Regular Events**: These events are scenario-specific and are only sent to the scenario that triggered them. They include events like 'register', 'dial', 'answer', etc.
+1. **Regular Events**: These events are scenario-specific and are only sent to the scenario that triggered them. They
+   include events like 'register', 'dial', 'answer', etc.
 
-2. **Custom Shared Events**: These events are shared between all scenarios and can be used for cross-scenario communication. They are defined using the `customSharedEvent` property in actions.
+2. **Custom Shared Events**: These events are shared between all scenarios and can be used for cross-scenario
+   communication. They are defined using the `customSharedEvent` property in actions.
 
 This distinction is important because it allows you to:
+
 - Keep scenarios isolated by default, preventing unintended interactions
 - Selectively share events when coordination between scenarios is needed
 
@@ -574,14 +594,16 @@ These events are triggered by the PageWebSocketWorker when it detects SIP messag
 
 ## Context and Data Flow
 
-The context is a central concept in the testing framework, providing a way to share data between actions, events, and scenarios.
+The context is a central concept in the testing framework, providing a way to share data between actions, events, and
+scenarios.
 
 ### Initial Context
 
 The initial context is defined by overriding the `getInitialContext()` method in your test class:
 
 ```typescript
-getInitialContext() {
+getInitialContext()
+{
     return {
         caller: {
             sip_domain: 'example.com',
@@ -601,7 +623,8 @@ This is the starting point for all data used in your test scenarios.
 
 ### Environment Variables
 
-The framework automatically includes all environment variables in the context, making it easy to pass configuration at runtime, especially in containerized environments like Docker.
+The framework automatically includes all environment variables in the context, making it easy to pass configuration at
+runtime, especially in containerized environments like Docker.
 
 For example, given these environment variables:
 
@@ -625,7 +648,8 @@ this.register({
 
 ### Nested Environment Variables
 
-The framework supports "unflatifying" environment variables with dot notation into nested objects. This is particularly useful for complex configurations:
+The framework supports "unflatifying" environment variables with dot notation into nested objects. This is particularly
+useful for complex configurations:
 
 ```
 # Environment variables
@@ -644,13 +668,22 @@ These will be automatically converted into a nested object structure:
 {
     CALLER: {
         USERNAME: 'user123',
-        PASSWORD: 'pass456',
-        SIP_DOMAIN: 'sip.example.com'
-    },
+            PASSWORD
+    :
+        'pass456',
+            SIP_DOMAIN
+    :
+        'sip.example.com'
+    }
+,
     CALLEE: {
         USERNAME: 'user789',
-        PASSWORD: 'pass012',
-        SIP_DOMAIN: 'sip.example.com'
+            PASSWORD
+    :
+        'pass012',
+            SIP_DOMAIN
+    :
+        'sip.example.com'
     }
 }
 ```
@@ -667,7 +700,8 @@ this.register({
 })
 ```
 
-This feature is particularly useful for Docker deployments or CI/CD pipelines where configuration is passed through environment variables.
+This feature is particularly useful for Docker deployments or CI/CD pipelines where configuration is passed through
+environment variables.
 
 ### Dynamic Context Updates
 
@@ -684,22 +718,22 @@ This allows you to use results from one action in subsequent actions:
 this.request({
     payload: {
         url: 'https://api.example.com/credentials',
-        options: { method: 'GET' }
+        options: {method: 'GET'}
     },
     customSharedEvent: 'api_call_completed'
 }),
 
 // Then use the response data in a registration
-this.on('api_call_completed', [
-    this.register({
-        payload: {
-            // Use data from the HTTP response
-            sip_domain: '{{response.domain}}',
-            username: '{{response.username}}',
-            password: '{{response.password}}',
-        }
-    })
-])
+    this.on('api_call_completed', [
+        this.register({
+            payload: {
+                // Use data from the HTTP response
+                sip_domain: '{{response.domain}}',
+                username: '{{response.username}}',
+                password: '{{response.password}}',
+            }
+        })
+    ])
 ```
 
 ### Data Templating
@@ -748,11 +782,11 @@ this.register({
 
 Tests progress through an event-action chain:
 
-1. Initial event (usually 'ready') → 
+1. Initial event (usually 'ready') →
 2. Action in response to event →
 3. Action result triggers another event →
 4. Action in response to that event →
-...and so on.
+   ...and so on.
 
 ## WebRTC Metrics Collection
 
@@ -775,11 +809,11 @@ console.log('Call Metrics:', {
 - **Setup Time**: Time taken to establish the WebRTC connection
 - **Total Duration**: Total duration of the call
 - **Audio Metrics**:
-  - Packet statistics (received, sent, lost)
-  - Quality metrics (jitter, round-trip time, audio level)
-  - Bandwidth usage
-  - Codec information
-  - Audio processing data
+    - Packet statistics (received, sent, lost)
+    - Quality metrics (jitter, round-trip time, audio level)
+    - Bandwidth usage
+    - Codec information
+    - Audio processing data
 
 ### Metrics Analysis
 
@@ -830,7 +864,12 @@ export interface ActionsMap {
 2. Add the method to `TestScenariosBuilder`:
 
 ```typescript
-public newAction(data: GetActionData<NewAction>): GetActionDefinition<NewAction> {
+public
+newAction(data
+:
+GetActionData<NewAction>
+):
+GetActionDefinition < NewAction > {
     return {
         type: 'newAction',
         data
@@ -841,11 +880,16 @@ public newAction(data: GetActionData<NewAction>): GetActionDefinition<NewAction>
 3. Implement the action in `ActionsExecutor`:
 
 ```typescript
-public async newAction(data: GetActionPayload<NewAction>): Promise<GetActionResponse<NewAction>> {
+public async
+newAction(data
+:
+GetActionPayload<NewAction>
+):
+Promise < GetActionResponse < NewAction >> {
     console.log(`Executing new action with params:`, data);
-    
+
     // Implementation logic
-    
+
     return {
         success: true,
         result: {}
@@ -884,13 +928,17 @@ this.pageWebSocketWorker = new PageWebSocketWorker(
 ### Basic Call Test with API Integration
 
 This example shows how to:
+
 1. Make an API request to get SIP credentials
 2. Use those credentials to register
 3. Make a call between two scenarios
 4. End the call and unregister
 
 ```typescript
-init(): TestScenarios {
+init()
+:
+TestScenarios
+{
     return [
         // Caller scenario
         this.createScenario(
@@ -900,7 +948,7 @@ init(): TestScenarios {
                     this.request({
                         payload: {
                             url: 'https://api.example.com/credentials',
-                            options: { method: 'GET' }
+                            options: {method: 'GET'}
                         },
                         customSharedEvent: 'caller_credentials_received'
                     })
@@ -925,7 +973,7 @@ init(): TestScenarios {
                 ]),
                 this.on('call_answered', [
                     this.wait({
-                        payload: { time: 3000 }
+                        payload: {time: 3000}
                     }),
                     this.hangup({
                         customSharedEvent: 'call_ended'
@@ -936,7 +984,7 @@ init(): TestScenarios {
                 ])
             ]
         ),
-        
+
         // Callee scenario
         this.createScenario(
             'callee', // Scenario name
@@ -968,7 +1016,10 @@ init(): TestScenarios {
 ### Using JSON-Based Scenario Definition
 
 ```typescript
-init(): TestScenarios {
+init()
+:
+TestScenarios
+{
     return [
         // Caller scenario defined using JSON
         {
@@ -1010,7 +1061,7 @@ init(): TestScenarios {
                         {
                             type: 'wait',
                             data: {
-                                payload: { time: 3000 }
+                                payload: {time: 3000}
                             }
                         },
                         {
@@ -1032,7 +1083,7 @@ init(): TestScenarios {
                 }
             ]
         },
-        
+
         // Callee scenario defined using method approach for comparison
         this.createScenario(
             'callee', // Required scenario name
@@ -1081,7 +1132,10 @@ Then in your test:
 ```typescript
 // No need to define getInitialContext() - environment variables will be used
 
-init(): TestScenarios {
+init()
+:
+TestScenarios
+{
     return [
         // Caller scenario
         this.createScenario(
@@ -1100,7 +1154,7 @@ init(): TestScenarios {
                 // ... rest of the scenario
             ]
         ),
-        
+
         // Callee scenario
         this.createScenario(
             'callee', // Required scenario name
@@ -1125,7 +1179,10 @@ init(): TestScenarios {
 ### Advanced Call Features Test
 
 ```typescript
-init(): TestScenarios {
+init()
+:
+TestScenarios
+{
     return [
         // Caller scenario
         this.createScenario(
@@ -1151,7 +1208,7 @@ init(): TestScenarios {
                 ]),
                 this.on('call_answered', [
                     this.wait({
-                        payload: { time: 1000 }
+                        payload: {time: 1000}
                     }),
                     this.hold({
                         customSharedEvent: 'call_held'
@@ -1159,7 +1216,7 @@ init(): TestScenarios {
                 ]),
                 this.on('call_resumed', [
                     this.wait({
-                        payload: { time: 1000 }
+                        payload: {time: 1000}
                     }),
                     this.sendDTMF({
                         payload: {
@@ -1170,7 +1227,7 @@ init(): TestScenarios {
                 ]),
                 this.on('dtmf_sent', [
                     this.wait({
-                        payload: { time: 1000 }
+                        payload: {time: 1000}
                     }),
                     this.hangup({
                         customSharedEvent: 'call_ended'
@@ -1181,7 +1238,7 @@ init(): TestScenarios {
                 ])
             ]
         ),
-        
+
         // Callee scenario
         this.createScenario(
             'callee', // Required scenario name
@@ -1203,7 +1260,7 @@ init(): TestScenarios {
                 ]),
                 this.on('call_held', [
                     this.wait({
-                        payload: { time: 2000 }
+                        payload: {time: 2000}
                     }),
                     this.playSound({
                         payload: {
@@ -1226,8 +1283,33 @@ init(): TestScenarios {
 }
 ```
 
+## UI Configuration
+
+### Environment Configuration
+
+This project uses environment variables for configuration. Add to `.env` file next variable:
+
+``` [.env]
+JSON_FILES_PATH=tests/core/samples/e2e
+```
+
+### Run UI System in dev mode
+
+```shell[Terminal]
+cd tests/ui 
+or
+cd ui
+
+yarn dev
+or 
+nuxt dev
+```
+
 ## Conclusion
 
-The OpenSIPS-JS testing framework provides a powerful way to automate testing of SIP communications and WebRTC applications. By defining scenarios as sequences of events and actions, you can create comprehensive tests that validate the behavior of your SIP applications across different use cases.
+The OpenSIPS-JS testing framework provides a powerful way to automate testing of SIP communications and WebRTC
+applications. By defining scenarios as sequences of events and actions, you can create comprehensive tests that validate
+the behavior of your SIP applications across different use cases.
 
-The event-driven architecture makes it easy to create complex, multi-agent test scenarios that simulate real-world communication flows, while the built-in metrics collection helps ensure the quality of WebRTC connections.
+The event-driven architecture makes it easy to create complex, multi-agent test scenarios that simulate real-world
+communication flows, while the built-in metrics collection helps ensure the quality of WebRTC connections.
