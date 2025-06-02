@@ -80,6 +80,6 @@ export default class ScenarioManager {
             }
         }
 
-        await this.qrynClient.log('All scenarios completed')
+        // await this.qrynClient.log('All scenarios completed')
     }
 }

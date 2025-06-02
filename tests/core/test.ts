@@ -9,7 +9,7 @@ async function runTest () {
     try {
         const testRunner = new CallTestScenarios()
         await testRunner.run()
-        await qrynClient.log('Test execution completed successfully')
+        // await qrynClient.log('Test execution completed successfully')
     } catch (error) {
         // await logger.error('Test execution failed', {
         //     error: error instanceof Error ? error.message : String(error)
