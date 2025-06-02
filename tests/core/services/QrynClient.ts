@@ -36,19 +36,19 @@ export default class QrynClient {
         private readonly section: string,
         private readonly scenarioName?: string,
         private readonly scenarioId?: string
-    )
+    ) {
+        this.section = section
+        this.scenarioName = scenarioName
+        this.scenarioId = scenarioId
+    }
 
     public sendLogsToQryn (streams: Stream[]) {
-        qrynLokiClient.push(streams, { orgId: env.GIGAPIPE.LOGS.OrgID }).then(() => {
-            console.log('Loki push successful')
-        }).catch((err) => console.log('Loki push error: ', err.message))
+        qrynLokiClient.loki.push(streams, { orgId: env.GIGAPIPE.LOGS.OrgID }).catch((err) => console.log('Loki push error: ', err.message))
     }
 
     public sendMetricsToQryn (metrics: Metric[]) {
-        qrynMetricClient.push(metrics, {
+        qrynMetricClient.prom.push(metrics, {
             orgId: env.GIGAPIPE.METRICS.OrgID
-        }).then(() => {
-            console.log('Metrics push successful')
         }).catch(error => {
             console.log('Metrics push error: ', error.message)
         })
@@ -71,7 +71,7 @@ export default class QrynClient {
                 section: this.section,
                 ...(this.scenarioName && { scenario_name: this.scenarioName }),
                 ...(this.scenarioId && { scenario_id: this.scenarioId }),
-                job: 'opensips-js-tests',
+                job: 'opensips-js-tests-logs',
             })
 
             stream.addEntry(
@@ -89,18 +89,22 @@ export default class QrynClient {
     }
 
     public async log (message: string, metadata?: Record<string, any>): Promise<void> {
+        console.log(message, metadata)
         await this.createLogForQryn('info', message, metadata)
     }
 
     public async error (message: string, metadata?: Record<string, any>): Promise<void> {
+        console.error(message, metadata)
         await this.createLogForQryn('error', message, metadata)
     }
 
     public async warn (message: string, metadata?: Record<string, any>): Promise<void> {
+        console.log(message, metadata)
         await this.createLogForQryn('warn', message, metadata)
     }
 
     public async debug (message: string, metadata?: Record<string, any>): Promise<void> {
+        console.log(message, metadata)
         await this.createLogForQryn('debug', message, metadata)
     }
 }

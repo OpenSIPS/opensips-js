@@ -22,8 +22,7 @@ export class WebRTCMetricsSender {
         private readonly scenarioName: string,
         private readonly scenarioId: string
     ) {
-        // this.logger = new QrynLogger('WebRTCMetricsSender', scenarioName, scenarioId)
-        this.qrynClient = new QrynClient('METRICS')
+        // this.qrynClient = new QrynClient('WebRTCMetricsSender', scenarioName, scenarioId)
     }
 
     public startPeriodicCollection (): void {
@@ -32,14 +31,14 @@ export class WebRTCMetricsSender {
             await this.collectAndSendMetrics()
         }, 5000)
 
-        // this.logger.log('Started periodic WebRTC metrics collection', { interval: '5s' })
+        // this.qrynClient.log('Started periodic WebRTC metrics collection', { interval: '5s' })
     }
 
     public stopPeriodicCollection (): void {
         if (this.intervalId) {
             clearInterval(this.intervalId)
             this.intervalId = null
-            // this.logger.log('Stopped periodic WebRTC metrics collection')
+            // this.qrynClient.log('Stopped periodic WebRTC metrics collection')
         }
     }
 
@@ -75,18 +74,13 @@ export class WebRTCMetricsSender {
             this.lastSentCount = metricsData.allStats.length
 
         } catch (error) {
-            // await this.logger.error('Error collecting WebRTC metrics from browser', {
+            // await this.qrynClient.error('Error collecting WebRTC metrics from browser', {
             //     error: error instanceof Error ? error.message : String(error)
             // })
         }
     }
 
     private async sendMetricsToQryn (metricsData: WebRTCMetricsData): Promise<void> {
-        if (!this.qrynClient.isQrynConfigured) {
-            // await this.logger.warn('No qryn metrics configuration found, skipping WebRTC metrics')
-            return
-        }
-
         try {
             const timestamp = Date.now()
             const labels = {
@@ -169,7 +163,7 @@ export class WebRTCMetricsSender {
 
             this.qrynClient.sendMetricsToQryn(metrics)
 
-            // await this.logger.log('WebRTC metrics sent to qryn', {
+            // await this.qrynClient.log('WebRTC metrics sent to qryn', {
             //     metricsCount: metrics.length,
             //     totalSamples: metricsData.allStats.length,
             //     connectionSuccessful: metricsData.connectionSuccessful,
@@ -177,7 +171,7 @@ export class WebRTCMetricsSender {
             // })
 
         } catch (error) {
-            // await this.logger.error('Failed to send WebRTC metrics to qryn', {
+            // await this.qrynClient.error('Failed to send WebRTC metrics to qryn', {
             //     error: error instanceof Error ? error.message : String(error),
             //     url: this.qrynClient.getEffectiveConfig?.url
             // })
@@ -185,7 +179,7 @@ export class WebRTCMetricsSender {
     }
 
     public async sendFinalMetrics (): Promise<void> {
-        // await this.logger.log('Collecting final WebRTC metrics before cleanup')
+        // await this.qrynClient.log('Collecting final WebRTC metrics before cleanup')
         await this.collectAndSendMetrics()
         this.stopPeriodicCollection()
     }

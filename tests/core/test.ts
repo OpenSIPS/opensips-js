@@ -1,14 +1,15 @@
 import CallTestScenarios from './definition'
+import QrynClient from "./services/QrynClient";
 
 // Run the test
 async function runTest () {
-    // const logger = new QrynLogger('TestRunner')
+    const qrynClient = new QrynClient('TestRunner')
 
     // await logger.log('Starting test execution')
     try {
         const testRunner = new CallTestScenarios()
         await testRunner.run()
-        // await logger.log('Test execution completed successfully')
+        await qrynClient.log('Test execution completed successfully')
     } catch (error) {
         // await logger.error('Test execution failed', {
         //     error: error instanceof Error ? error.message : String(error)

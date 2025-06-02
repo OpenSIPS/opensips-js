@@ -10,7 +10,6 @@ import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
 import { metrics, trace, context, Span, SpanStatusCode, Context, Meter, Tracer, SpanKind } from '@opentelemetry/api'
 import env from '../env'
 import QrynClient from './QrynClient'
-import { Metric } from 'qryn-client'
 
 export interface TelemetryEventAttributes {
     stage?: string
@@ -36,8 +35,7 @@ export class TelemetryService {
 
         this.meter = metrics.getMeter('event-testing-metrics') || metrics.getMeter('event-testing-metrics-fallback')
         this.tracer = trace.getTracer('event-testing') || trace.getTracer('event-testing-fallback')
-        // this.logger = new QrynLogger('TelemetryService', scenarioName, scenarioId)
-        this.qrynClient = new QrynClient('TRACING')
+        // this.qrynClient = new QrynClient('TelemetryService', scenarioName, scenarioId)
 
         this.eventCounter = this.meter.createCounter('test_events', {
             description: 'Count of events during test scenarios',
@@ -48,7 +46,7 @@ export class TelemetryService {
             description: 'Duration of operations',
         })
 
-        // this.logger.log(`Initialized for scenario: ${scenarioName} (${scenarioId})`)
+        // this.qrynClient.log(`Initialized for scenario: ${scenarioName} (${scenarioId})`)
 
         this.createScenarioRootSpan()
     }
@@ -105,7 +103,7 @@ export class TelemetryService {
             }
         })
 
-        // this.logger.log('Created scenario root span', { spanId: this.scenarioRootSpan.spanContext().spanId })
+        // this.qrynClient.log('Created scenario root span', { spanId: this.scenarioRootSpan.spanContext().spanId })
     }
 
     public startActionSpan (actionType: string, actionData?: any): Span {
@@ -123,7 +121,7 @@ export class TelemetryService {
             }
         }, parentContext)
 
-        // this.logger.log(`Started action span: ${actionType}`, {
+        // this.qrynClient.log(`Started action span: ${actionType}`, {
         //     spanId: actionSpan.spanContext().spanId,
         //     parentSpanId: parentSpan?.spanContext().spanId,
         //     parentType: this.currentEventSpan ? 'event' : 'scenario'
@@ -153,7 +151,7 @@ export class TelemetryService {
 
         actionSpan.end()
 
-        // this.logger.log('Finished action span', {
+        // this.qrynClient.log('Finished action span', {
         //     spanId: actionSpan.spanContext().spanId,
         //     success,
         //     error: error ? (error instanceof Error ? error.message : error) : undefined
@@ -177,7 +175,7 @@ export class TelemetryService {
         // Set this as the current event span so actions become its children
         this.currentEventSpan = eventSpan
 
-        // this.logger.log(`Started event span: ${eventType}`, {
+        // this.qrynClient.log(`Started event span: ${eventType}`, {
         //     spanId: eventSpan.spanContext().spanId,
         //     parentSpanId: this.scenarioRootSpan?.spanContext().spanId
         // })
@@ -208,7 +206,7 @@ export class TelemetryService {
             this.currentEventSpan = null
         }
 
-        // this.logger.log('Finished event span', {
+        // this.qrynClient.log('Finished event span', {
         //     spanId: eventSpan.spanContext().spanId,
         //     success,
         //     actionsCount
@@ -247,7 +245,7 @@ export class TelemetryService {
                     startTime: Date.now()
                 })
 
-                // await this.logger.log(`Started tracking: ${eventName}`, {
+                // await this.qrynClient.log(`Started tracking: ${eventName}`, {
                 //     eventName,
                 //     stage
                 // })
@@ -282,14 +280,14 @@ export class TelemetryService {
                         currentSpan.setAttribute('event.duration_ms', duration)
                         currentSpan.end()
 
-                        // await this.logger.log(`Completed tracking: ${eventName} (${duration}ms)`, {
+                        // await this.qrynClient.log(`Completed tracking: ${eventName} (${duration}ms)`, {
                         //     eventName,
                         //     stage,
                         //     duration
                         // })
                     }
                 } else {
-                    // await this.logger.warn(`No active span found for ${eventName}, creating one-off span`, {
+                    // await this.qrynClient.warn(`No active span found for ${eventName}, creating one-off span`, {
                     //     eventName,
                     //     stage
                     // })
@@ -320,13 +318,13 @@ export class TelemetryService {
                 'event.status': status,
             })
 
-            // await this.logger.log(`Event: ${eventName}, Stage: ${stage}, Status: ${status}`, {
+            // await this.qrynClient.log(`Event: ${eventName}, Stage: ${stage}, Status: ${status}`, {
             //     eventName,
             //     stage,
             //     status
             // })
         } catch (error) {
-            // await this.logger.error(`Error logging event ${eventName}`, {
+            // await this.qrynClient.error(`Error logging event ${eventName}`, {
             //     eventName,
             //     error: error instanceof Error ? error.message : String(error)
             // })
@@ -336,7 +334,7 @@ export class TelemetryService {
     public cleanup (): void {
         // Clean up any remaining active spans
         for (const [ key, spanEntry ] of this.activeSpans.entries()) {
-            // this.logger.warn(`Cleaning up orphaned span: ${key}`, { spanKey: key })
+            // this.qrynClient.warn(`Cleaning up orphaned span: ${key}`, { spanKey: key })
             spanEntry.span.setStatus({
                 code: SpanStatusCode.ERROR,
                 message: 'Span ended during cleanup - possible incomplete operation'
@@ -365,7 +363,7 @@ export class TelemetryService {
 
         this.scenarioRootSpan = null
 
-        // this.logger.log('Cleaned up all spans', {
+        // this.qrynClient.log('Cleaned up all spans', {
         //     orphanedSpansCount: this.activeSpans.size,
         //     hadActiveEventSpan: this.currentEventSpan !== null
         // })
@@ -432,7 +430,7 @@ export class TelemetryService {
             'scenario.id': this.scenarioId,
             'scenario.name': this.scenarioName,
             'service.name': 'opensips-js-tests',
-            environment: this.qrynClient.getEffectiveConfig?.scope || 'test'
+            environment: 'test'
         }
     }
 
