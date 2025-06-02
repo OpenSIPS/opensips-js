@@ -119,7 +119,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                             this.scenarioName,
                             this.scenarioId
                         )
-                        this.webrtcMetricsSender.startPeriodicCollection()
+                        // this.webrtcMetricsSender.startPeriodicCollection()
 
                         // await this.qrynClient.log('Successfully registered and started WebRTC metrics collection')
 

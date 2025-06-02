@@ -22,17 +22,17 @@ export class WebRTCMetricsSender {
         private readonly scenarioName: string,
         private readonly scenarioId: string
     ) {
-        // this.qrynClient = new QrynClient('WebRTCMetricsSender', scenarioName, scenarioId)
+        this.qrynClient = new QrynClient('WebRTCMetricsSender', scenarioName, scenarioId)
     }
 
-    public startPeriodicCollection (): void {
-        // Send metrics every 5 seconds
-        this.intervalId = setInterval(async () => {
-            await this.collectAndSendMetrics()
-        }, 5000)
-
-        // this.qrynClient.log('Started periodic WebRTC metrics collection', { interval: '5s' })
-    }
+    // public startPeriodicCollection (): void {
+    //     // Send metrics every 5 seconds
+    //     this.intervalId = setInterval(async () => {
+    //         await this.collectAndSendMetrics()
+    //     }, 5000)
+    //
+    //     // this.qrynClient.log('Started periodic WebRTC metrics collection', { interval: '5s' })
+    // }
 
     public stopPeriodicCollection (): void {
         if (this.intervalId) {
