@@ -84,7 +84,12 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
     protected newStreamPlugins: Array<BaseNewStreamPlugin> = []
     protected processStreamPlugins: Array<BaseProcessStreamPlugin> = []
 
+    protected optionsInterval = null
+
     protected onTransportCallback: OnTransportCallback
+
+    protected lastOptionsTimestamp = null
+    protected lastRegisterTimestamp = null
 
     //_janus_session: any = null
 
@@ -98,6 +103,10 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
             'pn-param': 'acme-param',
             'pn-prid': 'ZTY4ZDJlMzODE1NmUgKi0K>'
         })*/
+    }
+
+    setLastRegisterTimestamp () {
+        this.lastRegisterTimestamp = Date.now()
     }
 
     call (target: string, options?: CallOptionsExtended): RTCSession {
@@ -371,6 +380,11 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         delete this._janus_sessions[session.id]
     }
 
+    clearKeepAliveInterval () {
+        clearInterval(this.optionsInterval)
+        this.optionsInterval = null
+    }
+
     receiveRequest (request: any) {
         const method = request.method
         // Check that request URI points to us.
@@ -413,7 +427,24 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
          * They are processed as if they had been received outside the dialog.
          */
         if (method === JsSIP_C.OPTIONS) {
-            console.log('on options')
+            this.lastOptionsTimestamp = Date.now()
+
+            if (!this.optionsInterval) {
+                this.emit('initKeepAliveInterval')
+                this.optionsInterval = setInterval(() => {
+                    const currentTimestamp = Date.now()
+
+                    if (
+                        (this.lastOptionsTimestamp > currentTimestamp - 35000) &&
+                        ((this.lastRegisterTimestamp +
+                            this._configuration.register_expires * 1000) > currentTimestamp)) {
+                        this.emit('keepAliveInterval')
+                    }
+
+                }, 35000)
+            }
+
+
             if (this.listeners('newOptions').length === 0) {
                 request.reply(200)
 
