@@ -18,8 +18,6 @@ export default defineNuxtConfig({
     },
     modules: [
         '@nuxt/ui',
-        '@nuxt/image',
-        'nuxt-og-image',
         '@vueuse/nuxt'
     ],
     ui: {
