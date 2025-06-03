@@ -796,7 +796,6 @@ function onTransportConnect (data) {
     this.emit('connected', data)
 
     if (this._dynConfiguration.register) {
-        console.log('do register')
         this._registrator.register()
     }
 }
