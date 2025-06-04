@@ -30,8 +30,8 @@ import { CallOptionsExtended, OnTransportCallback } from '@/types/rtc'
 import { UAExtendedInterface } from '@/lib/msrp/session'
 
 //import Registrator from 'jssip/lib/Registrator'
-//import Registrator from '@/lib/janus/Registrator'
-import Registrator from '@/helpers/Registrator'
+import Registrator from '@/lib/janus/Registrator'
+//import Registrator from '@/helpers/Registrator'
 
 const logger = console
 

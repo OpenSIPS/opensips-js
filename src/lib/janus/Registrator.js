@@ -200,6 +200,9 @@ ${this._contact};expires=${this._expires}${this._extraContactParams}`)
                             break
                         }
 
+                        this._ua.clearKeepAliveInterval()
+                        this._ua.setLastRegisterTimestamp()
+
                         let expires = contact.getParam('expires')
 
                         if (!expires && response.hasHeader('expires')) {
