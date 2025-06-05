@@ -21,7 +21,8 @@ export const EVENT_ACTIONS: Record<string, TestScenarioEventActionType> = {
     READY: 'ready',
     INCOMING: 'incoming',
     WAIT: 'wait',
-    REQUEST: 'request'
+    REQUEST: 'request',
+    DND: 'DND'
 } as const
 
 export const DIAL_ACTION = {
@@ -71,6 +72,10 @@ export const SEND_DTMF_ACTION = {
 export const TRANSFER_ACTION = {
     label: 'Transfer',
     value: EVENT_ACTIONS.TRANSFER
+}
+export const DND_ACTION = {
+    label: 'DND',
+    value: EVENT_ACTIONS.DND
 }
 
 export const ScenarioActionsMap: TScenarioActionsMap = {
@@ -184,6 +189,16 @@ export const ScenarioActionsMap: TScenarioActionsMap = {
         actions: [
             { ...ANSWER_ACTION }, { ...WAIT_ACTION }, { ...REQUEST_ACTION }
         ]
+    },
+    [EVENT_ACTIONS.DND]: {
+        key: EVENT_ACTIONS.DND,
+        label: 'DND',
+        actions: [
+            { ...REQUEST_ACTION },
+            { ...WAIT_ACTION },
+            { ...DIAL_ACTION },
+            { ...UNREGISTER_ACTION }
+        ]
     }
 }
 
@@ -203,6 +218,7 @@ export const CustomAction = {
         { ...SEND_DTMF_ACTION },
         { ...TRANSFER_ACTION },
         { ...UNREGISTER_ACTION },
+        { ...DND_ACTION }
     ]
 }
 

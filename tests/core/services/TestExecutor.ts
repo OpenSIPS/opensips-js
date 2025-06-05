@@ -226,6 +226,9 @@ export default class TestExecutor {
                 case 'transfer':
                     result = await this.actionsExecutor.transfer(this.buildPayload('transfer', action))
                     break
+                case 'DND':
+                    result = await this.actionsExecutor.DND()
+                    break
                 case 'unregister':
                     result = await this.actionsExecutor.unregister()
                     break
@@ -411,19 +414,6 @@ export default class TestExecutor {
                     ]
                 ]
 
-            case 'unregister':
-                return [
-                    [
-                        {
-                            type: 'websocket',
-                            method: 'REGISTER',
-                            timeout: 5000,
-                            checkSentEvent: true,
-                            description: 'Default expectation: Should send REGISTER event with expires=0'
-                        }
-                    ]
-                ]
-
             default:
                 return []
         }
@@ -435,7 +425,7 @@ export default class TestExecutor {
 
         try {
             this.browser = await chromium.launch({
-                headless: true,
+                headless: false,
                 args: [
                     '--allow-file-access',
                     '--autoplay-policy=no-user-gesture-required',

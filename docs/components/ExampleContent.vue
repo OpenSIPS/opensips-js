@@ -63,7 +63,7 @@
 
                 <div>
                     <div id="muteContainerEl">
-                        <button class="muteButtonEl">
+                        <button class="muteButtonEl" id="muteButtonEl">
                             Mute
                         </button>
                     </div>

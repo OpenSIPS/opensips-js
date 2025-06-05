@@ -253,6 +253,15 @@ export type TransferAction = Action<
     TransferActionPayload,
     TransferActionSuccessResponse
 >
+/* DND */
+interface DNDActionSuccessResponse extends BaseActionSuccessResponse {
+    success: true
+}
+export type DNDAction = Action<
+    'DND',
+    undefined,
+    DNDActionSuccessResponse
+>
 
 /* Unregister */
 interface UnregisterActionSuccessResponse extends BaseActionSuccessResponse {
@@ -306,6 +315,7 @@ export interface ActionsMap {
     transfer: TransferAction
     unregister: UnregisterAction
     request: RequestAction
+    DND: DNDAction
 }
 
 export type ActionsExecutorImplements = {

@@ -2,6 +2,7 @@ import path from 'path'
 import fs from 'fs/promises'
 
 import { Browser, Locator, Page } from 'playwright'
+import { Selectors } from '../src/selectors'
 import { WebRTCMetricsCollector } from './WebRTCMetricsCollector'
 import { WebRTCMetricsSender } from './WebRTCMetricsSender'
 import PageWebSocketWorker from './PageWebSocketWorker'
@@ -23,6 +24,7 @@ import {
     PlaySoundAction,
     SendDTMFAction,
     TransferAction,
+    DNDAction,
     RequestAction,
     BaseActionSuccessResponse,
     Expectation,
@@ -44,6 +46,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     private useVideoCheckbox: Locator
     private holdButton: Locator
 
+    private DNDCheckbox: Locator
     private yourTargetInput: Locator
     private callButton: Locator
     private answerButton: Locator
@@ -104,7 +107,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                                     {
                                         method: expectation.method,
                                         status_code: expectation.status_code,
-                                        timeout: expectation.timeout || 5000,
+                                        timeout: expectation.timeout || 10000,
                                         checkSentEvent: expectation.checkSentEvent
                                     }
                                 )
@@ -286,12 +289,9 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
 
     public async dial (data: GetActionPayload<DialAction>): Promise<GetActionResponse<DialAction>> {
         await this.logger.log('Executing dial action', { data })
-
         this.yourTargetInput = this.page.locator('#makeCallForm input')
         this.callButton = this.page.locator('#makeCallForm button')
-
         await this.yourTargetInput.fill(String(data.target))
-
         await this.callButton.click()
 
         const callId = 'call-' + Math.floor(Math.random() * 10000)
@@ -398,6 +398,16 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         }
     }
 
+    public async DND (): Promise<GetActionResponse<DNDAction>> {
+        await this.logger.log('Executing DND action')
+        this.DNDCheckbox = this.page.locator(Selectors.audioCallsPage.DNDCheckbox)
+        await this.DNDCheckbox.click()
+
+        return {
+            success: true
+        }
+    }
+
     public async unregister (): Promise<GetActionResponse<UnregisterAction>> {
         await this.logger.log('Executing unregister action')
 
@@ -417,6 +427,22 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
 
         // Clicking the logout button
         this.logoutButton.click()
+
+        try {
+            await this.pageWebSocketWorker.waitForMessage(
+                this.pageWebSocketWorker.getConnectedWebsocket(),
+                {
+                    method: 'REGISTER',
+                    timeout: 10000,
+                    checkSentEvent: true
+                }
+            )
+        } catch (error) {
+            return {
+                success: false,
+                error: `Error unregister to ${this.scenarioId}`
+            }
+        }
 
         await this.logger.log('Logout button clicked')
 

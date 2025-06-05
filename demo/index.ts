@@ -254,6 +254,7 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
 
         const muteAgentButtonEl = document.createElement('button') as HTMLButtonElement
         muteAgentButtonEl.innerText = call.localMuted ? 'Unmute' : 'Mute'
+        muteAgentButtonEl.setAttribute('data-test', call.localMuted ? 'unmute-agent-button' : 'mute-agent-button')
         muteAgentButtonEl.addEventListener('click', (event) => {
             event.preventDefault()
             const isMuted = call.localMuted
@@ -263,12 +264,14 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
                 openSIPSJS.audio.muteCaller(call._id)
             }
             muteAgentButtonEl.innerText = !isMuted ? 'Unmute' : 'Mute'
+            muteAgentButtonEl.setAttribute('data-test', !isMuted ? 'unmute-agent-button' : 'mute-agent-button')
         })
         listItemEl.appendChild(muteAgentButtonEl)
 
 
         const terminateButtonEl = document.createElement('button') as HTMLButtonElement
         terminateButtonEl.innerText = 'Hangup'
+        terminateButtonEl.setAttribute('data-test', 'hangup-button')
         terminateButtonEl.addEventListener('click', (event) => {
             event.preventDefault()
             openSIPSJS.audio.terminateCall(call._id)
@@ -277,6 +280,7 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
 
         const transferButtonEl = document.createElement('button') as HTMLButtonElement
         transferButtonEl.innerText = 'Transfer'
+        transferButtonEl.setAttribute('data-test', 'transfer-button')
         transferButtonEl.addEventListener('click', (event) => {
             event.preventDefault()
 
@@ -292,6 +296,7 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
         if (activeCallsInRoom.length === 2) {
             const mergeButtonEl = document.createElement('button') as HTMLButtonElement
             mergeButtonEl.innerText = `Merge ${room.roomId}`
+            mergeButtonEl.setAttribute('data-test', 'merge-button')
             mergeButtonEl.addEventListener('click', (event) => {
                 event.preventDefault()
                 openSIPSJS.audio.mergeCall(room.roomId)
@@ -302,6 +307,7 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
 
         const holdAgentButtonEl = document.createElement('button') as HTMLButtonElement
         holdAgentButtonEl.innerText = call._localHold ? 'UnHold' : 'Hold'
+        holdAgentButtonEl.setAttribute('data-test', call._localHold ? 'unhold-button' : 'hold-button')
         holdAgentButtonEl.classList.add('holdAgent')
         let isOnHold = call._localHold
         holdAgentButtonEl.addEventListener('click', async (event) => {
@@ -315,12 +321,14 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
 
             holdAgentButtonEl.innerText = !isOnHold ? 'UnHold' : 'Hold'
             isOnHold = !isOnHold
+            holdAgentButtonEl.setAttribute('data-test', !isOnHold ? 'unhold-button' : 'hold-button')
         })
         listItemEl.appendChild(holdAgentButtonEl)
 
         if (call.direction !== 'outgoing' && !call._is_confirmed) {
             const answerButtonEl = document.createElement('button') as HTMLButtonElement
             answerButtonEl.innerText = 'Answer'
+            answerButtonEl.setAttribute('data-test', 'answer-button')
             answerButtonEl.addEventListener('click', (event) => {
                 event.preventDefault()
                 openSIPSJS.audio.answerCall(call._id)
@@ -335,6 +343,7 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
         currentRoomMoveOption.value = String(call.roomId)
         currentRoomMoveOption.text = `Room ${call.roomId}`
         callMoveSelectEl.appendChild(currentRoomMoveOption)
+        callMoveSelectEl.setAttribute('data-test', 'room-select')
 
         Object.values(openSIPSJS.audio.getActiveRooms).forEach((room: IRoom) => {
             if (call.roomId === room.roomId) {
@@ -1436,7 +1445,7 @@ DNDInputEl?.addEventListener(
         event.preventDefault()
 
         const target = event.target as HTMLInputElement
-        openSIPSJS.audio.isDND = target.checked
+        openSIPSJS.audio.setDND(target.checked)
 
     })
 
