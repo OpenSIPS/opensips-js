@@ -104,7 +104,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                                     {
                                         method: expectation.method,
                                         status_code: expectation.status_code,
-                                        timeout: expectation.timeout || 5000,
+                                        timeout: expectation.timeout || 10000,
                                         checkSentEvent: expectation.checkSentEvent
                                     }
                                 )
