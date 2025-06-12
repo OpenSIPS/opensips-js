@@ -16,7 +16,7 @@ import {
     ProbeMetricInType,
     WebrtcMetricsConfigType
 } from '@/types/webrtcmetrics'
-import { processAudioVolume, simplifyCallObject, syncStream } from '@/helpers/audio.helper'
+import { isMobile, processAudioVolume, simplifyCallObject, syncStream } from '@/helpers/audio.helper'
 import { RTCSessionEvent } from 'jssip/lib/UA'
 import { forEach } from 'p-iteration'
 import audioContext from '@/helpers/audioContext'
@@ -41,6 +41,8 @@ export class AudioModule {
     private isCallAddingInProgress: string | undefined
     private muteWhenJoinEnabled = false
     private isDNDEnabled = false
+    // If false - all incoming calls will be rejected when busy
+    private isCallWaitingEnabled = true
     private muted = false
 
     private microphoneInputLevelValue = 1 // [0;1]
@@ -184,6 +186,21 @@ export class AudioModule {
         return this.isDNDEnabled
     }
 
+    /**
+     * Gets the current state of the call waiting feature.
+     *
+     * When call waiting is enabled (true), incoming calls will be allowed even when
+     * other calls are active.
+     *
+     * When call waiting is disabled (false) and there are already active calls,
+     * any new incoming calls will be automatically rejected with a "busy" status.
+     *
+     * @returns {boolean} True if call waiting is enabled, false if disabled
+     */
+    public get isCallWaiting (): boolean {
+        return this.isCallWaitingEnabled
+    }
+
     public get speakerVolume () {
         return this.speakerVolumeValue
     }
@@ -198,6 +215,13 @@ export class AudioModule {
 
     public get hasActiveCalls () {
         return Object.values(this.extendedCalls).length > 0
+    }
+
+    public get hasActiveAnsweredCalls () {
+        const rooms = Object.values(this.activeRooms)
+        const answeredSessions = rooms.filter((room) => !room.incomingInProgress)
+
+        return answeredSessions.length > 0
     }
 
     public get getActiveRooms () {
@@ -217,6 +241,13 @@ export class AudioModule {
     }
 
     public get getUserMediaConstraints () {
+        if (isMobile()) {
+            return {
+                video: false,
+                audio: true
+            }
+        }
+
         return {
             audio: {
                 deviceId: {
@@ -255,21 +286,26 @@ export class AudioModule {
         const initialInputDevice = localStorage.getItem(STORAGE_KEYS.SELECTED_INPUT_DEVICE) || 'default'
         const initialOutputDevice = localStorage.getItem(STORAGE_KEYS.SELECTED_OUTPUT_DEVICE) || 'default'
 
-        // Ask input media permissions
-        const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
-        stream.getTracks().forEach(track => track.stop())
+        try {
+            // Ask input media permissions
+            const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
+            const devices = await navigator.mediaDevices.enumerateDevices()
 
-        const devices = await navigator.mediaDevices.enumerateDevices()
+            this.setAvailableMediaDevices(devices)
 
-        this.setAvailableMediaDevices(devices)
+            await this.setMicrophone(initialInputDevice)
+            await this.setSpeaker(initialOutputDevice)
 
-        await this.setMicrophone(initialInputDevice)
-        await this.setSpeaker(initialOutputDevice)
+            navigator.mediaDevices.addEventListener('devicechange', async () => {
+                const newDevices = await navigator.mediaDevices.enumerateDevices()
+                this.setAvailableMediaDevices(newDevices)
+            })
 
-        navigator.mediaDevices.addEventListener('devicechange', async () => {
-            const newDevices = await navigator.mediaDevices.enumerateDevices()
-            this.setAvailableMediaDevices(newDevices)
-        })
+            stream.getTracks().forEach(track => track.stop())
+        } catch (err) {
+            console.error(err)
+        }
+
     }
 
     public setCallTime (value: ITimeData) {
@@ -341,6 +377,7 @@ export class AudioModule {
         if (!validation_regex.test(value)) {
             throw new Error('Not allowed character in DTMF input')
         }
+
         const call = this.extendedCalls[callId]
         call.sendDTMF(value)
     }
@@ -372,6 +409,7 @@ export class AudioModule {
 
         const holdPromise = new Promise<void>((resolve) => {
             const resolveHold = () => {
+                call.putOnHoldTimestamp = toHold ? Date.now() : undefined
                 resolve()
             }
 
@@ -505,7 +543,8 @@ export class AudioModule {
             [callId]: {
                 isMoving: false,
                 isTransferring: false,
-                isMerging: false
+                isMerging: false,
+                isTransferred: false
             }
         }
 
@@ -529,6 +568,10 @@ export class AudioModule {
 
         if (value.isMerging !== undefined) {
             newStatus.isMerging = value.isMerging
+        }
+
+        if (value.isTransferred !== undefined) {
+            newStatus.isTransferred = value.isTransferred
         }
 
         this.callStatus = {
@@ -715,7 +758,7 @@ export class AudioModule {
                 await this.unholdCall(callsInRoom[0].id)
             }
 
-            if (callsInRoom[0].connection && callsInRoom[0].connection.getSenders()[0]) {
+            if (callsInRoom[0].connection && callsInRoom[0].connection?.getSenders()[0]) {
                 const processedStream = this.getActiveStream()
                 await callsInRoom[0].connection.getSenders()[0].replaceTrack(processedStream.getTracks()[0])
                 this.muteReconfigure(callsInRoom[0])
@@ -726,11 +769,11 @@ export class AudioModule {
     }
 
     private async doConference (sessions: Array<ICall>) {
-        await forEach(sessions, async (session: ICall) => {
+        /*await forEach(sessions, async (session: ICall) => {
             if (session._localHold) {
                 await this.unholdCall(session._id)
             }
-        })
+        })*/
 
         // Take all received tracks from the sessions you want to merge
         const receivedTracks: Array<MediaStreamTrack> = []
@@ -774,7 +817,7 @@ export class AudioModule {
                 sourceStream.connect(mixedOutput)
             }
 
-            if (session.connection.getSenders()[0]) {
+            if (session.connection?.getSenders()[0]) {
                 //mixedOutput.stream.getTracks().forEach(track => track.enabled = !getters.isMuted) // Uncomment to mute all callers on mute
                 await session.connection.getSenders()[0].replaceTrack(mixedOutput.stream.getTracks()[0])
                 this.muteReconfigure(session)
@@ -804,9 +847,15 @@ export class AudioModule {
     }
 
     public terminateCall (callId: string) {
+        // TODO: if it answered incoming call and we are doing hangup we are getting unregistered event and sockets are reconnecting
         const call = this.extendedCalls[callId]
 
-        if (call._status !== 8) {
+        if (call._status === 4) {
+            call.terminate({
+                status_code: 603,
+                reason_phrase: 'Decline'
+            })
+        } else if (call._status !== 8) {
             call.terminate()
         }
     }
@@ -832,10 +881,28 @@ export class AudioModule {
 
         this.updateCallStatus({
             callId,
-            isTransferring: true
+            isTransferring: true,
+            isTransferred: false
         })
 
-        call.refer(`sip:${target}@${this.context.sipDomain}`)
+        call.refer(`sip:${target}@${this.context.sipDomain}`, {
+            eventHandlers: {
+                requestSucceeded: () => {
+                    this.updateCallStatus({
+                        callId,
+                        isTransferring: false,
+                        isTransferred: true
+                    })
+                },
+                requestFailed: () => {
+                    this.updateCallStatus({
+                        callId,
+                        isTransferring: false,
+                        isTransferred: false
+                    })
+                }
+            }
+        })
         this.updateCall(call)
     }
 
@@ -864,10 +931,51 @@ export class AudioModule {
         this.updateCall(firstCall)
     }
 
+    public mergeCallByIds (firstCallId: string, secondCallId: string) {
+        const firstCall = Object.values(this.extendedCalls).find((call) => call._id === firstCallId)
+        const secondCall = Object.values(this.extendedCalls).find((call) => call._id === secondCallId)
+
+        if (!firstCall || !secondCall) {
+            throw new Error('Call ID is not provided')
+        }
+
+        // TODO: Check all call.id for working in the same way as call._id
+        this.updateCallStatus({
+            callId: firstCallId,
+            isMerging: true
+        })
+        this.updateCallStatus({
+            callId: secondCallId,
+            isMerging: true
+        })
+
+        firstCall.refer(secondCall.remote_identity.uri.toString(), { replaces: secondCall })
+        this.updateCall(firstCall)
+    }
+
     // TODO: Use this method in demo
     public setDND (value: boolean) {
         this.isDNDEnabled = value
         this.context.emit('changeIsDND', value)
+    }
+
+    /**
+     * Sets the call waiting feature state.
+     *
+     * When call waiting is disabled (false) and there are already active calls,
+     * any new incoming calls will be automatically rejected with a "busy" status.
+     *
+     * When call waiting is enabled (true), incoming calls will be allowed even when
+     * other calls are active.
+     *
+     * This setting is used in the shouldTerminateNewSession method to determine whether
+     * to automatically terminate new incoming sessions when the user is already on a call.
+     *
+     * @param {boolean} value - True to enable call waiting, false to disable
+     */
+    public setCallWaiting (value: boolean) {
+        this.isCallWaitingEnabled = value
+        this.context.emit('changeIsCallWaiting', value)
     }
 
     private startCallTimer (callId: string) {
@@ -1013,7 +1121,7 @@ export class AudioModule {
         this.stopVUMeter('origin')
 
         // TODO: try without it
-        session.connection.getSenders().forEach((sender) => {
+        session.connection?.getSenders().forEach((sender) => {
             sender.track.stop()
         })
 
@@ -1031,16 +1139,43 @@ export class AudioModule {
         this.roomReconfigure(callRoomIdToConfigure)
     }
 
+
+    /**
+     * Determines whether a new incoming session should be automatically terminated
+     * based on Do Not Disturb (DND) settings and Call Waiting settings.
+     *
+     * @param {RTCSessionEvent} event - The event containing the new RTC session
+     * @returns {boolean} True if the session should be terminated automatically, false otherwise
+     */
+    private shouldTerminateNewSession (event: RTCSessionEvent): boolean {
+        const session = event.session as RTCSessionExtended
+
+        if (session.direction === 'outgoing') {
+            return false
+        }
+
+        const terminateBecauseOfCallWaiting = !this.isCallWaiting && this.hasActiveCalls
+
+        return this.isDND || terminateBecauseOfCallWaiting
+    }
+
     private async newRTCSessionCallback (event: RTCSessionEvent) {
         const session = event.session as RTCSessionExtended
 
-        if (this.isDND) {
+        if (this.shouldTerminateNewSession(event)) {
             session.terminate({
                 status_code: 486,
                 reason_phrase: 'Do Not Disturb'
             })
             return
         }
+
+        // TODO: ADDED BECAUSE MARIANA NEEDED FOR THE PLAYING BIP SOUND ON INCOMING CALL
+        this.context.triggerListener({
+            listenerType: CALL_EVENT_LISTENER_TYPE.NEW_CALL,
+            session,
+            event
+        })
 
         // stop timers on ended and failed
         session.on('ended', (event) => {
@@ -1063,8 +1198,12 @@ export class AudioModule {
 
             if (!Object.keys(this.extendedCalls).length) {
                 this.setIsMuted(false)
-                this.initialStreamValue.getTracks().forEach((track) => track.stop())
+                this.initialStreamValue?.getTracks().forEach((track) => track.stop())
                 this.initialStreamValue = null
+            }
+
+            if (this.context.isWaitingForSessionHangup() && !this.hasActiveAnsweredCalls) {
+                this.context.stopSessionAfterWaiting()
             }
         })
         session.on('progress', (event: IncomingEvent | OutgoingEvent) => {
@@ -1100,8 +1239,12 @@ export class AudioModule {
 
             if (!Object.keys(this.extendedCalls).length) {
                 this.setIsMuted(false)
-                this.initialStreamValue.getTracks().forEach((track) => track.stop())
+                this.initialStreamValue?.getTracks().forEach((track) => track.stop())
                 this.initialStreamValue = null
+            }
+
+            if (this.context.isWaitingForSessionHangup() && !this.hasActiveAnsweredCalls) {
+                this.context.stopSessionAfterWaiting()
             }
         })
         session.on('confirmed', (event: IncomingAckEvent | OutgoingAckEvent) => {
@@ -1208,9 +1351,14 @@ export class AudioModule {
             })
 
             const inboundAudioMetric = probe.audio[inboundAudio] as ProbeMetricInType
+
+            if (!inboundAudioMetric) {
+                return
+            }
+
             const metric: MetricAudioData = filterObjectKeys(inboundAudioMetric, METRIC_KEYS_TO_INCLUDE)
             metric.callId = call._id
-            this.setCallMetrics(metrics)
+            this.setCallMetrics(metric)
         }
 
         this.context.subscribe(CALL_EVENT_LISTENER_TYPE.CALL_ENDED, (session) => {
@@ -1263,8 +1411,8 @@ export class AudioModule {
     }
 
     //@requireInitialization()
-    public initCall (target: string, addToCurrentRoom: boolean) {
-        this.checkInitialized()
+    public initCall (target: string, addToCurrentRoom: boolean, holdOtherCalls = false) {
+        //this.checkInitialized()
 
         if (target.length === 0) {
             return console.error('Target must be a valid string')
@@ -1301,6 +1449,16 @@ export class AudioModule {
                 callId: call.id,
                 roomId: this.currentActiveRoomId
             })
+
+            // If holdOtherCalls is true, put all other calls in the room on hold
+            if (holdOtherCalls) {
+                const callsToHold = Object.values(this.extendedCalls)
+                    .filter(c => c.roomId === this.currentActiveRoomId && c._id !== call.id)
+
+                for (const otherCall of callsToHold) {
+                    this.holdCall(otherCall._id, true)
+                }
+            }
         }
 
         call.connection.addEventListener('track', (event: RTCTrackEvent) => {

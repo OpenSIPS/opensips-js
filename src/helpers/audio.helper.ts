@@ -26,7 +26,8 @@ const CALL_KEYS_TO_INCLUDE: Array<ICallKey> = [
     'isOnHold',
     //'originalStream',
     'localMuted',
-    'autoAnswer'
+    'autoAnswer',
+    'putOnHoldTimestamp'
 ]
 type IMessageKey = keyof IMessage
 const MESSAGE_KEYS_TO_INCLUDE: Array<IMessageKey> = [
@@ -91,13 +92,19 @@ export function processAudioVolume (stream: MediaStream, volume: number) {
 }
 
 export function syncStream (stream: MediaStream, call: ICall, outputDevice: string, volume: number) {
+    if (isMobile()) {
+        return
+    }
+
     const audio = document.createElement('audio') as StreamMediaType
 
     audio.id = call._id
     audio.className = 'audioTag'
     audio.srcObject = stream
+
     audio.setSinkId(outputDevice)
     audio.volume = volume
+
     audio.play()
     call.audioTag = audio
 }
@@ -110,4 +117,8 @@ export function isLoggerCompatible (logger: CustomLoggerType) {
     ) {
         return true
     }
+}
+
+export function isMobile () {
+    return /Mobi|react-native|Android|iPhone/i.test(navigator.userAgent)
 }

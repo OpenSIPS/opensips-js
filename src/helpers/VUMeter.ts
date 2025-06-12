@@ -27,7 +27,6 @@ export default class VUMeter {
     }
 
     clearVolumeInterval (deviceId: string) {
-        console.log('clearVolumeInterval', deviceId)
         clearInterval(this.intervals[deviceId])
         delete this.intervals[deviceId]
     }

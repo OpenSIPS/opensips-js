@@ -12,10 +12,21 @@
     "outDir": "./dist",
     "rootDir": ".",
     "baseUrl": ".",
+    "lib": ["ES2020", "DOM"],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["src/*"]
     }
   },
-  "include": ["src/*.ts", "src/*.d.ts","src/**/*.ts", "src/**/*.d.ts", "src/**/**/*.ts", "src/**/**/*.d.ts", "src/types/*.d.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "src/*.ts",
+    "src/*.d.ts",
+    "src/**/*.ts",
+    "src/**/*.d.ts",
+    "src/**/**/*.ts",
+    "src/**/**/*.d.ts",
+    "src/types/*.d.ts",
+    "dist/index.d.ts",
+    "docs/tsconfig.json"
+  ],
+  "exclude": ["node_modules"]
 }

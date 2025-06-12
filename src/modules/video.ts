@@ -22,7 +22,7 @@ export class VideoModule {
         return options
     }
 
-    public initCall (target: string) {
+    public initCall (target: string, displayName: string) {
         // this.checkInitialized()
 
         if (target.length === 0) {
@@ -31,37 +31,46 @@ export class VideoModule {
 
         this.context.logger.log(`Calling sip:${target}@${this.context.sipDomain}...`)
 
-        const call = this.context.joinVideoCall(
+        this.context.joinVideoCall(
             `sip:${target}@${this.context.sipDomain}`,
+            displayName,
             this.sipOptions
         )
-
-        console.log('video call')
-        //this.callAddingInProgress = call.id
-
-        /*if (addToCurrentRoom && this.currentActiveRoomId !== undefined) {
-            this.processRoomChange({
-                callId: call.id,
-                roomId: this.currentActiveRoomId
-            })
-        }
-
-        call.connection.addEventListener('addstream', (event: Event) => {
-            this.triggerAddStream(event as MediaEvent, call as ICall)
-        })*/
     }
 
-    /*public invite1 (roomId: string) {
-        const inviteData = {
-            janus: 'invite',
-            plugin: 'janus.plugin.videoroom',
-            opaque_id: 'videoroomtest-uzkIUidc1969',
-            transaction: '1',
-            //session_id: 8477157010600503
-        }
-        this.context.invite(roomId, JSON.stringify(inviteData), {
-            contentType: 'application/json',
-        })
-    }*/
+    stop (options = {}) {
+        this.context.terminateJanusSessions(options)
+    }
 
+    startAudio () {
+        this.context.enableJanusAudio(true)
+    }
+
+    stopAudio () {
+        this.context.enableJanusAudio(false)
+    }
+
+    startVideo () {
+        this.context.enableJanusVideo(true)
+    }
+
+    stopVideo () {
+        this.context.enableJanusVideo(false)
+    }
+
+    changeMediaConstraints (constraints: MediaStreamConstraints) {
+        this.context.changeMediaConstraints(constraints)
+    }
+
+    startScreenShare () {
+        this.context.startScreenShare()
+    }
+
+    startBlur () {
+        this.context.startBlur()
+    }
+
+    stopBlur () {
+        this.context.stopBlur()
+    }
 }

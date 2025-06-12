@@ -91,6 +91,7 @@ export interface ICall extends RTCSessionExtended {
     localHold?: boolean
     audioTag?: StreamMediaType
     autoAnswer?: boolean
+    putOnHoldTimestamp?: number
 }
 
 export type RoomChangeEmitType = {
@@ -112,6 +113,7 @@ export interface ICallStatus {
     isMoving: boolean
     isTransferring: boolean
     isMerging: boolean
+    isTransferred: boolean
 }
 
 export interface ICallStatusUpdate {
@@ -119,6 +121,7 @@ export interface ICallStatusUpdate {
     isMoving?: boolean
     isTransferring?: boolean
     isMerging?: boolean
+    isTransferred?: boolean
 }
 
 export type IRoomUpdate = Omit<IRoom, 'started'> & {
@@ -131,7 +134,14 @@ export type MSRPModuleName = typeof MODULES.MSRP
 
 export type Modules = AudioModuleName | VideoModuleName | MSRPModuleName
 
-export type IOpenSIPSConfiguration = Omit<UAConfiguration, 'sockets'>
+export type OnTransportCallback = (parsed: object, message: string) => void
+
+type UAConfigurationExtended = UAConfiguration & {
+    overrideUserAgent?: (userAgent: string) => string
+    onTransportCallback?: OnTransportCallback
+}
+
+export type IOpenSIPSConfiguration = Omit<UAConfigurationExtended, 'sockets'>
 
 export interface IOpenSIPSJSOptions {
     configuration: IOpenSIPSConfiguration

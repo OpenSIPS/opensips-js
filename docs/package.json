@@ -1,20 +1,27 @@
 {
-  "name": "opensips-js",
-  "version": "0.0.1",
-  "description": "",
-  "main": "index.js",
-  "authors": {
-    "name": "",
-    "email": "serhii.ku@voicenter.com"
-  },
-  "repository": "/opensips-js",
+  "private": true,
+  "version": "1.0.89",
+  "type": "module",
   "scripts": {
-    "dev": "node scripts/prebuild.js && vuepress dev src",
-    "build": "vuepress build src",
-    "prebuild": "node scripts/prebuild.js"
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview"
   },
-  "license": "MIT",
+  "dependencies": {
+    "@nuxt/content": "^2.13.2",
+    "nuxt": "^3.13.0",
+    "voicenter-team-documentation-template": "https://github.com/VoicenterTeam/documentation-template.git"
+  },
   "devDependencies": {
-    "vuepress": "^1.5.3"
+    "@nuxt/devtools": "latest",
+    "@nuxt/eslint": "^0.5.2",
+    "@nuxt/eslint-config": "^0.5.2",
+    "eslint": "^9.9.1",
+    "sass": "1.77.6",
+    "typedoc": "^0.26.6",
+    "typedoc-plugin-markdown": "^4.2.5",
+    "typescript": "5.3.3",
+    "vue-tsc": "^2.0.26"
   }
 }

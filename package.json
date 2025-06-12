@@ -1,18 +1,23 @@
 {
-  "name": "@voicenter-team/opensips-js",
-  "version": "1.0.81",
+  "name": "opensips-js",
+  "version": "0.1.1",
   "description": "The JS package for opensips",
   "default": "src/index.ts",
-  "jsdelivr": "dist/opensips-js.umd.js",
+  "jsdelivr": "dist/opensips-js.iife.js",
   "main": "dist/opensips-js.cjs.js",
   "module": "dist/opensips-js.es.js",
-  "unpkg": "dist/opensips-js.umd.js",
+  "unpkg": "dist/opensips-js.iife.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "dev": "vite",
+    "postpublish": "yarn upload-cdn",
+    "upload-cdn": "yarn build && node scripts/upload-cdn.js",
     "build": "cross-env TARGET=lib vite build",
-    "build-demo": "cross-env TARGET=demo vite build",
-    "docs-build": "yarn run build-demo && cd docs && yarn && yarn run build",
+    "demo-build": "cross-env TARGET=demo vite build",
+    "docs-dev": "cd docs && yarn && yarn run dev",
+    "docs-build": "cd docs && yarn && yarn run build",
+    "docs-publish": "yarn docs-genereate && node scripts/upload-doc.js",
+    "docs-genereate": "yarn build && yarn demo-build && cd docs && yarn && yarn run generate && cd ..",
     "test": "echo \"Error: no test specified\" && exit 1",
     "ts-check": "tsc --noEmit",
     "lint": "eslint . --ext .js,.jsx,.cjs,.mjs,.ts --fix --ignore-path .gitignore"
@@ -25,19 +30,20 @@
   "precommit": "ts-check, lint",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/VoicenterTeam/opensips-js.git"
+    "url": "git+ssh://git@github.com/OpenSIPS/opensips-js.git"
   },
   "author": "Bohdan Konechnyi",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/VoicenterTeam/opensips-js/issues"
+    "url": "https://github.com/OpenSIPS/opensips-js/issues"
   },
-  "homepage": "https://github.com/VoicenterTeam/opensips-js#readme",
+  "homepage": "https://github.com/OpenSIPS/opensips-js#readme",
   "devDependencies": {
     "@types/node": "^18.14.2",
     "@typescript-eslint/eslint-plugin": "^5.53.0",
     "@typescript-eslint/parser": "^5.53.0",
     "@vitejs/plugin-vue": "^4.2.3",
+    "@voicenter-team/aws-uploader": "^1.0.10",
     "@voicenter-team/eslint-config-ts": "^1.0.21",
     "cross-env": "^7.0.3",
     "dotenv": "^16.0.3",
@@ -56,13 +62,16 @@
     "@types/mime": "^3.0.1",
     "generate-unique-id": "^2.0.1",
     "jssip": "3.10.0",
+    "konva": "^9.3.16",
     "loglevel": "^1.8.1",
     "mime": "^3.0.0",
     "p-iteration": "^1.1.8",
-    "sdp-transform": "2.14.1"
+    "sdp-transform": "2.14.1",
+    "uuid": "^10.0.0"
   },
   "files": [
     "dist",
     "src/types"
-  ]
+  ],
+  "packageManager": "yarn@1.22.22+sha1.ac34549e6aa8e7ead463a7407e1c7390f61a6610"
 }

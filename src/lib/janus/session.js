@@ -1,5 +1,6 @@
 // /* globals RTCPeerConnection: false, RTCSessionDescription: false */
 
+import { v4 as uuidv4 } from 'uuid'
 //const EventEmitter = require('events').EventEmitter
 import { EventEmitter } from 'events'
 //const sdp_transform = require('sdp-transform')
@@ -15,7 +16,9 @@ import Timers from 'jssip/lib/Timers'
 import * as SIPMessage from 'jssip/lib/SIPMessage'
 //import Dialog from 'jssip/lib/Dialog'
 import Dialog from './Dialog'
+import Member from './Member'
 import RequestSender from 'jssip/lib/RequestSender'
+import DeviceManager from '../../helpers/janus/DeviceManager'
 //const RTCSession_DTMF = require('./RTCSession/DTMF')
 import RTCSession_DTMF from 'jssip/lib/RTCSession/DTMF'
 import RTCSession_Info from 'jssip/lib/RTCSession/Info'
@@ -24,19 +27,12 @@ import RTCSession_ReferNotifier from 'jssip/lib/RTCSession/ReferNotifier'
 //const RTCSession_ReferSubscriber = require('./RTCSession/ReferSubscriber')
 import RTCSession_ReferSubscriber from 'jssip/lib/RTCSession/ReferSubscriber'
 import URI from 'jssip/lib/URI'
-
-function randomString (len) {
-    const charSet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-    let randomStr = ''
-    // eslint-disable-next-line no-plusplus
-    for (let i = 0; i < len; i++) {
-        const randomPoz = Math.floor(Math.random() * charSet.length)
-        randomStr += charSet.substring(randomPoz, randomPoz + 1)
-    }
-    return randomStr
-}
+import P_TYPES from '../../enum/p.types'
 
 const logger = new Logger('JanusSession')
+
+const RECORDING_PATH = '/opt/recordings/'
+
 
 const C = {
     // JanusSession states.
@@ -69,8 +65,6 @@ export default class RTCSession extends EventEmitter {
         logger.debug('new')
 
         super()
-
-        console.log('constructor call')
 
         this._id = null
         this._ua = ua
@@ -152,9 +146,28 @@ export default class RTCSession extends EventEmitter {
 
         // Map of ReferSubscriber instances indexed by the REFER's CSeq number.
         this._referSubscribers = {}
+        this._candidates = []
+        this.publishers = []
+        this.private_id = null
+        this.memberList = {}
+        this.myFeedList = []
+        this.display_name = ''
+        this.stunServers = [ {
+            urls: 'stun:turn.voicenter.co',
+            credential: 'kxsjahnsdjns3eds23esd',
+            username: 'turn2es21e'
+        } ]
+
+        this.opaque_id = this.generateOpaqueId()
+        this.screen_share_opaque_id = this.generateOpaqueId()
 
         // Custom session empty object for high level use.
         this._data = {}
+
+        // Media state
+        this.isAudioOn = true
+        this.isVideoOn = true
+        this.mediaConstraints = {}
     }
 
     /**
@@ -263,8 +276,19 @@ export default class RTCSession extends EventEmitter {
         }
     }
 
-    connect (target, options = {}, initCallback) {
+    getPTypeHeader (type) {
+        return `PTYPE: ${type}`
+    }
+
+    generateOpaqueId () {
+        const opaqueRandomString = uuidv4().replace(/-/g, '').slice(0, 12)
+        return `videoroomtest-${opaqueRandomString}`
+    }
+
+    connect (target, displayName, options = {}, initCallback) {
         logger.debug('connect()')
+
+        this.display_name = displayName
 
         const originalTarget = target
         const eventHandlers = Utils.cloneObject(options.eventHandlers)
@@ -273,6 +297,9 @@ export default class RTCSession extends EventEmitter {
             audio: true,
             video: true
         })
+
+        this.mediaConstraints = { ...mediaConstraints }
+
         const mediaStream = options.mediaStream || null
         const pcConfig = Utils.cloneObject(options.pcConfig, { iceServers: [] })
         const rtcConstraints = options.rtcConstraints || null
@@ -299,9 +326,10 @@ export default class RTCSession extends EventEmitter {
         }
 
         // Check target validity.
-        console.log('target', target)
         target = this._ua.normalizeTarget(target)
-        console.log('normalizeTarget target', target)
+        this.room_id = target.user
+        this.target = target
+
         if (!target) {
             throw new TypeError(`Invalid target: ${originalTarget}`)
         }
@@ -373,8 +401,6 @@ export default class RTCSession extends EventEmitter {
         this._local_identity = this._request.from
         this._remote_identity = this._request.to
 
-        console.log('this._remote_identity', this._remote_identity)
-
         // User explicitly provided a newRTCSession callback for this session.
         if (initCallback) {
             initCallback(this)
@@ -383,6 +409,72 @@ export default class RTCSession extends EventEmitter {
         this._newJanusSession('local', this._request)
 
         this._sendInitialRequest(mediaConstraints, rtcOfferConstraints, mediaStream)
+    }
+
+    /*async connectBlur () {
+        const options = {
+            audio: this.isAudioOn,
+            video: this.isVideoOn
+        }
+
+        this.streamMask = new StreamMaskPlugin({
+            effect: 'backgroundImageEffect',
+            mediaConstraints: options,
+            base64Image: base64Image ? base64Image : null
+        })
+        //screenSharePlugin.connect(options)
+
+        //const { stream } = await this.loadStream()
+
+        console.log('options 1', options)
+
+        const stream = await navigator.mediaDevices.getUserMedia(options)
+
+        console.log('options 2', options)
+
+        //bokehEffect
+        //backgroundImageEffect
+        const canvasStream = await this.streamMask.start(stream)
+
+        this._overrideSenderTracks(canvasStream)
+
+        this._ua.emit('startBlur')
+
+        this._ua.emit('changeMainVideoStream', {
+            name: this.display_name,
+            stream: canvasStream
+        })
+    }*/
+
+    /*stopBlur () {
+        const originalStream = this.streamMask.stop()
+        this._overrideSenderTracks(originalStream)
+
+        this._ua.emit('stopBlur')
+
+        this._ua.emit('changeMainVideoStream', {
+            name: this.display_name,
+            stream: originalStream
+        })
+    }*/
+
+    _overrideSenderTracks (stream, connection) {
+        stream.getTracks().forEach(track => {
+            const senders = connection.getSenders()
+            senders.forEach(async (sender) => {
+                if (sender.track.kind !== track.kind) {
+                    return
+                }
+
+                if (track.kind === 'audio' && !this.isAudioOn) {
+                    track.enabled = false
+                }
+                if (track.kind === 'video' && !this.isVideoOn) {
+                    track.enabled = false
+                }
+                await sender.replaceTrack(track)
+            })
+        })
     }
 
     init_incoming (request, initCallback) {
@@ -611,7 +703,7 @@ export default class RTCSession extends EventEmitter {
                     // Audio and/or video requested, prompt getUserMedia.
                     this._localMediaStreamLocallyGenerated = true
 
-                    return navigator.mediaDevices.getUserMedia(mediaConstraints)
+                    return this.loadStream()//navigator.mediaDevices.getUserMedia(mediaConstraints)
                         .catch((error) => {
                             if (this._status === C.STATUS_TERMINATED) {
                                 throw new Error('terminated')
@@ -827,6 +919,7 @@ export default class RTCSession extends EventEmitter {
                                 body
                             })
                             dialog.terminate()
+                            this.closeSession()
                         }
                     }
 
@@ -839,6 +932,7 @@ export default class RTCSession extends EventEmitter {
                                 body
                             })
                             dialog.terminate()
+                            this.closeSession()
                         }
                     })
 
@@ -846,19 +940,149 @@ export default class RTCSession extends EventEmitter {
 
                     // Restore the dialog into 'this' in order to be able to send the in-dialog BYE :-).
                     this._dialog = dialog
-                    console.log('SET DIALOG terminate')
 
                     // Restore the dialog into 'ua' so the ACK can reach 'this' session.
                     this._ua.newDialog(dialog)
                 } else {
+                    const byeBody = {
+                        janus: 'leave'
+                    }
+
+                    const extraHeaders = [
+                        'Content-Type: application/json',
+                        this.getPTypeHeader(P_TYPES.LEAVE)
+                    ]
+
                     this.sendRequest(JsSIP_C.BYE, {
                         extraHeaders,
-                        body
+                        body: JSON.stringify(byeBody)
                     })
 
+                    this.closeSession()
                     this._ended('local', null, cause)
                 }
         }
+    }
+
+    configureMedia (settings) {
+        this.isAudioOn = settings.audio
+        this.isVideoOn = settings.video
+    }
+
+    enableAudio (state) {
+        const body = {
+            janus: 'message',
+            body: {
+                audio: state
+            },
+            handle_id: this.handle_id,
+            session_id: this.session_id
+        }
+
+        const extraHeaders = [
+            'Content-Type: application/json',
+            this.getPTypeHeader(P_TYPES.AUDIO_CHANGE)
+        ]
+
+        this.sendRequest(JsSIP_C.INFO, {
+            extraHeaders,
+            body: JSON.stringify(body),
+            eventHandlers: {
+                onSuccessResponse: async (response) => {
+                    if (response.status_code === 200) {
+                        this._ua.emit('changeAudioState', state)
+
+                        this.sendStateMessage({
+                            audio: state
+                        })
+                    }
+                },
+            }
+        })
+    }
+
+    startAudio () {
+        DeviceManager.toggleAudioMute(this.stream)
+        this._toggleMuteAudio(false)
+        this.enableAudio(true)
+        this.isAudioOn = true
+    }
+
+    stopAudio () {
+        DeviceManager.toggleAudioMute(this.stream)
+        this._toggleMuteAudio(true)
+        this.enableAudio(false)
+        this.isAudioOn = false
+    }
+
+    enableVideo (state) {
+        const body = {
+            janus: 'message',
+            body: {
+                video: state
+            },
+            handle_id: this.handle_id,
+            session_id: this.session_id
+        }
+
+        const extraHeaders = [
+            'Content-Type: application/json',
+            this.getPTypeHeader(P_TYPES.VIDEO_CHANGE)
+        ]
+
+        this.sendRequest(JsSIP_C.INFO, {
+            extraHeaders,
+            body: JSON.stringify(body),
+            eventHandlers: {
+                onSuccessResponse: async (response) => {
+                    if (response.status_code === 200) {
+                        this._ua.emit('changeVideoState', state)
+
+                        this.sendStateMessage({
+                            video: state
+                        })
+                    }
+                },
+            }
+        })
+    }
+
+    startVideo () {
+        DeviceManager.toggleVideoMute(this.stream)
+        this._toggleMuteVideo(false)
+        this.enableVideo(true)
+        this.isVideoOn = true
+    }
+
+    stopVideo () {
+        DeviceManager.toggleVideoMute(this.stream)
+        // do track.stop() instead of track.enabled = false
+        this._toggleMuteVideo(true)
+        this.enableVideo(false)
+        this.isVideoOn = false
+    }
+
+
+    sendStateMessage (data) {
+        const body = {
+            janus: 'message',
+            body: {
+                request: 'state',
+                data,
+            },
+            handle_id: this.handle_id,
+            session_id: this.session_id
+        }
+
+        const extraHeaders = [
+            'Content-Type: application/json',
+            this.getPTypeHeader(P_TYPES.STATE)
+        ]
+
+        this.sendRequest(JsSIP_C.INFO, {
+            extraHeaders,
+            body: JSON.stringify(body)
+        })
     }
 
     /*sendDTMF (tones, options = {}) {
@@ -1266,6 +1490,10 @@ export default class RTCSession extends EventEmitter {
         return this._dialog.sendRequest(method, options)
     }
 
+    receiveNotify (request) {
+        logger.debug('receiveRequest()')
+    }
+
     /**
      * In dialog Request Reception
      */
@@ -1616,8 +1844,11 @@ export default class RTCSession extends EventEmitter {
         }, Timers.TIMER_H)
     }
 
-
     _createRTCConnection (pcConfig, rtcConstraints) {
+        const config = {
+            iceServers: this.stunServers,
+            sdpSemantics: 'unified-plan',
+        }
         this._connection = new RTCPeerConnection(pcConfig, rtcConstraints)
 
         this._connection.addEventListener('iceconnectionstatechange', () => {
@@ -1632,6 +1863,44 @@ export default class RTCSession extends EventEmitter {
                 })
             }
         })
+
+        let iceCandidateTimeout
+
+        const onIceCandidate = (event) => {
+            if (this._connection.signalingState !== 'stable' && this._connection.signalingState !== 'have-local-offer') {
+                return
+            }
+            if (!event.candidate) {
+                return
+            }
+
+            this._candidates.push(event.candidate)
+
+            clearTimeout(iceCandidateTimeout)
+
+            // Debounce calling configure request with trickles till the last trickle
+            iceCandidateTimeout = setTimeout(() => {
+                this.lastTrickleReceived = true
+
+                if (this.subscribeSent && !this.isConfigureSent) {
+                    this.addTracks(this.stream.getTracks())
+
+                    this._ua.emit('changeMainVideoStream', {
+                        name: this.display_name,
+                        stream: this.stream
+                    })
+
+                    this._sendConfigureMessage({
+                        audio: true,
+                        video: true,
+                    }).then(() => {
+                        //this.sendInitialState()
+                    })
+                }
+            }, 500)
+        }
+
+        this._connection.onicecandidate = onIceCandidate
 
         logger.debug('emit "peerconnection"')
 
@@ -1675,6 +1944,7 @@ export default class RTCSession extends EventEmitter {
             })
             // Set local description.
             .then((desc) => {
+                this.jsepOffer = desc
                 return connection.setLocalDescription(desc)
                     .catch((error) => {
                         this._rtcReady = true
@@ -1769,12 +2039,10 @@ export default class RTCSession extends EventEmitter {
      * Dialog Management
      */
     _createDialog (message, type, early) {
-        console.log('_createDialog', message)
         const local_tag = (type === 'UAS') ? message.to_tag : message.from_tag
         const remote_tag = (type === 'UAS') ? message.from_tag : message.to_tag
         const id = message.call_id + local_tag + remote_tag
 
-        console.log('remote_tag', remote_tag)
         /*message.headers.Contact = [
             {
                 parsed: '<sip:665@192.168.181.88:5060>',
@@ -1791,10 +2059,8 @@ export default class RTCSession extends EventEmitter {
             } else {
                 early_dialog = new Dialog(this, message, type, Dialog.C.STATUS_EARLY)
 
-                console.log('SET DIALOG early')
                 // Dialog has been successfully created.
                 if (early_dialog.error) {
-                    console.log('early_dialog error', early_dialog.error)
                     logger.debug(early_dialog.error)
                     this._failed('remote', message, JsSIP_C.causes.INTERNAL_ERROR)
 
@@ -1813,7 +2079,6 @@ export default class RTCSession extends EventEmitter {
             // In case the dialog is in _early_ state, update it.
             if (early_dialog) {
                 early_dialog.update(message, type)
-                console.log('SET DIALOG 1')
                 this._dialog = early_dialog
                 delete this._earlyDialogs[id]
 
@@ -1824,13 +2089,11 @@ export default class RTCSession extends EventEmitter {
             const dialog = new Dialog(this, message, type)
 
             if (dialog.error) {
-                console.log('dialog.error', dialog.error)
                 logger.debug(dialog.error)
                 this._failed('remote', message, JsSIP_C.causes.INTERNAL_ERROR)
 
                 return false
             } else {
-                console.log('AAA SET DIALOG 2')
                 this._dialog = dialog
 
                 return true
@@ -2286,6 +2549,7 @@ export default class RTCSession extends EventEmitter {
      */
     _sendInitialRequest (mediaConstraints, rtcOfferConstraints, mediaStream) {
         this.ackSent = false
+        this.publisherSubscribeSent = false
 
         const request_sender = new RequestSender(this._ua, this._request, {
             onRequestTimeout: () => {
@@ -2315,7 +2579,7 @@ export default class RTCSession extends EventEmitter {
                     // Request for user media access.
                     this._localMediaStreamLocallyGenerated = true
 
-                    return navigator.mediaDevices.getUserMedia(mediaConstraints)
+                    return this.loadStream() //navigator.mediaDevices.getUserMedia(mediaConstraints)
                         .catch((error) => {
                             if (this._status === C.STATUS_TERMINATED) {
                                 throw new Error('terminated')
@@ -2362,9 +2626,7 @@ export default class RTCSession extends EventEmitter {
                 const inviteData = {
                     janus: 'attach',
                     plugin: 'janus.plugin.videoroom',
-                    opaque_id: 'videoroomtest-uzkIUidc1969'
-                    //transaction: this._getNextTransactionId(),
-                    //session_id: 8477157010600503
+                    opaque_id: this.opaque_id
                 }
 
                 const bodyStringified = JSON.stringify(inviteData)
@@ -2407,19 +2669,590 @@ export default class RTCSession extends EventEmitter {
         return sender.dtmf
     }*/
 
+    async requestAudioAndVideoPermissions () {
+        this.stream = await this.loadStream()
+    }
+
+    async setupMediaStream () {
+        await this.requestAudioAndVideoPermissions()
+        await this.processPlugins()
+    }
+
+    async changeMediaConstraints (constraints) {
+        this.mediaConstraints = { ...constraints }
+
+        await this.processPlugins()
+
+        this.addTracks(this.stream.getTracks())
+        this._ua.emit('changeMainVideoStream', {
+            name: this.display_name,
+            stream: this.stream
+        })
+    }
+
+    async loadStream () {
+        const options = {}
+
+        if (this.isAudioOn) {
+            if (this.mediaConstraints.audio) {
+                options.audio = this.mediaConstraints.audio
+            } else {
+                options.audio = true
+            }
+        } else {
+            options.audio = false
+        }
+
+        if (this.isVideoOn) {
+            if (this.mediaConstraints.video) {
+                options.video = this.mediaConstraints.video
+            } else {
+                options.video = true
+            }
+        } else {
+            options.video = false
+        }
+
+        let stream = null
+
+        try {
+            stream = await navigator.mediaDevices.getUserMedia(options)
+        } catch (e) {
+            try {
+                options.video = false
+                stream = await navigator.mediaDevices.getUserMedia(options)
+            } catch (ex) {
+                options.audio = false
+                options.video = false
+                stream = await navigator.mediaDevices.getUserMedia(options)
+            }
+        }
+
+        return stream
+
+        //this.originalStream = this.stream.clone()
+        // this.trackMicrophoneVolume()
+        /*return {
+            stream: this.stream,
+            options
+        }*/
+    }
+
+    addTracks (tracks) {
+        this._connection.getSenders().forEach((sender) => {
+            this._connection.removeTrack(sender)
+        })
+
+        tracks.forEach((track) => {
+            this._connection.addTrack(track)
+        })
+    }
+
+    getRecordFileName () {
+        return RECORDING_PATH + this.room_id + btoa(unescape(encodeURIComponent(this.displayName))) + Date.now()
+    }
+
+    async processIceCandidates () {
+        for(let i = 0; i < this.iceCandidates.length; i++) {
+            await this._connection.addIceCandidate(this.iceCandidates[i])
+        }
+        this.iceCandidates = []
+    }
+
+    async _sendConfigureMessage (options) {
+        const offerOptions = {
+            offerToReceiveAudio: false,
+            offerToReceiveVideo: false
+        }
+
+        // TODO: don't create offer here as it is already created
+        //const jsepOffer = await this._connection.createOffer(offerOptions)
+        //await this._connection.setLocalDescription(jsepOffer)
+
+        const candidatesArray = this._candidates.map((candidate) => ({
+            janus: 'trickle',
+            candidate,
+            handle_id: this.handle_id,
+            session_id: this.session_id
+        }))
+
+        const configureBody = {
+            janus: 'message',
+            body: {
+                request: 'configure',
+                record: true,
+                filename: this.getRecordFileName(),
+                ...options
+            },
+            jsep: this.jsepOffer,
+            handle_id: this.handle_id,
+            session_id: this.session_id
+        }
+
+        const body = {
+            configure: configureBody,
+            trickles: [ ...candidatesArray ]
+        }
+
+        const extraHeaders = [
+            'Content-Type: application/json',
+            this.getPTypeHeader(P_TYPES.ICE)
+        ]
+
+        this.sendRequest(JsSIP_C.INFO, {
+            extraHeaders,
+            body: JSON.stringify(body),
+            eventHandlers: {
+                onSuccessResponse: async (response) => {
+                    this.isConfigureSent = true
+                    const messageData = response.data
+                    const messageBody = messageData.split('\r\n')
+                    const data = messageBody[messageBody.length - 1]
+                    const parsed = JSON.parse(data)
+                    await this._connection.setRemoteDescription(parsed.jsep)
+                    //await this.processIceCandidates()
+                    this._candidates = []
+                },
+            }
+        })
+    }
+
+    _sendMemberStartMessage (member, jsep) {
+        const body = {
+            janus: 'message',
+            body: {
+                request: 'start',
+                room: this.room_id
+            },
+            handle_id: member.handleId,
+            session_id: this.session_id,
+            jsep
+        }
+
+        const extraHeaders = [
+            'Content-Type: application/json',
+            this.getPTypeHeader(P_TYPES.CONFIGURE)
+        ]
+
+        this.sendRequest(JsSIP_C.INFO, {
+            extraHeaders,
+            body: JSON.stringify(body),
+            eventHandlers: {
+                onSuccessResponse: async (response) => {
+                    if (response.status_code === 200) {
+                        await member.rtcpPeer.setLocalDescription(jsep)
+                    }
+                }
+            }
+        })
+    }
+
+    _sendTrickleMessage (candidates) {
+        const candidatesArray = candidates.map((candidate) => ({
+            janus: 'trickle',
+            candidate,
+            handle_id: this.handle_id,
+            session_id: this.session_id
+        }))
+
+        const body = {
+            trickles: [ ...candidatesArray ]
+        }
+
+        const extraHeaders = [ this.getPTypeHeader(P_TYPES.TRICKLE) ]
+
+        this.sendRequest(JsSIP_C.INFO, {
+            extraHeaders,
+            body: JSON.stringify(body),
+            eventHandlers: {
+                onSuccessResponse: async (response) => {},
+            }
+        })
+    }
+
+    async _answerAttachedStream (member, attachedStreamInfo) {
+        let answerSdp = null
+        const RTCPeerOnAddStream = async (event) => {
+            if (!member.rtcpPeer  ) {
+                return
+            }
+            if ( member.loaded) {
+                return
+            } else {
+                member.loaded = true
+                const options = {
+                    audio: true,
+                    video: true,
+                }
+
+                await new Promise((resolve) => {setTimeout(resolve,100)})
+                answerSdp = await member.rtcpPeer.createAnswer(options)
+
+                this._sendMemberStartMessage(member, answerSdp)
+            }
+
+            const aTracks = event.streams[0].getAudioTracks()
+            const  vTracks = event.streams[0].getVideoTracks()
+
+            const tracksToApply = []
+            if (aTracks[0]) {
+                tracksToApply.push(aTracks[0])
+            }
+            if (vTracks[0]) {
+                tracksToApply.push(vTracks[0])
+            }
+
+            const mediaStream = new MediaStream(tracksToApply)
+
+            member.stream = mediaStream
+            this._ua.emit('memberJoin', member.memberInfo)
+        }
+
+        let iceCandidateTimeout
+        let candidates = []
+        // Send ICE events to Janus.
+        const RTCPeerOnIceCandidate = (event) => {
+            if (member.rtcpPeer.signalingState !== 'stable' &&
+                member.rtcpPeer.signalingState !== 'have-local-offer') return
+
+            candidates.push(event.candidate || null)
+
+            clearTimeout(iceCandidateTimeout)
+
+            iceCandidateTimeout = setTimeout(() => {
+                this._sendTrickleMessage(candidates)
+            }, 500)
+        }
+
+        member.rtcpPeer = new RTCPeerConnection()
+        //this.rtcpPeer.onaddstream = RTCPeerOnAddStream;
+        member.rtcpPeer.ontrack  = RTCPeerOnAddStream
+        member.rtcpPeer.onicecandidate = RTCPeerOnIceCandidate
+        member.rtcpPeer.sender = attachedStreamInfo.sender
+        await member.rtcpPeer.setRemoteDescription(attachedStreamInfo.jsep)
+        //this.setupMetrics()
+    }
+
+    _sendJoinMemberRequest (member) {
+        const registerBody = {
+            janus: 'message',
+            body: {
+                request: 'join',
+                room: this.room_id,
+                feed: member.info.id,
+                ptype: 'subscriber'
+            },
+            handle_id: member.handleId,
+            session_id: this.session_id
+        }
+
+        const registerExtraHeaders = [ this.getPTypeHeader(P_TYPES.SUBSCRIBER) ]
+
+        this.sendRequest(JsSIP_C.SUBSCRIBE, {
+            extraHeaders: registerExtraHeaders,
+            body: JSON.stringify(registerBody),
+            eventHandlers: {
+                onSuccessResponse: async (response) => {
+                    if (response.status_code === 200) {
+                        const body = JSON.parse(response.body)
+
+                        if (body?.plugindata?.data?.id) {
+                            await this._answerAttachedStream(member, body)
+                        }
+                    }
+                },
+            }
+        })
+    }
+
+    _attachMember (member) {
+        const registerBody = {
+            janus: 'attach',
+            opaque_id: this.opaque_id,
+            plugin: 'janus.plugin.videoroom',
+            session_id: this.session_id
+        }
+
+        const registerExtraHeaders = [ this.getPTypeHeader(P_TYPES.SUBSCRIBER) ]
+
+        this.sendRequest(JsSIP_C.INFO, {
+            extraHeaders: registerExtraHeaders,
+            body: JSON.stringify(registerBody),
+            eventHandlers: {
+                onSuccessResponse: async (response) => {
+                    if (response.status_code === 200) {
+                        const parsedBody = JSON.parse(response.body)
+                        const memberHandleId = parsedBody.data.id
+                        member.handleId = memberHandleId
+
+                        this._sendJoinMemberRequest(member)
+                    }
+                },
+            }
+        })
+    }
+
+    _detachMember (member) {
+        const body = {
+            janus: 'detach',
+            handle_id: member.handleId,
+            session_id: this.session_id
+        }
+
+        const registerExtraHeaders = [ this.getPTypeHeader(P_TYPES.SUBSCRIBER) ]
+
+        this.sendRequest(JsSIP_C.INFO, {
+            extraHeaders: registerExtraHeaders,
+            body: JSON.stringify(body)
+        })
+
+        DeviceManager.stopStreamTracks(member.memberInfo.stream)
+        this._ua.emit('memberHangup', member.memberInfo)
+    }
+
+    receivePublishers (msg) {
+        const unprocessedMembers = { ...this.memberList }
+        msg?.plugindata?.data?.publishers.forEach((publisher) => {
+
+            delete unprocessedMembers[publisher.id]
+            if (
+                !this.memberList[publisher.id]
+                && !this.myFeedList.includes(publisher.id)
+                &&  publisher.clientID !== this.client_id
+                //&&  publisher.clientID !== this.screen_share_client_id
+            ) {
+
+                this.memberList[publisher.id] = new Member(publisher, this)
+                this._attachMember(this.memberList[publisher.id])
+            }
+        })
+
+        if (msg?.plugindata?.data?.videoroom === 'synced') {
+            Object.keys(unprocessedMembers).forEach(key => {
+                unprocessedMembers[key].hangup()
+                delete this.memberList[key]
+            })
+        }
+        this.publishers = msg?.plugindata?.data?.publishers
+        this.private_id = msg?.plugindata?.data?.private_id
+    }
+
+    receiveUnpublished (member) {
+        const hangupMember = this.memberList[member]
+
+        if (!hangupMember) {
+            return
+        }
+
+        hangupMember.hangup()
+        this._detachMember(hangupMember)
+
+        delete this.memberList[member]
+    }
+
+    closeSession () {
+        if (this.stream) {
+            this.stream.getTracks().forEach(track => {
+                track.stop()
+            })
+        }
+
+        const members = Object.values(this.memberList)
+        members.forEach((member) => {
+            member.hangup()
+            this._detachMember(member)
+        })
+
+        this._ua.emit('conferenceEnd', this.id)
+    }
+
+    async processPlugins () {
+        const plugins = this._ua.processStreamPlugins
+        let baseStream = await this.loadStream() //this.originalStream.clone()
+
+        for (const plugin of plugins) {
+            baseStream = await plugin.process(baseStream)
+        }
+
+        this.stream.getTracks().forEach((track) => {
+            this.stream.removeTrack(track)
+            track.stop()
+        })
+
+        baseStream.getTracks().forEach((track) => {
+            this.stream.addTrack(track)
+        })
+
+        //this.stream = baseStream
+    }
+
+    async resyncPlugins (type) {
+        const plugins = this._ua.processStreamPlugins.filter((plugin) => plugin.type === type)
+
+        for (const plugin of plugins) {
+            if (plugin.running) {
+                plugin.terminate()
+            }
+        }
+
+        if (type === 'video') {
+            let baseStream = await this.loadStream()
+
+            for (const plugin of plugins) {
+                if (plugin.running) {
+                    baseStream = await plugin.start(baseStream)
+                }
+            }
+
+            this.stream.getTracks().forEach((track) => {
+                this.stream.removeTrack(track)
+                track.stop()
+            })
+
+            baseStream.getTracks().forEach((track) => {
+                this.stream.addTrack(track)
+            })
+
+            this._overrideSenderTracks(this.stream, this._connection)
+
+            this._ua.emit('changeMainVideoStream', {
+                name: this.display_name,
+                stream: this.stream
+            })
+        } else {
+            const typePlugin = this._ua.newStreamPlugins //newStreamPlugins
+                .find((plugin) => plugin.type === type)
+
+            const pluginStream = typePlugin.getStream()
+
+            let baseStream = pluginStream.clone()
+
+            for (const plugin of plugins) {
+                if (plugin.running) {
+                    baseStream = await plugin.start(baseStream)
+                }
+            }
+
+            /*pluginStream.getTracks().forEach((track) => {
+                pluginStream.removeTrack(track)
+                track.stop()
+            })
+
+            baseStream.getTracks().forEach((track) => {
+                pluginStream.addTrack(track.clone())
+
+                baseStream.removeTrack(track)
+                track.stop()
+            })*/
+
+            const pluginConnection = typePlugin.getConnection()
+            this._overrideSenderTracks(baseStream, pluginConnection)
+
+            this._ua.emit('changePluginStream', {
+                type,
+                stream: baseStream
+            })
+            /*const typePlugin = this._ua.processStreamPlugins
+                .find((plugin) => plugin.type === type)
+
+            const baseStream = await typePlugin.start()*/
+
+            /*const typePlugin = this._ua.newStreamPlugins //newStreamPlugins
+                .find((plugin) => plugin.name === 'ScreenSharePlugin')
+
+            console.log('RRR screen share plugin', typePlugin)
+
+            const pluginStream = typePlugin.getStream()
+
+            console.log('this._ua.processStreamPlugins', this._ua.processStreamPlugins)
+            const typePlugin2 = this._ua.processStreamPlugins //newStreamPlugins
+                .find((plugin) => plugin.name === 'ScreenShareWhiteboardPlugin')
+
+            const baseStream = await typePlugin2.start()
+
+            this._ua.emit('changeMainVideoStream', {
+                name: this.display_name,
+                stream: baseStream
+            })*/
+
+            /*console.log('RRR screen share plugin stream', pluginStream)
+
+            //let baseStream = pluginStream.clone()
+
+            const sshwPlugin = this._ua.processStreamPlugins
+                .find((plugin) => plugin.type === type)
+
+            const baseStream = await sshwPlugin.start()
+
+            console.log('RRR sshw stream', baseStream)
+
+            /!*for (const plugin of plugins) {
+                if (plugin.running) {
+                    baseStream = await plugin.start(baseStream)
+                }
+            }*!/
+
+            pluginStream.getTracks().forEach((track) => {
+                pluginStream.removeTrack(track)
+                track.stop()
+            })
+
+            baseStream.getTracks().forEach((track) => {
+                pluginStream.addTrack(track.clone())
+
+                baseStream.removeTrack(track)
+                track.stop()
+            })
+
+            const pluginConnection = typePlugin.getConnection()
+            console.log('RRR _overrideSenderTracks', pluginStream.getTracks())
+            this._overrideSenderTracks(pluginStream, pluginConnection)
+
+            /!*this._ua.emit('changePluginStream', {
+                type,
+                stream: pluginStream
+            })*!/
+
+            this._ua.emit('changeMainVideoStream', {
+                name: this.display_name,
+                stream: pluginStream
+            })*/
+        }
+
+        /*else if (type === 'screen') {
+            const screenSharePlugin = this._ua.newStreamPlugins
+                .filter((plugin) => plugin.name === 'ScreenSharePlugin')
+
+            if (!screenSharePlugin) {
+                throw new Error('ScreenSharePlugin is not found')
+            }
+
+            /!*for (const plugin of plugins) {
+                if (plugin.running) {
+                    //baseStream = await plugin.start(baseStream)
+                }
+            }*!/
+        }*/
+    }
+
+    stopProcessPlugins (type) {
+        const plugins = this._ua.processStreamPlugins.filter((plugin) => plugin.type === type)
+
+        for (const plugin of plugins) {
+            if (plugin.running) {
+                plugin.kill()
+            }
+        }
+    }
+
     /**
      * Reception of Response for Initial INVITE
      */
     _receiveInviteResponse (response) {
         logger.debug('receiveInviteResponse()')
 
-        console.log('_receiveInviteResponse response', response)
-        console.log('dialog', this._dialog)
-
-
         // Handle 2XX retransmissions and responses from forked requests.
         if (this._dialog && (response.status_code >=200 && response.status_code <=299) && !this.ackSent) {
-            console.log('IF 1 dialog')
             /*
              * If it is a retransmission from the endpoint that established
              * the dialog, send an ACK
@@ -2427,7 +3260,6 @@ export default class RTCSession extends EventEmitter {
             if (this._dialog.id.call_id === response.call_id &&
                 this._dialog.id.local_tag === response.from_tag &&
                 this._dialog.id.remote_tag === response.to_tag) {
-                console.log('IF 1 SEND ACK')
                 this.ackSent = true
                 this.sendRequest(JsSIP_C.ACK)
 
@@ -2450,76 +3282,110 @@ export default class RTCSession extends EventEmitter {
 
         }
 
-        if (this.ackSent) {
+        if (this.ackSent && !this.publisherSubscribeSent) {
             const parsedBody = JSON.parse(response.body)
             //console.log('parsedBody', parsedBody)
-            this.session_id = parsedBody.session_id
-            this.handle_id = parsedBody.data.id
-            const opaqueId = `videoroomtest-${randomString(12)}`
 
-            const registerBody = {
-                janus: 'message',
-                body: {
-                    request: 'join',
-                    room: 'abcd',
-                    ptype: 'publisher',
-                    display: 'User1',
-                    clientID: 'dufgjb023gh4vr872v238ugf2y82g4',
-                    opaque_id: opaqueId,
-                },
-                handle_id: this.handle_id
-            }
+            this.setupMediaStream().then(() => {
+                this.session_id = parsedBody.session_id
+                this.handle_id = parsedBody.data.id
+                this.client_id = uuidv4()
 
-            const registerExtraHeaders = [ 'PTYPE: Publisher' ]
+                const registerBody = {
+                    janus: 'message',
+                    body: {
+                        request: 'join',
+                        room: this.room_id,
+                        ptype: 'publisher',
+                        display: this.display_name,
+                        clientID: this.client_id,
+                        opaque_id: this.opaque_id,
+                    },
+                    handle_id: this.handle_id
+                }
 
-            console.log('JOIN MESSAGE', registerBody)
-            this.sendRequest(JsSIP_C.SUBSCRIBE, {
-                extraHeaders: registerExtraHeaders,
-                body: JSON.stringify(registerBody),
+                const registerExtraHeaders = [ this.getPTypeHeader(P_TYPES.PUBLISHER) ]
+
+                this.sendRequest(JsSIP_C.SUBSCRIBE, {
+                    extraHeaders: registerExtraHeaders,
+                    body: JSON.stringify(registerBody),
+                    eventHandlers: {
+                        onSuccessResponse: async (response) => {
+                            if (response.status_code === 200) {
+                                this.subscribeSent = true
+
+                                if (response.body) {
+                                    try {
+                                        const bodyParsed = JSON.parse(response.body) || {}
+
+                                        if (bodyParsed.plugindata?.data?.videoroom === 'joined') {
+                                            this.myFeedList.push(bodyParsed.plugindata.data.id)
+                                        }
+
+                                        if (bodyParsed.plugindata?.data?.publishers){
+                                            this.receivePublishers(bodyParsed)
+                                        }
+                                    } catch (e) {
+                                        console.error(e)
+                                    }
+                                }
+
+                                if (this.lastTrickleReceived && !this.isConfigureSent) {
+                                    this.addTracks(this.stream.getTracks())
+
+                                    this._ua.emit('changeMainVideoStream', {
+                                        name: this.display_name,
+                                        stream: this.stream
+                                    })
+
+                                    this._sendConfigureMessage({
+                                        audio: true,
+                                        video: true,
+                                    }).then(() => {})
+                                }
+
+                                this._ua.emit('conferenceStart')
+                            }
+                        },
+                    }
+                })
+
+                this.publisherSubscribeSent = true
             })
         }
 
         // Proceed to cancellation if the user requested.
         if (this._is_canceled) {
-            console.log('IF 2 canceled')
             if (response.status_code >= 100 && response.status_code < 200) {
                 this._request.cancel(this._cancel_reason)
             } else if (response.status_code >= 200 && response.status_code < 299) {
-                console.log('IF 2 _acceptAndTerminate')
                 this._acceptAndTerminate(response)
             }
 
             return
         }
 
-        console.log('IF 2 this._status', this._status)
         if (this._status !== C.STATUS_INVITE_SENT && this._status !== C.STATUS_1XX_RECEIVED) {
-            console.log('IF 3 not invite sent')
             return
         }
 
         switch (true) {
             case /^100$/.test(response.status_code):
-                console.log('IF 4 SWITCH 1')
                 this._status = C.STATUS_1XX_RECEIVED
                 break
 
             case /^1[0-9]{2}$/.test(response.status_code):
             {
-                console.log('IF 5 SWITCH 2')
                 // Do nothing with 1xx responses without To tag.
                 if (!response.to_tag) {
-                    console.log('IF 5 break')
                     logger.debug('1xx response received without to tag')
                     break
                 }
 
                 // Create Early Dialog if 1XX comes with contact.
                 if (response.hasHeader('contact')) {
-                    console.log('IF 5 contact')
                     // An error on dialog creation will fire 'failed' event.
                     if (!this._createDialog(response, 'UAC', true)) {
-                        console.log('IF 5 _createDialog break')
                         break
                     }
                 }
@@ -2527,7 +3393,6 @@ export default class RTCSession extends EventEmitter {
                 this._status = C.STATUS_1XX_RECEIVED
 
                 if (!response.body) {
-                    console.log('IF 5 !response.body')
                     this._progress('remote', response)
                     break
                 }
@@ -2559,50 +3424,18 @@ export default class RTCSession extends EventEmitter {
 
             case /^2[0-9]{2}$/.test(response.status_code):
             {
-                console.log('IF 6 SWITCH 3')
                 this._status = C.STATUS_CONFIRMED
 
                 if (!response.body) {
-                    console.log('IF 6 !response.body')
                     this._acceptAndTerminate(response, 400, JsSIP_C.causes.MISSING_SDP)
                     this._failed('remote', response, JsSIP_C.causes.BAD_MEDIA_DESCRIPTION)
                     break
                 }
 
-                console.log('AAA _createDialog')
                 // An error on dialog creation will fire 'failed' event.
                 if (!this._createDialog(response, 'UAC')) {
                     break
                 }
-
-                //if (!this.ackSent) return
-
-                /*const parsedBody = JSON.parse(response.body)
-                //console.log('parsedBody', parsedBody)
-                this.session_id = parsedBody.session_id
-                this.handle_id = parsedBody.data.id
-                const opaqueId = `videoroomtest-${randomString(12)}`
-
-                const registerBody = {
-                    janus: 'message',
-                    body: {
-                        request: 'join',
-                        room: 'abcd',
-                        ptype: 'publisher',
-                        display: 'User1',
-                        clientID: 'dufgjb023gh4vr872v238ugf2y82g4',
-                        opaque_id: opaqueId,
-                    },
-                    handle_id: this.handle_id
-                }
-
-                const registerExtraHeaders = [ 'PTYPE: Publisher' ]
-
-                console.log('JOIN MESSAGE', registerBody)
-                this.sendRequest(JsSIP_C.SUBSCRIBE, {
-                    extraHeaders: registerExtraHeaders,
-                    body: JSON.stringify(registerBody),
-                })*/
 
                 break
 
@@ -2657,7 +3490,6 @@ export default class RTCSession extends EventEmitter {
 
             default:
             {
-                console.log('IF 7 SWITCH 4')
                 const cause = Utils.sipErrorCause(response.status_code)
 
                 this._failed('remote', response, cause)

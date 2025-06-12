@@ -1,0 +1,202 @@
+<template>
+    <div class="example pt-10 w-full max-w-7xl px-4 sm:px-6 lg:px-8 mx-auto">
+        <div id="loginPage">
+            <form id="loginToAppForm" class="login-form">
+                <label>
+                    Pn Params:
+                    <input type="text" name="pnparams" value="">
+                </label>
+                <label>
+                    Username:
+                    <input type="text" name="username" value="">
+                </label>
+                <label>
+                    Password:
+                    <input type="text" name="password" value="">
+                </label>
+                <label>
+                    JWT Token:
+                    <input type="text" name="token" value="">
+                </label>
+                <label>
+                    Domain:
+                    <input type="text" name="domain" value="">
+                </label>
+
+                <div>
+                    <div style="margin: 10px 0">
+                        <input type="checkbox" id="useAudioCheckbox" name="useAudioCheckbox" checked="true" />
+                        <label for="useAudioCheckbox">Audio</label>
+                    </div>
+
+                    <div style="margin: 10px 0">
+                        <input type="checkbox" id="useVideoCheckbox" name="useVideoCheckbox" checked="true" />
+                        <label for="useVideoCheckbox">Video</label>
+                    </div>
+                </div>
+
+                <button type="submit">
+                    Register
+                </button>
+            </form>
+        </div>
+        <div id="webRTCPage" style="display: none">
+            <div class="navigation-tab"> </div>
+
+            <div id="audioTabContainer" class="tabcontent">
+                <h3>Audio Calls</h3>
+                <div>
+                    <select id="microphoneEl"></select>
+                    <select id="speakerEl"></select>
+                </div>
+
+                <div class="call-quick-actions">
+                    <div>
+                        <label for="muteWhenJoinInputEl">Mute when join</label>
+                        <input type="checkbox" id="muteWhenJoinInputEl"/>
+                    </div>
+                    <div>
+                        <label for="DNDInputEl">DND</label>
+                        <input type="checkbox" id="DNDInputEl"/>
+                    </div>
+                </div>
+
+                <div>
+                    <div id="muteContainerEl">
+                        <button class="muteButtonEl">
+                            Mute
+                        </button>
+                    </div>
+                </div>
+
+                <br>
+
+                <form id="makeCallForm">
+                    <label>
+                        Your target:
+                        <input type="text" name="target">
+                    </label>
+                    <button type="submit">
+                        Call
+                    </button>
+                </form>
+                <div id="callAddingIndicator" class="hidden">Calling...</div>
+
+                <div>
+                    <label for="addToCurrentRoomInputEl">Add new call to current room</label>
+                    <input type="checkbox" id="addToCurrentRoomInputEl">
+                </div>
+
+                <br/>
+
+                <div>
+                    <label for="inputLevel">Microphone sensitivity (between 0 and 2):</label>
+                    <input type="number"
+                           id="inputLevel"
+                           name="inputLevel"
+                           value="1"
+                           min="0"
+                           max="1"
+                           step="0.1"
+                    >
+                    <button id="inputLevelApplyButton">Apply</button>
+                </div>
+                <div>
+                    <label for="outputLevel">Speaker volume (between 0 and 1):</label>
+                    <input type="number"
+                           id="outputLevel"
+                           name="outputLevel"
+                           value="1"
+                           min="0"
+                           max="1"
+                           step="0.1"
+                    >
+                    <button id="outputLevelApplyButton">Apply</button>
+                </div>
+
+                <br/>
+
+                <div>
+                    <form id="dtmfForm">
+                        <label>
+                            DTMF input:
+                            <input id="dtmfInput" type="text">
+                        </label>
+                        <button id="dtmfSendButton" type="submit" disabled>
+                            Send
+                        </button>
+                    </form>
+                </div>
+
+                <div id="agentVoiceLevelContainer"></div>
+
+                <div>
+                    Active calls: <span id="activeCallsCounter">0</span>
+                    <p>Your room: </p>
+                    <select id="roomSelect">
+                        <option value="" class="noData" selected>No room selected</option>
+                    </select>
+                </div>
+
+                <br>
+                <p>RoomList</p>
+                <br>
+
+                <div id="roomsContainer"></div>
+            </div>
+
+            <div id="videoTabContainer" class="tabcontent">
+                <form id="videoCallForm">
+                    <label>
+                        Join video room:
+                        <input type="text" placeholder="Room" name="target" value="abcd">
+                    </label>
+                    <label>
+                        Display name:
+                        <input type="text" placeholder="Name" name="name" value="User1">
+                    </label>
+                    <button type="submit">
+                        Join
+                    </button>
+                </form>
+
+                <button id="terminateJanusSessionButton">
+                    Terminate
+                </button>
+
+                <button id="audioChangeButton">
+                    Audio On
+                </button>
+
+                <button id="videoChangeButton">
+                    Video On
+                </button>
+
+                <div id="mainVideoElementContainer" style="width: 100%; height: calc(100vh - 124px)"></div>
+
+                <div id="participantsVideoElements" style="width: 100%"></div>
+            </div>
+
+        </div>
+    </div>
+</template>
+
+<script setup lang="ts">
+onMounted(async () => {
+    await import('../../demo/index')
+})
+</script>
+
+<style lang="scss">
+@import '../../demo/styles.css';
+
+.example {
+    input, select, button.tablinks {
+        @apply dark:text-gray-700;
+    }
+
+    button.tablinks:not(.active) {
+        @apply text-gray-700;
+    }
+}
+</style>

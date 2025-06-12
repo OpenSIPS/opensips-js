@@ -1,4 +1,4 @@
-import { Options, Message, UA as UAType  } from 'jssip'
+import { Options, Message, UA as UAType } from 'jssip'
 
 import UA, { UAConfiguration } from 'jssip/lib/UA'
 import * as JsSIP_C from 'jssip/lib/Constants'
@@ -6,13 +6,32 @@ import RTCSessionConstructor, { Originator, RTCSession } from 'jssip/lib/RTCSess
 import Transactions from 'jssip/lib/Transactions'
 import { IncomingRequest } from 'jssip/lib/SIPMessage'
 import JanusSession from '@/lib/janus/session'
-import TestSession from '@/lib/janus/testSession'
+import config from 'jssip/lib/Config'
+import sanityCheck from 'jssip/lib/sanityCheck'
+
+import Utils from 'jssip/lib/Utils'
+import Transport from 'jssip/lib/Transport'
+import Exceptions from 'jssip/lib/Exceptions'
+import URI from 'jssip/lib/URI'
+import SIPMessage from 'jssip/lib/SIPMessage'
+//import { MySuperScreenPlugin } from '@/lib/janus/BasePlugin'
+import { BaseNewStreamPlugin } from '@/lib/janus/BaseNewStreamPlugin'
+import { BaseProcessStreamPlugin } from '@/lib/janus/BaseProcessStreamPlugin'
+
+//import TestSession from '@/lib/janus/testSession'
 
 import { MSRPSession, MSRPOptions } from '@/lib/msrp/session'
 import { /*MSRPSession, */JanusOptions } from '@/lib/janus/session' // TODO: import JanusSession from here
 
-import { CallOptionsExtended } from '@/types/rtc'
+//import Parser from 'jssip/lib/Parser'
+import Parser from '@/lib/janus/Parser'
+
+import { CallOptionsExtended, OnTransportCallback } from '@/types/rtc'
 import { UAExtendedInterface } from '@/lib/msrp/session'
+
+//import Registrator from 'jssip/lib/Registrator'
+import Registrator from '@/lib/janus/Registrator'
+//import Registrator from '@/helpers/Registrator'
 
 const logger = console
 
@@ -40,6 +59,12 @@ export interface OutgoingMSRPSessionEvent {
     request: IncomingRequest;
 }
 
+export interface VideoConferenceJoinOptions {
+    eventHandlers: Array<unknown>
+    extraHeaders: Array<string>
+    mediaConstraints: MediaStreamConstraints
+}
+
 export type MSRPSessionEvent = IncomingMSRPSessionEvent | OutgoingMSRPSessionEvent;
 
 const UAConstructor: typeof UAType = UA as unknown as typeof UAType
@@ -55,10 +80,23 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
     }
 
     _janus_sessions: any[] = []
+
+    protected newStreamPlugins: Array<BaseNewStreamPlugin> = []
+    protected processStreamPlugins: Array<BaseProcessStreamPlugin> = []
+
+    protected optionsInterval = null
+
+    protected onTransportCallback: OnTransportCallback
+
+    protected lastOptionsTimestamp = null
+    protected lastRegisterTimestamp = null
+
     //_janus_session: any = null
 
     constructor (configuration: UAConfiguration) {
         super(configuration)
+
+        this._registrator = new Registrator(this)
 
         /*this.registrator().setExtraContactParams({
             'pn-provider': 'acme',
@@ -67,20 +105,228 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         })*/
     }
 
+    setLastRegisterTimestamp () {
+        this.lastRegisterTimestamp = Date.now()
+    }
+
     call (target: string, options?: CallOptionsExtended): RTCSession {
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore
         return super.call(target, options)
     }
 
-    joinVideoCall (target, options) {
+    joinVideoCall (target: string, displayName: string, options: VideoConferenceJoinOptions) {
         logger.debug('call()')
 
         const session = new JanusSession(this)
 
-        session.connect(target, options)
+        session.configureMedia({
+            audio: true,
+            video: true
+        })
+        session.connect(target, displayName, options)
 
         return session
+    }
+
+    startScreenShare () {
+        logger.debug('startScreenShare()')
+
+        for (const idx in this._janus_sessions) {
+            this._janus_sessions[idx].connectScreenShare()
+        }
+    }
+
+    changeMediaConstraints (constraints: MediaStreamConstraints) {
+        for (const idx in this._janus_sessions) {
+            this._janus_sessions[idx].changeMediaConstraints(constraints)
+        }
+    }
+
+    startBlur () {
+        //logger.debug('startScreenShare()')
+
+        for (const idx in this._janus_sessions) {
+            this._janus_sessions[idx].connectBlur()
+        }
+    }
+
+    stopBlur () {
+        //logger.debug('startScreenShare()')
+
+        for (const idx in this._janus_sessions) {
+            this._janus_sessions[idx].stopBlur()
+        }
+    }
+
+    _loadConfig (configuration) {
+        // Check and load the given configuration.
+        try {
+            config.load(this._configuration, configuration)
+        } catch (e) {
+            throw e
+        }
+
+        // Post Configuration Process.
+
+        // Allow passing 0 number as display_name.
+        if (this._configuration.display_name === 0) {
+            this._configuration.display_name = '0'
+        }
+
+        // Instance-id for GRUU.
+        if (!this._configuration.instance_id) {
+            this._configuration.instance_id = Utils.newUUID()
+        }
+
+        /*if (this._configuration.user_agent) {
+            this._configuration.user_agent = '0'
+        }*/
+
+        let userAgent
+        if (typeof window !== 'undefined' && typeof window.document !== 'undefined') {
+            userAgent = window?.navigator.userAgent
+        } else if (typeof self !== 'undefined' && self.navigator) {
+            userAgent = self.navigator.userAgent
+        }
+
+        userAgent += ' ' + JsSIP_C.USER_AGENT
+
+        this._configuration.user_agent = configuration.overrideUserAgent &&
+            typeof configuration.overrideUserAgent === 'function' ?
+            configuration.overrideUserAgent(userAgent) : userAgent
+
+        if (configuration.onTransportCallback && typeof configuration.onTransportCallback === 'function') {
+            this.onTransportCallback = configuration.onTransportCallback
+        }
+
+        // Jssip_id instance parameter. Static random tag of length 5.
+        this._configuration.jssip_id = Utils.createRandomToken(5)
+
+        // String containing this._configuration.uri without scheme and user.
+        const hostport_params = this._configuration.uri.clone()
+
+        hostport_params.user = null
+        this._configuration.hostport_params = hostport_params.toString().replace(/^sip:/i, '')
+
+        // Transport.
+        try {
+            this._transport = new Transport(this._configuration.sockets, {
+                // Recovery options.
+                max_interval: this._configuration.connection_recovery_max_interval,
+                min_interval: this._configuration.connection_recovery_min_interval
+            })
+
+            // Transport event callbacks.
+            this._transport.onconnecting = onTransportConnecting.bind(this)
+            this._transport.onconnect = onTransportConnect.bind(this)
+            this._transport.ondisconnect = onTransportDisconnect.bind(this)
+            this._transport.ondata = onTransportData.bind(this)
+        } catch (e) {
+            logger.warn(e)
+            throw new Exceptions.ConfigurationError('sockets', this._configuration.sockets)
+        }
+
+        // Remove sockets instance from configuration object.
+        delete this._configuration.sockets
+
+        // Check whether authorization_user is explicitly defined.
+        // Take 'this._configuration.uri.user' value if not.
+        if (!this._configuration.authorization_user) {
+            this._configuration.authorization_user = this._configuration.uri.user
+        }
+
+        // If no 'registrar_server' is set use the 'uri' value without user portion and
+        // without URI params/headers.
+        if (!this._configuration.registrar_server) {
+            const registrar_server = this._configuration.uri.clone()
+
+            registrar_server.user = null
+            registrar_server.clearParams()
+            registrar_server.clearHeaders()
+            this._configuration.registrar_server = registrar_server
+        }
+
+        // User no_answer_timeout.
+        this._configuration.no_answer_timeout *= 1000
+
+        // Via Host.
+        if (this._configuration.contact_uri) {
+            this._configuration.via_host = this._configuration.contact_uri.host
+        }
+
+        // Contact URI.
+        else {
+            this._configuration.contact_uri = new URI('sip', Utils.createRandomToken(8), this._configuration.via_host, null, { transport: 'ws' })
+        }
+
+        this._contact = {
+            pub_gruu: null,
+            temp_gruu: null,
+            uri: this._configuration.contact_uri,
+            toString (options = {}) {
+                const anonymous = options.anonymous || null
+                const outbound = options.outbound || null
+                let contact = '<'
+
+                if (anonymous) {
+                    contact += this.temp_gruu || 'sip:anonymous@anonymous.invalid;transport=ws'
+                } else {
+                    contact += this.pub_gruu || this.uri.toString()
+                }
+
+                if (outbound && (anonymous ? !this.temp_gruu : !this.pub_gruu)) {
+                    contact += ';ob'
+                }
+
+                contact += '>'
+
+                return contact
+            }
+        }
+
+        // Seal the configuration.
+        const writable_parameters = [
+            'authorization_user', 'password', 'realm', 'ha1', 'authorization_jwt', 'display_name', 'register'
+        ]
+
+        for (const parameter in this._configuration) {
+            if (Object.prototype.hasOwnProperty.call(this._configuration, parameter)) {
+                if (writable_parameters.indexOf(parameter) !== -1) {
+                    Object.defineProperty(this._configuration, parameter, {
+                        writable: true,
+                        configurable: false
+                    })
+                } else {
+                    Object.defineProperty(this._configuration, parameter, {
+                        writable: false,
+                        configurable: false
+                    })
+                }
+            }
+        }
+
+        logger.debug('configuration parameters after validation:')
+        for (const parameter in this._configuration) {
+            // Only show the user user configurable parameters.
+            if (Object.prototype.hasOwnProperty.call(config.settings, parameter)) {
+                switch (parameter) {
+                    case 'uri':
+                    case 'registrar_server':
+                        logger.debug(`- ${parameter}: ${this._configuration[parameter]}`)
+                        break
+                    case 'password':
+                    case 'ha1':
+                    case 'authorization_jwt':
+                        logger.debug(`- ${parameter}: NOT SHOWN`)
+                        break
+                    default:
+                        logger.debug(`- ${parameter}: ${JSON.stringify(this._configuration[parameter])}`)
+                }
+            }
+        }
+
+        return
     }
 
     /*call (target, options) {
@@ -108,7 +354,19 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
 
     newJanusSession (session, data) {
         this._janus_sessions[session.id] = session
+
+        this.newStreamPlugins.forEach((plugin) => {
+            plugin.setSession(session)
+        })
+
+        this.processStreamPlugins.forEach((plugin) => {
+            plugin.setSession(session)
+        })
         this.emit('newJanusSession', data)
+    }
+
+    kill () {
+
     }
 
     /**
@@ -122,9 +380,13 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         delete this._janus_sessions[session.id]
     }
 
+    clearKeepAliveInterval () {
+        clearInterval(this.optionsInterval)
+        this.optionsInterval = null
+    }
+
     receiveRequest (request: any) {
         const method = request.method
-        console.log('-----------')
         // Check that request URI points to us.
         if (request.ruri.user !== this._configuration.uri.user &&
             request.ruri.user !== this._contact.uri.user) {
@@ -165,6 +427,24 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
          * They are processed as if they had been received outside the dialog.
          */
         if (method === JsSIP_C.OPTIONS) {
+            this.lastOptionsTimestamp = Date.now()
+
+            if (!this.optionsInterval) {
+                this.emit('initKeepAliveInterval')
+                this.optionsInterval = setInterval(() => {
+                    const currentTimestamp = Date.now()
+
+                    if (
+                        (this.lastOptionsTimestamp > currentTimestamp - 35000) &&
+                        ((this.lastRegisterTimestamp +
+                            this._configuration.register_expires * 1000) > currentTimestamp)) {
+                        this.emit('keepAliveInterval')
+                    }
+
+                }, 35000)
+            }
+
+
             if (this.listeners('newOptions').length === 0) {
                 request.reply(200)
 
@@ -216,10 +496,10 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
                                 request.reply(481)
                             }
                         } else {
-                            if(request.body.search(/MSRP/ig) > -1) {
+                            if (request.body.search(/MSRP/ig) > -1) {
                                 session = new MSRPSession(this)
                                 session.init_incoming(request)
-                            } else if(request.body.search(/JANUS/ig) > -1) {
+                            } else if (request.body.search(/JANUS/ig) > -1) {
                                 // TODO: use new JanusSession(this) when implemented
                                 //_janus_session = new MSRPSession(this)
                                 //session = new MSRPSession(this)
@@ -274,8 +554,24 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
                 if (session) {
                     session.receiveRequest(request)
                 } else {
-                    logger.debug('received NOTIFY request for a non existent subscription')
-                    request.reply(481, 'Subscription does not exist')
+                    if (request.body) {
+                        try {
+                            const bodyParsed = JSON.parse(request.body) || {}
+                            if (bodyParsed.plugindata?.data?.publishers){
+                                // TODO: Implement getting the right session by some header parameter
+                                const session = Object.values(this._janus_sessions)[0]
+                                session.receivePublishers(bodyParsed)
+                            }
+
+                            if (bodyParsed.plugindata?.data?.unpublished){
+                                const session = Object.values(this._janus_sessions)[0]
+                                session.receiveUnpublished(bodyParsed.plugindata.data.unpublished)
+                            }
+                        } catch (e) {
+                            console.error(e)
+                        }
+                    }
+                    request.reply(200)
                 }
             } else if (method !== JsSIP_C.ACK) {
                 /* RFC3261 12.2.2
@@ -325,7 +621,49 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         }
     }
 
-    stop () {
+    enableJanusAudio (state) {
+        logger.debug('enableJanusAudio()')
+
+        for (const idx in this._janus_sessions) {
+            if (!this._janus_sessions[idx].isEnded()) {
+                if (state) {
+                    this._janus_sessions[idx].startAudio()
+                } else {
+                    this._janus_sessions[idx].stopAudio()
+                }
+            }
+        }
+    }
+
+    enableJanusVideo (state) {
+        logger.debug('enableJanusVideo()')
+
+        for (const idx in this._janus_sessions) {
+            if (!this._janus_sessions[idx].isEnded()) {
+                if (state) {
+                    this._janus_sessions[idx].startVideo()
+                } else {
+                    this._janus_sessions[idx].stopVideo()
+                }
+            }
+        }
+    }
+
+    terminateAllSessions () {
+        for (const session in this._sessions) {
+            if (Object.prototype.hasOwnProperty.call(this._sessions, session)) {
+                logger.debug(`closing session ${session}`)
+
+                try {
+                    this._sessions[session].terminate()
+                } catch (error) {
+                    console.error(error)
+                }
+            }
+        }
+    }
+
+    stop (closeSessions = true) {
         logger.debug('stop()')
 
         // Remove dynamic settings.
@@ -343,18 +681,29 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         // If there are session wait a bit so CANCEL/BYE can be sent and their responses received.
         const num_sessions = Object.keys(this._sessions).length
 
+        if (closeSessions) {
+            this.terminateAllSessions()
+        }
         // Run  _terminate_ on every Session.
-        for (const session in this._sessions) {
+        /*for (const session in this._sessions) {
             if (Object.prototype.hasOwnProperty.call(this._sessions, session)) {
                 logger.debug(`closing session ${session}`)
 
                 try {
-                    this._sessions[session].terminate()
+                    console.log('IN TRY')
+                    if (closeSessions) {
+                        this._sessions[session].terminate()
+                        //console.log('IN ENDED')
+                        /!*this._sessions[session]._ended('local', null, JsSIP_C.causes.BYE)*!/
+                    } /!*else {
+                        console.log('IN TERMINATE')
+                        this._sessions[session].terminate()
+                    }*!/
                 } catch (error) {
                     console.error(error)
                 }
             }
-        }
+        }*/
 
         // If there are session wait a bit so CANCEL/BYE can be sent and their responses received.
         // const num_msrp_sessions = Object.keys(this._msrp_sessions).length
@@ -423,4 +772,111 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
     //
     //     return session
     // }
+}
+
+
+/**
+ * Transport event handlers
+ */
+
+// Transport connecting event.
+function onTransportConnecting (data) {
+    this.emit('connecting', data)
+}
+
+// Transport connected event.
+function onTransportConnect (data) {
+    if (this._status === C.STATUS_USER_CLOSED) {
+        return
+    }
+
+    this._status = C.STATUS_READY
+    this._error = null
+
+    this.emit('connected', data)
+
+    if (this._dynConfiguration.register) {
+        this._registrator.register()
+    }
+}
+
+// Transport disconnected event.
+function onTransportDisconnect (data) {
+    // Run _onTransportError_ callback on every client transaction using _transport_.
+    const client_transactions = [ 'nict', 'ict', 'nist', 'ist' ]
+
+    for (const type of client_transactions) {
+        for (const id in this._transactions[type]) {
+            if (Object.prototype.hasOwnProperty.call(this._transactions[type], id)) {
+                this._transactions[type][id].onTransportError()
+            }
+        }
+    }
+
+    this.emit('disconnected', data)
+
+    // Call registrator _onTransportClosed_.
+    this._registrator.onTransportClosed()
+
+    if (this._status !== C.STATUS_USER_CLOSED) {
+        this._status = C.STATUS_NOT_READY
+        this._error = C.NETWORK_ERROR
+    }
+}
+
+// Transport data event.
+function onTransportData (data) {
+    const transport = data.transport
+    let message = data.message
+
+    const originalMessage = message
+    message = Parser.parseMessage(message, this)
+
+    if (this.onTransportCallback && typeof this.onTransportCallback === 'function') {
+        this.onTransportCallback(message, originalMessage)
+    }
+
+    if (!message) {
+        return
+    }
+
+    if (this._status === C.STATUS_USER_CLOSED &&
+        message instanceof SIPMessage.IncomingRequest) {
+        return
+    }
+
+    // Do some sanity check.
+    if (!sanityCheck(message, this, transport)) {
+        return
+    }
+
+    if (message instanceof SIPMessage.IncomingRequest) {
+        message.transport = transport
+        this.receiveRequest(message)
+    } else if (message instanceof SIPMessage.IncomingResponse) {
+        /* Unike stated in 18.1.2, if a response does not match
+        * any transaction, it is discarded here and no passed to the core
+        * in order to be discarded there.
+        */
+
+        let transaction
+
+        switch (message.method) {
+            case JsSIP_C.INVITE:
+                transaction = this._transactions.ict[message.via_branch]
+                if (transaction) {
+                    transaction.receiveResponse(message)
+                }
+                break
+            case JsSIP_C.ACK:
+                // Just in case ;-).
+                break
+            default:
+                transaction = this._transactions.nict[message.via_branch]
+                if (transaction) {
+                    transaction.receiveResponse(message)
+                }
+                break
+        }
+    }
 }

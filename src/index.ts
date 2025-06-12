@@ -36,16 +36,12 @@ import {
     ICallStatus,
     IRoomUpdate,
     IOpenSIPSJSOptions,
-    TriggerListenerOptions, CustomLoggerType, Modules, AudioModuleName
+    TriggerListenerOptions,
+    CustomLoggerType,
+    Modules,
+    AudioModuleName
 } from '@/types/rtc'
-
-import {
-    IMessage,
-    MSRPSessionExtended,
-    TriggerMSRPListenerOptions
-} from '@/types/msrp'
-
-import MSRPMessage from '@/lib/msrp/message'
+//import { StreamMaskPlugin } from '@/lib/janus/StreamMaskPlugin'
 import JsSIP from 'jssip/lib/JsSIP'
 
 import { METRIC_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
@@ -57,6 +53,9 @@ import { AudioModule } from '@/modules/audio'
 import { VideoModule } from '@/modules/video'
 import { MSRPModule } from '@/modules/msrp'
 import { MODULES } from '@/enum/modules'
+
+import { BaseNewStreamPlugin } from '@/lib/janus/BaseNewStreamPlugin'
+import { BaseProcessStreamPlugin } from '@/lib/janus/BaseProcessStreamPlugin'
 
 const CALL_STATUS_UNANSWERED = 0
 
@@ -82,6 +81,7 @@ function requireInitialization () {
 
 class OpenSIPSJS extends UA {
     public initialized = false
+    public connected = false
 
     public readonly options: IOpenSIPSJSOptions
     public logger: CustomLoggerType = console
@@ -131,10 +131,16 @@ class OpenSIPSJS extends UA {
     //private isCallAddingInProgress: string | undefined
     private isMSRPInitializingValue: boolean | undefined
     private isReconnecting = false
+    private activeConnection = false
+    private waitingForSessionHangup = false
+    private waitingForSessionTimeout = null
 
     public audio: AudioModule = null
     public msrp: MSRPModule = null
     public video: VideoModule = null
+
+    /*private newStreamPlugins: Array<BaseNewStreamPlugin> = []
+    private processStreamPlugins: Array<BaseProcessStreamPlugin> = []*/
 
     private listenersList: {
         [key: string]: Array<(call: any, event: ListenerEventType | undefined) => void>
@@ -155,7 +161,7 @@ class OpenSIPSJS extends UA {
         super(configuration)
 
         if (options.pnExtraHeaders && Object.keys(options.pnExtraHeaders).length) {
-            this.registrator().setExtraContactParams(options.pnExtraHeaders)
+            this.registrator().setExtraContactUriParams(options.pnExtraHeaders)
         }
 
         this.options = options
@@ -164,6 +170,33 @@ class OpenSIPSJS extends UA {
         if (logger && isLoggerCompatible(logger)) {
             this.logger = logger
         }
+    }
+
+    /*public setWaitingForSessionHangup (value: boolean) {
+        this.waitingForSessionHangup = value
+    }*/
+
+    public isWaitingForSessionHangup () {
+        return this.waitingForSessionHangup
+    }
+
+    public stopSessionAfterWaiting () {
+        this.setInitialized(false)
+        this.waitingForSessionHangup = false
+        clearTimeout(this.waitingForSessionTimeout)
+        this.waitingForSessionTimeout = null
+
+        if (this.activeConnection) {
+            setTimeout(this.start.bind(this), 5000)
+        }
+    }
+
+    private get hasActiveSessions (): boolean {
+        if (this.modules.includes(MODULES.AUDIO)) {
+            return this.audio.hasActiveAnsweredCalls
+        }
+
+        return false
     }
 
     public on <T extends ListenersKeyType> (type: T, listener: ListenerCallbackFnType<T>) {
@@ -178,6 +211,38 @@ class OpenSIPSJS extends UA {
 
     public get sipDomain () {
         return this.options.sipDomain
+    }
+
+    public use (plugin: BaseNewStreamPlugin | BaseProcessStreamPlugin) {
+        // Cannot use `use` after begin
+        //const session = Object.values(this._janus_sessions)[0]
+        if (
+            this.newStreamPlugins.find((el) => el.name === plugin.name) ||
+            this.processStreamPlugins.find((el) => el.name === plugin.name)
+        ) {
+            throw new Error(`Plugin with name ${plugin.name} already exists`)
+        }
+
+        if (plugin instanceof BaseNewStreamPlugin) {
+            plugin.setOpensips(this)
+            //plugin.setSession(session)
+
+            this.newStreamPlugins.push(plugin)
+        } else if (plugin instanceof BaseProcessStreamPlugin) {
+            plugin.setOpensips(this)
+            //plugin.setSession(session)
+
+            this.processStreamPlugins.push(plugin)
+        } else {
+            throw new Error('Wrong plugin instance')
+        }
+
+        // Another if for audio
+    }
+
+    public getPlugin (name: string) {
+        return this.newStreamPlugins
+            .find(plugin => plugin.name === name) || this.processStreamPlugins.find(plugin => plugin.name === name)
     }
 
     public begin () {
@@ -218,22 +283,49 @@ class OpenSIPSJS extends UA {
             this.connectedEventName,
             () => {
                 this.logger.log('Connected to', this.options.socketInterfaces[0])
-                this.isReconnecting = false
+                this.setConnected(true)
+                this.setReconnecting(false)
+                this.activeConnection = true
+                this.waitingForSessionHangup = false
             }
         )
 
         this.on(
             this.disconnectedEventName,
             () => {
+                this.setConnected(false)
+
                 if (this.isReconnecting) {
                     return
+                } else {
+                    this.setReconnecting(true)
                 }
+
                 this.logger.log('Disconnected from', this.options.socketInterfaces[0])
                 this.logger.log('Reconnecting to', this.options.socketInterfaces[0])
-                this.isReconnecting = true
-                this.stop()
-                this.setInitialized(false)
-                setTimeout(this.start.bind(this), 5000)
+
+                if (!this.hasActiveSessions) {
+                    this.stop()
+                    this.setInitialized(false)
+
+                    if (this.activeConnection) {
+                        setTimeout(this.start.bind(this), 5000)
+                    }
+                } else {
+                    this.waitingForSessionHangup = true
+
+                    // TODO: Handle case when inactive call was disconnected and other side hangs up the call
+                    this.stop(false)
+                    this.waitingForSessionTimeout = setTimeout(() => {
+                        this.terminateAllSessions()
+                        this.setInitialized(false)
+                        this.waitingForSessionHangup = false
+
+                        if (this.activeConnection) {
+                            setTimeout(this.start.bind(this), 5000)
+                        }
+                    },1200000)
+                }
             }
         )
 
@@ -241,6 +333,11 @@ class OpenSIPSJS extends UA {
         this.start()
 
         return this
+    }
+
+    disconnect () {
+        this.activeConnection = false
+        this.stop()
     }
 
     /*public get sipOptions () {
@@ -1244,6 +1341,16 @@ class OpenSIPSJS extends UA {
         this.emit('ready', value)
     }
 
+    private setConnected (value: boolean) {
+        this.connected = value
+        this.emit('connection', value)
+    }
+
+    private setReconnecting (value: boolean) {
+        this.isReconnecting = value
+        this.emit('reconnecting', value)
+    }
+
     /*public setMuteWhenJoin (value: boolean) {
         this.muteWhenJoinEnabled = value
         this.emit('changeMuteWhenJoin', value)
@@ -1427,3 +1534,7 @@ class OpenSIPSJS extends UA {
 }
 
 export default OpenSIPSJS
+export {
+    BaseProcessStreamPlugin,
+    BaseNewStreamPlugin
+}

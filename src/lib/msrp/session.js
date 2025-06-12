@@ -196,7 +196,6 @@ export class MSRPSession extends EventEmitter{
         this._newMSRPSession('local', this._request)
 
         this._id = this._request.call_id + this._from_tag
-        console.log('dialog be', this._dialog)
         const request_sender = new RequestSender(this._ua, this._request, {
             onRequestTimeout: () => {
                 this.onRequestTimeout()
@@ -212,7 +211,6 @@ export class MSRPSession extends EventEmitter{
             },
             onReceiveResponse: (response) => {
                 this._receiveInviteResponse(response)
-                console.log('dialog af', this._dialog)
                 if (response.status_code === 200) {
                     response.parseSDP(true)
                     this._status = C.STATUS_CONFIRMED
@@ -230,7 +228,6 @@ export class MSRPSession extends EventEmitter{
     terminate (options = {}) {
         // clearInterval(this._msrpKeepAliveTimer)
 
-        console.log('terminate', this)
         const cause = options.cause || JsSIP_C.causes.BYE
         const extraHeaders = Utils.cloneArray(options.extraHeaders)
         const body = options.body
@@ -268,7 +265,6 @@ export class MSRPSession extends EventEmitter{
                 }
 
                 this._status = C.STATUS_CANCELED
-                console.log('failed 1')
                 this._failed('local', null, JsSIP_C.causes.CANCELED)
                 break
 
@@ -277,13 +273,11 @@ export class MSRPSession extends EventEmitter{
             case C.STATUS_ANSWERED:
                 status_code = status_code || 480
 
-                console.log('REPLY 480')
                 if (status_code < 300 || status_code >= 700) {
                     throw new TypeError(`Invalid status_code: ${status_code}`)
                 }
 
                 this._request.reply(status_code, reason_phrase, extraHeaders, body)
-                console.log('failed 2')
                 this._failed('local', null, JsSIP_C.causes.REJECTED)
                 break
 
@@ -341,7 +335,6 @@ export class MSRPSession extends EventEmitter{
                     // Restore the dialog into 'ua' so the ACK can reach 'this' session.
                     this._ua.newDialog(dialog)
                 } else {
-                    console.log('here it is')
                     this.sendRequest(JsSIP_C.BYE, {
                         extraHeaders,
                         body
@@ -369,19 +362,16 @@ export class MSRPSession extends EventEmitter{
 
         //--------------------------------
         let str = msgObj.toString()
-        console.log(str)
         let result = []
         for (var i=0; i<str.length; i++) {
             result.push(str.charCodeAt(i).toString(16))
         }
-        console.log(result)
         //-----------------------------------
 
         this._connection.send(msgObj.toString())
     }
 
     onmessage (msg) {
-        console.log('onmessage', msg)
         const msgObj = new Message(msg.data)
         if (this.status === 'auth' && msgObj.code === 401) {
             const _challenge = this.parseAuth(msgObj.getHeader('WWW-Authenticate'))
@@ -414,7 +404,6 @@ export class MSRPSession extends EventEmitter{
 
             this._msgHistory.push(msgObj)
             this.emit('msgHistoryUpdate', this._msgHistory)
-            console.log('======================================================================')
         }
         if (msgObj.code === 480) {
             this._close()
