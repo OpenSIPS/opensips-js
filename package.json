@@ -1,6 +1,6 @@
 {
-  "name": "@voicenter-team/opensips-js",
-  "version": "1.0.147",
+  "name": "opensips-js",
+  "version": "0.1.1",
   "description": "The JS package for opensips",
   "default": "src/index.ts",
   "jsdelivr": "dist/opensips-js.iife.js",
@@ -30,14 +30,14 @@
   "precommit": "ts-check, lint",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/VoicenterTeam/opensips-js.git"
+    "url": "git+ssh://git@github.com/OpenSIPS/opensips-js.git"
   },
   "author": "Bohdan Konechnyi",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/VoicenterTeam/opensips-js/issues"
+    "url": "https://github.com/OpenSIPS/opensips-js/issues"
   },
-  "homepage": "https://github.com/VoicenterTeam/opensips-js#readme",
+  "homepage": "https://github.com/OpenSIPS/opensips-js#readme",
   "devDependencies": {
     "@types/node": "^18.14.2",
     "@typescript-eslint/eslint-plugin": "^5.53.0",
@@ -45,7 +45,6 @@
     "@vitejs/plugin-vue": "^4.2.3",
     "@voicenter-team/aws-uploader": "^1.0.10",
     "@voicenter-team/eslint-config-ts": "^1.0.21",
-    "@voicenter-team/opensips-js-screen-share": "^0.0.2",
     "cross-env": "^7.0.3",
     "dotenv": "^16.0.3",
     "eslint": "^8.35.0",

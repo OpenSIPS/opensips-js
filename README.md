@@ -10,7 +10,7 @@ navigation:
 ## Installation
 ### Using npm:
 ```shell[Terminal]
-$ npm i @voicenter-team/opensips-js
+$ npm i opensips-js
 ```
 
 ### Using via CDN:
@@ -18,7 +18,7 @@ You can include the OpensipsJS library directly in your HTML file using a CDN li
 
 Add the following script tag to your HTML file:
 ```html [index.html]
-<script src="https://cdn.opensipsjs.org/opensipsjs/v1.0.96/opensips-js.iife.js"></script>
+<script src="https://cdn.opensipsjs.org/opensipsjs/v0.1.1/opensips-js.iife.js"></script>
 ```
 This will load the library and attach the OpensipsJS class to the global window object as OpensipsJS.
 
@@ -26,7 +26,7 @@ This will load the library and attach the OpensipsJS class to the global window 
 ### Using npm (ES Modules):
 Firstly lets import the library and create the OpenSIPS instance:
 ```javascript [file.js]
-import OpenSIPSJS from '@voicenter-team/opensips-js'
+import OpenSIPSJS from 'opensips-js'
 
 const openSIPSJS = new OpenSIPSJS({
     configuration: {
@@ -68,7 +68,7 @@ After including the script via CDN, you can access the OpensipsJS class directly
 </head>
 <body>
   <!-- Include the library via CDN -->
-  <script src="https://cdn.opensipsjs.org/opensipsjs/v1.0.96/opensips-js.iife.js"></script>
+  <script src="https://cdn.opensipsjs.org/opensipsjs/v0.1.1/opensips-js.iife.js"></script>
 
   <script>
     // Create an instance of OpensipsJS
@@ -116,9 +116,7 @@ If you prefer using ES modules in the browser and your environment supports them
 </head>
 <body>
   <script type="module">
-    import OpensipsJS from 'https://cdn.opensipsjs.org/opensipsjs/v1.0.96/opensips-js.es.js';
-    // Or using jsDelivr
-    // import OpensipsJS from 'https://cdn.jsdelivr.net/npm/@voicenter-team/opensips-js/dist/opensips-js.es.js';
+    import OpensipsJS from 'https://cdn.opensipsjs.org/opensipsjs/v0.1.1/opensips-js.es.js';\
 
     const opensipsJS = new OpensipsJS({
       configuration: {
