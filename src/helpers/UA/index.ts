@@ -434,10 +434,12 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
                 this.optionsInterval = setInterval(() => {
                     const currentTimestamp = Date.now()
 
-                    if (
-                        (this.lastOptionsTimestamp > currentTimestamp - 35000) &&
-                        ((this.lastRegisterTimestamp +
-                            this._configuration.register_expires * 1000) > currentTimestamp)) {
+                    const optionsTimeoutCondition = this.lastOptionsTimestamp > currentTimestamp - 35000
+
+                    const registerTimeoutCondition = (this.lastRegisterTimestamp +
+                        (this._configuration.register_expires * 1000)) > currentTimestamp
+
+                    if (optionsTimeoutCondition && registerTimeoutCondition) {
                         this.emit('keepAliveInterval')
                     }
 
