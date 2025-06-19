@@ -2,6 +2,7 @@ import path from 'path'
 import fs from 'fs/promises'
 
 import { Browser, Locator, Page } from 'playwright'
+import { Selectors } from '../src/selectors'
 import { WebRTCMetricsCollector } from './WebRTCMetricsCollector'
 import { WebRTCMetricsSender } from './WebRTCMetricsSender'
 import PageWebSocketWorker from './PageWebSocketWorker'
@@ -22,10 +23,14 @@ import {
     PlaySoundAction,
     SendDTMFAction,
     TransferAction,
+    DNDAction,
     RequestAction,
+    BaseActionSuccessResponse,
+    Expectation,
+    ActionResponse,
+    ActionType, isActionError,
 } from '../types/actions'
 
-import { waitMs } from '../helpers'
 import { expect } from '@playwright/test'
 import QrynClient from "./QrynClient";
 
@@ -41,6 +46,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     private useVideoCheckbox: Locator
     private holdButton: Locator
 
+    private DNDCheckbox: Locator
     private yourTargetInput: Locator
     private callButton: Locator
     private answerButton: Locator
@@ -60,6 +66,146 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         public readonly browser: Browser
     ) {
         // this.qrynClient = new QrynClient('ActionsExecutor', scenarioName, scenarioId)
+    }
+
+    public async checkExpectations<T extends BaseActionSuccessResponse> (
+        expectations: Expectation<T>[][],
+        result: ActionResponse<T>,
+        actionType: ActionType
+    ): Promise<boolean> {
+        if (!expectations || expectations.length === 0) {
+            return true // No expectations to check
+        }
+
+        await this.logger.log('Checking expectations', {
+            actionType,
+            expectationGroups: expectations.length,
+        })
+
+        // Try each expectation group (OR logic)
+        for (const expectationGroup of expectations) {
+            try {
+                let allExpectationsMet = true
+
+                // Check all expectations in the group (AND logic)
+                for (const expectation of expectationGroup) {
+                    let expectationMet = false
+
+                    switch (expectation.type) {
+                        case 'websocket':
+                            // Handle WebSocket expectation
+                            try {
+                                await this.logger.log('Checking websocket expectation', {
+                                    method: expectation.method,
+                                    status_code: expectation.status_code,
+                                    description: expectation.description
+                                })
+
+                                await this.pageWebSocketWorker.waitForMessage(
+                                    this.pageWebSocketWorker.getConnectedWebsocket(),
+                                    {
+                                        method: expectation.method,
+                                        status_code: expectation.status_code,
+                                        timeout: expectation.timeout || 10000,
+                                        checkSentEvent: expectation.checkSentEvent
+                                    }
+                                )
+                                expectationMet = true
+                            } catch (error) {
+                                await this.logger.error('WebSocket expectation failed', {
+                                    method: expectation.method,
+                                    status_code: expectation.status_code,
+                                    error: error instanceof Error ? error.message : String(error),
+                                    description: expectation.description
+                                })
+                                expectationMet = false
+                            }
+                            break
+
+                        case 'response':
+                            // Handle response expectation
+                            try {
+                                await this.logger.log('Checking response expectation', {
+                                    description: expectation.description
+                                })
+
+                                // Check properties if specified
+                                if (expectation.properties) {
+                                    if (isActionError(result)) {
+                                        expectationMet = expectation.properties.success === false
+                                    } else {
+                                        // For success responses, check all properties
+                                        expectationMet = Object.entries(expectation.properties).every(
+                                            ([ key, value ]) => {
+                                                // Special case for wildcard values
+                                                if (value === '*') {
+                                                    return key in result
+                                                }
+
+                                                if (typeof value === 'object' && value !== null) {
+                                                    return JSON.stringify(result[key]) === JSON.stringify(value)
+                                                }
+                                                return result[key] === value
+                                            }
+                                        )
+                                    }
+
+                                    await this.logger.log('Response properties check result', {
+                                        result: expectationMet,
+                                        properties: expectation.properties,
+                                        description: expectation.description
+                                    })
+                                } else {
+                                    // If no properties, just check success flag
+                                    expectationMet = (result.success === true)
+                                }
+                            } catch (error) {
+                                await this.logger.error('Response expectation failed', {
+                                    error: error instanceof Error ? error.message : String(error),
+                                    description: expectation.description
+                                })
+                                expectationMet = false
+                            }
+                            break
+
+                        default:
+                            await this.logger.error('Unknown expectation type', {
+                                type: expectation.type,
+                                description: expectation.description
+                            })
+                            expectationMet = false
+                    }
+
+                    // If any expectation in AND group fails, the group fails
+                    if (!expectationMet) {
+                        allExpectationsMet = false
+                        break
+                    }
+                }
+
+                // If all expectations in this group are met, return true (OR logic)
+                if (allExpectationsMet) {
+                    await this.logger.log('Expectation group passed', {
+                        actionType,
+                        groupSize: expectationGroup.length
+                    })
+                    return true
+                }
+            } catch (error) {
+                await this.logger.error('Error checking expectation group', {
+                    actionType,
+                    error: error instanceof Error ? error.message : String(error)
+                })
+                // Continue checking other groups
+            }
+        }
+
+        // If we get here, no expectation group was fully satisfied
+        await this.logger.error('All expectation groups failed', {
+            actionType,
+            groupsCount: expectations.length
+        })
+        return false
     }
 
     public async register (data: GetActionPayload<RegisterAction>): Promise<GetActionResponse<RegisterAction>> {
@@ -145,26 +291,8 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
 
         this.yourTargetInput = this.page.locator('#makeCallForm input')
         this.callButton = this.page.locator('#makeCallForm button')
-
         await this.yourTargetInput.fill(String(data.target))
-
         await this.callButton.click()
-
-        try {
-            await this.pageWebSocketWorker.waitForMessage(
-                this.pageWebSocketWorker.getConnectedWebsocket(),
-                {
-                    method: 'INVITE',
-                    status_code: 200,
-                    timeout: 10000
-                }
-            )
-        } catch (error) {
-            return {
-                success: false,
-                error: `Error dialing the number ${data.target}`
-            }
-        }
 
         const callId = 'call-' + Math.floor(Math.random() * 10000)
 
@@ -180,20 +308,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
 
         this.answerButton = this.page.locator('#call-undefined > button:nth-child(7)')
         await this.answerButton.click()
-        try {
-            await this.pageWebSocketWorker.waitForMessage(
-                this.pageWebSocketWorker.getConnectedWebsocket(),
-                {
-                    method: 'ACK',
-                    timeout: 10000
-                }
-            )
-        } catch (error) {
-            return {
-                success: false,
-                error: `Error answer call to ${this.scenarioId}}`
-            }
-        }
+
         return {
             success: true,
             callId: 'call-' + Math.floor(Math.random() * 10000)
@@ -215,21 +330,6 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         this.holdButton = this.page.locator('.holdAgent')
 
         await this.holdButton.click()
-        try {
-            await this.pageWebSocketWorker.waitForMessage(
-                this.pageWebSocketWorker.getConnectedWebsocket(),
-                {
-                    method: 'INVITE',
-                    status_code: 100,
-                    timeout: 10000
-                }
-            )
-        } catch (error) {
-            return {
-                success: false,
-                error: `Error hold call in scenario ${this.scenarioId}`
-            }
-        }
 
         return {
             success: true,
@@ -243,21 +343,6 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         this.holdButton = this.page.locator('.holdAgent')
         await this.holdButton.click()
 
-        try {
-            await this.pageWebSocketWorker.waitForMessage(
-                this.pageWebSocketWorker.getConnectedWebsocket(),
-                {
-                    method: 'INVITE',
-                    status_code: 100,
-                    timeout: 10000
-                }
-            )
-        } catch (error) {
-            return {
-                success: false,
-                error: `Error unhold call in scenario ${this.scenarioId}`
-            }
-        }
         return {
             success: true,
             callId: 'call-' + Math.floor(Math.random() * 10000)
@@ -270,21 +355,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
 
         this.hangupButton = this.page.getByRole('button', { name: 'Hangup' })
         await this.hangupButton.click()
-        try {
-            await this.pageWebSocketWorker.waitForMessage(
-                this.pageWebSocketWorker.getConnectedWebsocket(),
-                {
-                    method: 'BYE',
-                    status_code: 200,
-                    timeout: 10000
-                }
-            )
-        } catch (error) {
-            return {
-                success: false,
-                error: `Error hangup call in scenario ${this.scenarioId}`
-            }
-        }
+
         return {
             success: true,
             callId: 'call-' + Math.floor(Math.random() * 10000)
@@ -299,21 +370,6 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         await this.DTMFInput.fill(data.dtmf)
         await this.DTMFSendButton.click()
 
-        try {
-            await this.pageWebSocketWorker.waitForMessage(
-                this.pageWebSocketWorker.getConnectedWebsocket(),
-                {
-                    method: 'INFO',
-                    status_code: 200,
-                    timeout: 10000
-                }
-            )
-        } catch (error) {
-            return {
-                success: false,
-                error: `Error send DTMF ${data.dtmf}`
-            }
-        }
         return {
             dtmf: data.dtmf,
             callId: 'call-' + Math.floor(Math.random() * 10000),
@@ -334,26 +390,21 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         this.transferButton = this.page.getByRole('button', { name: 'Transfer' })
         await this.transferButton.click()
         // this.qrynClient.log('Transfer button clicked')
-        try {
-            await this.pageWebSocketWorker.waitForMessage(
-                this.pageWebSocketWorker.getConnectedWebsocket(),
-                {
-                    method: 'REFER',
-                    status_code: 202,
-                    timeout: 10000
-                }
-            )
-        } catch (error) {
-            return {
-                success: false,
-                error: `Error transfer call to ${data.target}`
-            }
-        }
 
         return {
             callId: 'call-' + Math.floor(Math.random() * 10000),
             success: true,
             target: data.target
+        }
+    }
+
+    public async DND (): Promise<GetActionResponse<DNDAction>> {
+        await this.logger.log('Executing DND action')
+        this.DNDCheckbox = this.page.locator(Selectors.audioCallsPage.DNDCheckbox)
+        await this.DNDCheckbox.click()
+
+        return {
+            success: true
         }
     }
 
@@ -373,8 +424,6 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         if (this.windowMethodsWorker) {
             await this.windowMethodsWorker.cleanup()
         }
-
-
 
         // Clicking the logout button
         this.logoutButton.click()

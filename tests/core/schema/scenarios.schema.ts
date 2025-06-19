@@ -26,6 +26,18 @@ const responseToContextSchema = z.union([
     responseToContextDisabledSchema
 ]).optional()
 
+// Expectation schemas - base with dynamic properties
+const baseExpectationSchema = z.object({
+    type: z.string(),
+    description: z.string().optional()
+}).and(z.record(z.any())) // Allow any additional properties dynamically
+
+// Expectations array (OR groups of AND conditions)
+// Each element can be any object that includes a 'type' field
+const expectationsSchema = z.array(
+    z.array(baseExpectationSchema)
+).optional()
+
 // Simplified action data schema that accepts any type of action
 const actionDataSchema = z.object({
     type: z.string(),
@@ -33,7 +45,8 @@ const actionDataSchema = z.object({
         payload: z.record(z.any()).optional(),
         waitUntil: waitUntilSchema,
         customSharedEvent: z.string().optional(),
-        responseToContext: responseToContextSchema
+        responseToContext: responseToContextSchema,
+        expect: expectationsSchema
     }).optional()
 })
 

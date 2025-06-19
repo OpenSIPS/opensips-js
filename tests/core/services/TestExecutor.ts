@@ -20,7 +20,8 @@ import {
     BaseActionSuccessResponse,
     ActionResponse,
     isActionSuccess,
-    isActionError
+    isActionError,
+    Expectation
 } from '../types/actions'
 import { TestScenario } from '../types/intex'
 import { EventListener, EventListenerData, EventType } from '../types/events'
@@ -224,6 +225,9 @@ export default class TestExecutor {
                 case 'transfer':
                     result = await this.actionsExecutor.transfer(this.buildPayload('transfer', action))
                     break
+                case 'DND':
+                    result = await this.actionsExecutor.DND()
+                    break
                 case 'unregister':
                     result = await this.actionsExecutor.unregister()
                     break
@@ -237,6 +241,50 @@ export default class TestExecutor {
 
             // Handle result consistently for all actions
             onResult(result)
+
+            // Get default expectations if no custom ones are provided
+            let expectationsToCheck = action.data?.expect
+
+            if (!expectationsToCheck || expectationsToCheck.length === 0) {
+                // Get default expectations based on action type
+                expectationsToCheck = this.getDefaultExpectations(actionType, result)
+            }
+
+            // Check expectations if any exist (default or custom)
+            if (expectationsToCheck && expectationsToCheck.length > 0) {
+                const expectationsResult = await this.actionsExecutor.checkExpectations(
+                    expectationsToCheck,
+                    result,
+                    actionType
+                )
+
+                if (!expectationsResult) {
+                    const error = new Error(`Expectations failed for action ${actionType}`)
+                    await this.logger.error('Expectations failed', {
+                        actionType,
+                        expectations: JSON.stringify(expectationsToCheck)
+                    })
+
+                    // Log the error with detailed context
+                    await this.telemetryService.logError(action.type, error, {
+                        phase: 'expectations',
+                        actionData: JSON.stringify(action.data),
+                        errorMessage: error.message
+                    })
+
+                    // Finish action span with error
+                    this.telemetryService.finishActionSpan(actionSpan, false, error)
+
+                    throw error
+                }
+
+                // Log that expectations passed
+                await this.logger.log('Expectations passed', {
+                    actionType,
+                    expectationGroups: expectationsToCheck.length,
+                    isDefaultExpectation: !action.data?.expect
+                })
+            }
 
             // Always trigger local event listener for actions that have corresponding events
             const actionsWithoutEvents: Array<ActionType> = [ 'wait' ]
@@ -274,6 +322,99 @@ export default class TestExecutor {
             this.telemetryService.finishActionSpan(actionSpan, false, error)
 
             throw error
+        }
+    }
+
+    private getDefaultExpectations<T extends ActionType> (
+        actionType: T,
+        result: ActionResponse<BaseActionSuccessResponse>
+    ): Expectation<any>[][] {
+        // Only generate default expectations for success responses
+        if (!isActionSuccess(result)) {
+            return []
+        }
+
+        switch (actionType) {
+            case 'dial':
+                return [
+                    [
+                        {
+                            type: 'websocket',
+                            method: 'INVITE',
+                            status_code: 200,
+                            timeout: 10000,
+                            description: 'Default expectation: Should receive successful INVITE response'
+                        }
+                    ]
+                ]
+
+            case 'answer':
+                return [
+                    [
+                        {
+                            type: 'websocket',
+                            method: 'ACK',
+                            timeout: 10000,
+                            description: 'Default expectation: Should receive ACK for answer'
+                        }
+                    ]
+                ]
+
+            case 'hold':
+            case 'unhold':
+                return [
+                    [
+                        {
+                            type: 'websocket',
+                            method: 'INVITE',
+                            status_code: 100,
+                            timeout: 10000,
+                            description: `Default expectation: Should receive INVITE for ${actionType}`
+                        }
+                    ]
+                ]
+
+            case 'hangup':
+                return [
+                    [
+                        {
+                            type: 'websocket',
+                            method: 'BYE',
+                            status_code: 200,
+                            timeout: 10000,
+                            description: 'Default expectation: Should receive successful BYE response'
+                        }
+                    ]
+                ]
+
+            case 'sendDTMF':
+                return [
+                    [
+                        {
+                            type: 'websocket',
+                            method: 'INFO',
+                            status_code: 200,
+                            timeout: 10000,
+                            description: 'Default expectation: Should receive successful INFO response for DTMF'
+                        }
+                    ]
+                ]
+
+            case 'transfer':
+                return [
+                    [
+                        {
+                            type: 'websocket',
+                            method: 'REFER',
+                            status_code: 202,
+                            timeout: 10000,
+                            description: 'Default expectation: Should receive successful REFER response'
+                        }
+                    ]
+                ]
+
+            default:
+                return []
         }
     }
 

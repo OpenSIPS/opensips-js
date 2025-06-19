@@ -17,6 +17,37 @@ export interface ActionErrorResponse {
     error: string // User-friendly error message
 }
 
+// Base expectation interface
+export interface BaseActionExpectation {
+    // The type of expectation to check
+    type: string
+    // Optional description for better error messages
+    description?: string
+    // Additional properties specific to the expectation type
+    [key: string]: any
+}
+
+// WebSocket message expectation
+export interface WebSocketMessageExpectation extends BaseActionExpectation {
+    type: 'websocket'
+    method: string
+    status_code?: number
+    timeout?: number
+    checkSentEvent?: boolean
+}
+
+// Response expectation
+export interface ResponseExpectation<ResponseType = any> extends BaseActionExpectation {
+    type: 'response'
+    // Specify exact properties to match
+    properties?: Partial<ResponseType>
+}
+
+// Union type for all expectation types, generic over result type
+export type Expectation<ResultType = any> =
+    | WebSocketMessageExpectation
+    | ResponseExpectation<ResultType>
+
 // Union type for all action responses
 export type ActionResponse<TSuccess extends BaseActionSuccessResponse = BaseActionSuccessResponse> =
     | TSuccess
@@ -45,7 +76,10 @@ export interface ActionWaitUntil {
     timeout?: number
 }
 
-export interface ActionData<Payload extends object | undefined = undefined> {
+export interface ActionData<
+    Payload extends object | undefined = undefined,
+    ResponseType extends BaseActionSuccessResponse = BaseActionSuccessResponse
+> {
     // The data of the action to execute
     payload?: Payload
 
@@ -57,11 +91,20 @@ export interface ActionData<Payload extends object | undefined = undefined> {
 
     // Custom event to trigger after the action
     customSharedEvent?: string
+
+    // Expectations for this action
+    // Outer array: OR logic (any of these groups can pass)
+    // Inner array: AND logic (all expectations in a group must pass)
+    expect?: Expectation<ResponseType>[][]
 }
 
-export interface BaseActionDefinition<Type extends string, Payload extends object | undefined = undefined> {
+export interface BaseActionDefinition<
+    Type extends string,
+    Payload extends object | undefined = undefined,
+    ResponseType extends BaseActionSuccessResponse = BaseActionSuccessResponse
+> {
     type: Type
-    data?: ActionData<Payload>
+    data?: ActionData<Payload, ResponseType>
 }
 
 export interface Action<
@@ -69,7 +112,7 @@ export interface Action<
     Payload extends object | undefined = undefined,
     SuccessResponse extends BaseActionSuccessResponse = BaseActionSuccessResponse
 > {
-    definition: BaseActionDefinition<Type, Payload>
+    definition: BaseActionDefinition<Type, Payload, SuccessResponse>
     response: ActionResponse<SuccessResponse>
 }
 
@@ -210,6 +253,15 @@ export type TransferAction = Action<
     TransferActionPayload,
     TransferActionSuccessResponse
 >
+/* DND */
+interface DNDActionSuccessResponse extends BaseActionSuccessResponse {
+    success: true
+}
+export type DNDAction = Action<
+    'DND',
+    undefined,
+    DNDActionSuccessResponse
+>
 
 /* Unregister */
 interface UnregisterActionSuccessResponse extends BaseActionSuccessResponse {
@@ -263,6 +315,7 @@ export interface ActionsMap {
     transfer: TransferAction
     unregister: UnregisterAction
     request: RequestAction
+    DND: DNDAction
 }
 
 export type ActionsExecutorImplements = {
