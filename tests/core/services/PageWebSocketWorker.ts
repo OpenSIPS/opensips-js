@@ -20,16 +20,16 @@ export default class PageWebSocketWorker {
         private readonly callback: (eventName: string) => never,
         private readonly telemetryService: TelemetryService
     ) {
-        // this.qrynClient = new QrynClient(
-        //     'PageWebSocketWorker',
-        //     telemetryService.getScenarioName(),
-        //     telemetryService.getScenarioId()
-        // )
+        this.qrynClient = new QrynClient(
+            'PageWebSocketWorker',
+            telemetryService.getScenarioName(),
+            telemetryService.getScenarioId()
+        )
     }
 
     public setConnectedWebsocket (ws: WebSocket): void {
         this.connectedWebsocket = ws
-        // this.qrynClient.log('Connected WebSocket', { url: ws.url() })
+        this.qrynClient.log('Connected WebSocket', { url: ws.url() })
     }
 
     public getConnectedWebsocket (): WebSocket {
@@ -45,10 +45,10 @@ export default class PageWebSocketWorker {
                     contact: {}
                 })
 
-                // console.log('SEND WEBSOCKET FRAME', {
-                //     method: parsedMessage.method,
-                //     status_code: 'status_code' in parsedMessage ? parsedMessage.status_code : null,
-                // })
+                console.log('SEND WEBSOCKET FRAME', {
+                    method: parsedMessage.method,
+                    status_code: 'status_code' in parsedMessage ? parsedMessage.status_code : null,
+                })
 
             }
         })
@@ -66,18 +66,18 @@ export default class PageWebSocketWorker {
                     status_code: 'status_code' in parsedMessage ? parsedMessage.status_code?.toString() : 'none'
                 })
 
-                // await this.qrynClient.log('Received WebSocket frame', {
-                //     method: parsedMessage.method,
-                //     status_code: 'status_code' in parsedMessage ? parsedMessage.status_code : null,
-                // })
+                await this.qrynClient.log('Received WebSocket frame', {
+                    method: parsedMessage.method,
+                    status_code: 'status_code' in parsedMessage ? parsedMessage.status_code : null,
+                })
 
                 // Check if this socket event has a corresponding local event
                 if (parsedMessage && parsedMessage.method && parsedMessage.method in this.socketEventsToMonitor) {
                     const localEvent = this.socketEventsToMonitor[parsedMessage.method]
-                    // await this.qrynClient.log('Triggering local event', {
-                    //     localEvent,
-                    //     method: parsedMessage.method
-                    // })
+                    await this.qrynClient.log('Triggering local event', {
+                        localEvent,
+                        method: parsedMessage.method
+                    })
                     this.callback(localEvent)
                 }
             }
@@ -88,10 +88,10 @@ export default class PageWebSocketWorker {
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(
                 () => {
-                    // this.qrynClient.warn('Timeout waiting for message', {
-                    //     method: waitingOptions.method,
-                    //     timeout: waitingOptions.timeout
-                    // })
+                    this.qrynClient.warn('Timeout waiting for message', {
+                        method: waitingOptions.method,
+                        timeout: waitingOptions.timeout
+                    })
                     this.telemetryService.logError(`websocket_wait_${waitingOptions.method}`,
                         `Timeout waiting for ${waitingOptions.method}`)
                     reject(new Error(`Timeout waiting for message ${waitingOptions.method}`))
@@ -110,16 +110,16 @@ export default class PageWebSocketWorker {
                         stage: 'received',
                         method: parsedMessage.method,
                         waiting_for: waitingOptions.method,
-                        expected_status: 'status_code' in waitingOptions ? waitingOptions.status_code.toString() : 'none',
+                        expected_status: waitingOptions.status_code ? waitingOptions.status_code.toString() : 'none',
                     })
                     if (parsedMessage &&
                         parsedMessage.method === waitingOptions.method &&
                         (!('status_code' in waitingOptions) ||
                             ('status_code' in parsedMessage && parsedMessage.status_code === waitingOptions.status_code))) {
-                        // await this.qrynClient.log('Received expected message', {
-                        //     method: parsedMessage.method,
-                        //     status_code: 'status_code' in parsedMessage ? parsedMessage.status_code : 'none'
-                        // })
+                        await this.qrynClient.log('Received expected message', {
+                            method: parsedMessage.method,
+                            status_code: 'status_code' in parsedMessage ? parsedMessage.status_code : 'none'
+                        })
                         clearTimeout(timeout)
                         ws.off('framereceived', listener.bind(this))
                         resolve()
@@ -139,10 +139,10 @@ export default class PageWebSocketWorker {
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(
                 () => {
-                    // this.qrynClient.warn('Timeout waiting for websocket', {
-                    //     domain,
-                    //     timeout: 10000
-                    // })
+                    this.qrynClient.warn('Timeout waiting for websocket', {
+                        domain,
+                        timeout: 10000
+                    })
                     this.telemetryService.logError('websocket_connection',
                         `Timeout waiting for websocket connection to ${domain}`)
                     reject(new Error(`Timeout waiting for websocket ${domain}`))
@@ -154,10 +154,10 @@ export default class PageWebSocketWorker {
                 const url = new URL(ws.url())
                 const connectedWebsocketDomain = url.hostname
 
-                // this.qrynClient.log('Found WebSocket connection', { domain: connectedWebsocketDomain })
+                this.qrynClient.log('Found WebSocket connection', { domain: connectedWebsocketDomain })
 
                 if (connectedWebsocketDomain === domain) {
-                    // this.qrynClient.log('WebSocket found for domain', { domain })
+                    this.qrynClient.log('WebSocket found for domain', { domain })
 
                     this.telemetryService.logEvent('websocket_connection', 'success', {
                         stage: 'connected',

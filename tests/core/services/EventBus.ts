@@ -4,7 +4,7 @@ import QrynClient from "./QrynClient";
 export default class EventBus {
     private static instance: EventBus
     private eventListeners: Map<EventType, EventListener<any>[]> = new Map()
-    // private qrynClient = new QrynClient('EventBus')
+    private qrynClient = new QrynClient('EventBus')
 
     public static getInstance (): EventBus {
         if (!EventBus.instance) {
@@ -38,10 +38,10 @@ export default class EventBus {
         data?: EventListenerData<E>
     ): Promise<void> {
         const listeners = [ ...(this.eventListeners.get(eventName) || []) ]
-        // await this.qrynClient.log(`Event triggered: ${eventName}`, {
-        //     eventName,
-        //     listenersCount: listeners.length
-        // })
+        await this.qrynClient.log(`Event triggered: ${eventName}`, {
+            eventName,
+            listenersCount: listeners.length
+        })
 
         for (const listener of listeners) {
             listener(eventName, data)

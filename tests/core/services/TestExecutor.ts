@@ -34,6 +34,7 @@ export default class TestExecutor {
     private actionsExecutor!: ActionsExecutor
     private windowMethodsWorker!: WindowMethodsWorker
     private readonly telemetryService: TelemetryService
+    private qrynClient: QrynClient
 
     private readonly eventBus = EventBus.getInstance()
     private scenarioCompleted = false // Add completion flag
@@ -47,7 +48,7 @@ export default class TestExecutor {
         private readonly scenarioManager: ScenarioManager
     ) {
         this.telemetryService = new TelemetryService(scenarioId, scenarioName)
-        // this.qrynClient = new QrynClient('TestExecutor', scenarioName, scenarioId)
+        this.qrynClient = new QrynClient('TestExecutor', scenarioName, scenarioId)
     }
 
     private addEventListener<E extends EventType> (
@@ -77,7 +78,7 @@ export default class TestExecutor {
         eventName: E | string,
         data: EventListenerData<E>
     ): Promise<void> {
-        // await this.qrynClient.log(`Triggering shared event: ${eventName}`, { eventName })
+        await this.qrynClient.log(`Triggering shared event: ${eventName}`, { eventName })
         await this.eventBus.triggerEvent(eventName, data)
     }
 
@@ -104,7 +105,7 @@ export default class TestExecutor {
                     )
                 )
             } catch (e) {
-                // this.qrynClient.error('Error rendering payload', { error: e instanceof Error ? e.message : String(e) })
+                this.qrynClient.error('Error rendering payload', { error: e instanceof Error ? e.message : String(e) })
             }
         }
 
@@ -114,7 +115,7 @@ export default class TestExecutor {
     private async executeAction<T extends ActionType> (
         action: GetActionDefinition<ActionByActionType<T>>,
     ): Promise<void> {
-        // await this.qrynClient.log(`Executing action: ${action.type}`, { actionType: action.type })
+        await this.qrynClient.log(`Executing action: ${action.type}`, { actionType: action.type })
 
         // Start telemetry tracking for this action
         await this.telemetryService.logTriggered(action.type, {
@@ -122,10 +123,10 @@ export default class TestExecutor {
         })
 
         if (action.data && action.data.waitUntil && action.data.waitUntil.event) {
-            // await this.qrynClient.log(`Waiting for event: ${action.data.waitUntil.event}`, {
-            //     waitingForEvent: action.data.waitUntil.event,
-            //     timeout: action.data.waitUntil.timeout || 30000
-            // })
+            await this.qrynClient.log(`Waiting for event: ${action.data.waitUntil.event}`, {
+                waitingForEvent: action.data.waitUntil.event,
+                timeout: action.data.waitUntil.timeout || 30000
+            })
 
             try {
                 // Wait for the event globally (not just scenario-specific)
@@ -134,14 +135,14 @@ export default class TestExecutor {
                     (_, data) => this.shouldReactToEvent(data),
                     action.data.waitUntil.timeout || 30000 // Default 30 second timeout
                 )
-                // await this.qrynClient.log(`Event received: ${action.data.waitUntil.event}`, {
-                //     receivedEvent: action.data.waitUntil.event
-                // })
+                await this.qrynClient.log(`Event received: ${action.data.waitUntil.event}`, {
+                    receivedEvent: action.data.waitUntil.event
+                })
             } catch (error) {
-                // await this.qrynClient.error('Error waiting for event', {
-                //     error: error instanceof Error ? error.message : String(error),
-                //     waitingForEvent: action.data.waitUntil.event
-                // })
+                await this.qrynClient.error('Error waiting for event', {
+                    error: error instanceof Error ? error.message : String(error),
+                    waitingForEvent: action.data.waitUntil.event
+                })
                 await this.telemetryService.logError(action.type, error, {
                     phase: 'waitUntil',
                     waitingFor: action.data.waitUntil.event
@@ -165,10 +166,10 @@ export default class TestExecutor {
 
         const onResult = (result: ActionResponse<BaseActionSuccessResponse>) => {
             if (isActionError(result)) {
-                // this.qrynClient.error('Action failed', {
-                //     actionType: action.type,
-                //     error: result.error
-                // })
+                this.qrynClient.error('Action failed', {
+                    actionType: action.type,
+                    error: result.error
+                })
                 throw new Error(result.error)
             }
 
@@ -179,10 +180,10 @@ export default class TestExecutor {
                     [action.data.responseToContext.contextKeyToSet]: result
                 })
 
-                // this.qrynClient.log('Context updated', {
-                //     contextKey: action.data.responseToContext.contextKeyToSet,
-                //     newContext: this.scenarioManager.getContext()
-                // })
+                this.qrynClient.log('Context updated', {
+                    contextKey: action.data.responseToContext.contextKeyToSet,
+                    newContext: this.scenarioManager.getContext()
+                })
             }
         }
 
@@ -260,7 +261,7 @@ export default class TestExecutor {
 
                 if (!expectationsResult) {
                     const error = new Error(`Expectations failed for action ${actionType}`)
-                    await this.logger.error('Expectations failed', {
+                    await this.qrynClient.error('Expectations failed', {
                         actionType,
                         expectations: JSON.stringify(expectationsToCheck)
                     })
@@ -279,7 +280,7 @@ export default class TestExecutor {
                 }
 
                 // Log that expectations passed
-                await this.logger.log('Expectations passed', {
+                await this.qrynClient.log('Expectations passed', {
                     actionType,
                     expectationGroups: expectationsToCheck.length,
                     isDefaultExpectation: !action.data?.expect
@@ -306,10 +307,10 @@ export default class TestExecutor {
             // Finish action span with success
             this.telemetryService.finishActionSpan(actionSpan, true, undefined, result)
         } catch (error) {
-            // await this.qrynClient.error('Error executing action', {
-            //     actionType: action.type,
-            //     error: error instanceof Error ? error.message : String(error)
-            // })
+            await this.qrynClient.error('Error executing action', {
+                actionType: action.type,
+                error: error instanceof Error ? error.message : String(error)
+            })
 
             // Log the error with detailed context
             await this.telemetryService.logError(action.type, error, {
@@ -484,10 +485,10 @@ export default class TestExecutor {
     }
 
     public async executeScenario (scenario: TestScenario): Promise<void> {
-        // await this.qrynClient.log('Executing scenario', {
-        //     scenarioName: scenario.name,
-        //     actionsCount: scenario.actions.length
-        // })
+        await this.qrynClient.log('Executing scenario', {
+            scenarioName: scenario.name,
+            actionsCount: scenario.actions.length
+        })
 
         try {
             const eventCounter: Record<string, number> = {} // Changed to string to allow custom events
@@ -502,10 +503,10 @@ export default class TestExecutor {
                 eventHandlers[event].push(actions)
             }
 
-            // await this.qrynClient.log('Event handlers initialized', {
-            //     eventTypes: Object.keys(eventHandlers),
-            //     totalHandlers: Object.values(eventHandlers).reduce((sum, handlers) => sum + handlers.length, 0)
-            // })
+            await this.qrynClient.log('Event handlers initialized', {
+                eventTypes: Object.keys(eventHandlers),
+                totalHandlers: Object.values(eventHandlers).reduce((sum, handlers) => sum + handlers.length, 0)
+            })
 
             // Set up event listeners for all events (including custom ones)
             for (const eventName in eventHandlers) {
@@ -555,10 +556,10 @@ export default class TestExecutor {
                             this.telemetryService.finishEventSpan(eventSpan, true, undefined, actions.length)
 
                         } catch (error) {
-                            // await this.qrynClient.error('Error handling event', {
-                            //     eventName,
-                            //     error: error instanceof Error ? error.message : String(error)
-                            // })
+                            await this.qrynClient.error('Error handling event', {
+                                eventName,
+                                error: error instanceof Error ? error.message : String(error)
+                            })
 
                             // Finish event span with error
                             this.telemetryService.finishEventSpan(eventSpan, false, error, actions.length)
@@ -573,7 +574,7 @@ export default class TestExecutor {
 
             // Keep the scenario alive until it's explicitly completed
             // Don't cleanup immediately
-            // await this.qrynClient.log('Scenario setup complete, waiting for events...')
+            await this.qrynClient.log('Scenario setup complete, waiting for events...')
 
         } catch (error) {
             await this.telemetryService.logError('scenario_execution', error)

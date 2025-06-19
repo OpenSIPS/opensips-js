@@ -56,6 +56,8 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     private DTMFInput: Locator
     private transferButton: Locator
     private webrtcMetricsSender: WebRTCMetricsSender | null = null
+    private qrynClient: QrynClient
+
 
     constructor (
         private readonly scenarioId: string,
@@ -65,7 +67,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         public readonly page: Page,
         public readonly browser: Browser
     ) {
-        // this.qrynClient = new QrynClient('ActionsExecutor', scenarioName, scenarioId)
+        this.qrynClient = new QrynClient('ActionsExecutor', scenarioName, scenarioId)
     }
 
     public async checkExpectations<T extends BaseActionSuccessResponse> (
@@ -73,14 +75,14 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         result: ActionResponse<T>,
         actionType: ActionType
     ): Promise<boolean> {
-        if (!expectations || expectations.length === 0) {
-            return true // No expectations to check
-        }
-
-        await this.logger.log('Checking expectations', {
+        await this.qrynClient.log('Checking expectations', {
             actionType,
             expectationGroups: expectations.length,
         })
+
+        if (!expectations || expectations.length === 0) {
+            return true // No expectations to check
+        }
 
         // Try each expectation group (OR logic)
         for (const expectationGroup of expectations) {
@@ -95,7 +97,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                         case 'websocket':
                             // Handle WebSocket expectation
                             try {
-                                await this.logger.log('Checking websocket expectation', {
+                                await this.qrynClient.log('Checking websocket expectation', {
                                     method: expectation.method,
                                     status_code: expectation.status_code,
                                     description: expectation.description
@@ -112,7 +114,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                                 )
                                 expectationMet = true
                             } catch (error) {
-                                await this.logger.error('WebSocket expectation failed', {
+                                await this.qrynClient.error('WebSocket expectation failed', {
                                     method: expectation.method,
                                     status_code: expectation.status_code,
                                     error: error instanceof Error ? error.message : String(error),
@@ -125,7 +127,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                         case 'response':
                             // Handle response expectation
                             try {
-                                await this.logger.log('Checking response expectation', {
+                                await this.qrynClient.log('Checking response expectation', {
                                     description: expectation.description
                                 })
 
@@ -150,7 +152,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                                         )
                                     }
 
-                                    await this.logger.log('Response properties check result', {
+                                    await this.qrynClient.log('Response properties check result', {
                                         result: expectationMet,
                                         properties: expectation.properties,
                                         description: expectation.description
@@ -160,7 +162,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                                     expectationMet = (result.success === true)
                                 }
                             } catch (error) {
-                                await this.logger.error('Response expectation failed', {
+                                await this.qrynClient.error('Response expectation failed', {
                                     error: error instanceof Error ? error.message : String(error),
                                     description: expectation.description
                                 })
@@ -169,7 +171,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                             break
 
                         default:
-                            await this.logger.error('Unknown expectation type', {
+                            await this.qrynClient.error('Unknown expectation type', {
                                 type: expectation.type,
                                 description: expectation.description
                             })
@@ -185,14 +187,14 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
 
                 // If all expectations in this group are met, return true (OR logic)
                 if (allExpectationsMet) {
-                    await this.logger.log('Expectation group passed', {
+                    await this.qrynClient.log('Expectation group passed', {
                         actionType,
                         groupSize: expectationGroup.length
                     })
                     return true
                 }
             } catch (error) {
-                await this.logger.error('Error checking expectation group', {
+                await this.qrynClient.error('Error checking expectation group', {
                     actionType,
                     error: error instanceof Error ? error.message : String(error)
                 })
@@ -201,7 +203,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         }
 
         // If we get here, no expectation group was fully satisfied
-        await this.logger.error('All expectation groups failed', {
+        await this.qrynClient.error('All expectation groups failed', {
             actionType,
             groupsCount: expectations.length
         })
@@ -210,14 +212,14 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
 
     public async register (data: GetActionPayload<RegisterAction>): Promise<GetActionResponse<RegisterAction>> {
         const instanceId = `${this.scenarioId}-${Date.now()}`
-        // await this.qrynClient.log('Executing register action', { data })
+        await this.qrynClient.log('Executing register action', { data })
         const {
             username,
             password,
             sip_domain
         } = data
 
-        // await this.qrynClient.log('Form elements found, filling form', { instanceId })
+        await this.qrynClient.log('Form elements found, filling form', { instanceId })
         this.usernameInput = this.page.locator('#loginToAppForm > label:nth-child(2) > input')
         this.passwordInput = this.page.locator('#loginToAppForm > label:nth-child(3) > input')
         this.domainInput = this.page.locator('#loginToAppForm > label:nth-child(5) > input')
@@ -267,7 +269,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                         )
                         // this.webrtcMetricsSender.startPeriodicCollection()
 
-                        // await this.qrynClient.log('Successfully registered and started WebRTC metrics collection')
+                        await this.qrynClient.log('Successfully registered and started WebRTC metrics collection')
 
                         resolve({
                             success: true,
@@ -287,7 +289,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async dial (data: GetActionPayload<DialAction>): Promise<GetActionResponse<DialAction>> {
-        // await this.qrynClient.log('Executing dial action', { data })
+        await this.qrynClient.log('Executing dial action', { data })
 
         this.yourTargetInput = this.page.locator('#makeCallForm input')
         this.callButton = this.page.locator('#makeCallForm button')
@@ -304,7 +306,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async answer (): Promise<GetActionResponse<AnswerAction>> {
-        // await this.qrynClient.log('Executing answer action')
+        await this.qrynClient.log('Executing answer action')
 
         this.answerButton = this.page.locator('#call-undefined > button:nth-child(7)')
         await this.answerButton.click()
@@ -316,7 +318,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async wait (data: GetActionPayload<WaitAction>): Promise<GetActionResponse<WaitAction>> {
-        // await this.qrynClient.log(`Waiting for ${data.time}ms`, { waitTime: data.time })
+        await this.qrynClient.log(`Waiting for ${data.time}ms`, { waitTime: data.time })
 
         await this.page.waitForTimeout(data.time)
         return {
@@ -325,7 +327,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async hold (): Promise<GetActionResponse<HoldAction>> {
-        // await this.qrynClient.log('Executing hold action')
+        await this.qrynClient.log('Executing hold action')
 
         this.holdButton = this.page.locator('.holdAgent')
 
@@ -338,7 +340,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async unhold (): Promise<GetActionResponse<UnholdAction>> {
-        // await this.qrynClient.log('Executing unhold action')
+        await this.qrynClient.log('Executing unhold action')
 
         this.holdButton = this.page.locator('.holdAgent')
         await this.holdButton.click()
@@ -350,7 +352,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async hangup (): Promise<GetActionResponse<HangupAction>> {
-        // await this.qrynClient.log('Executing hangup action')
+        await this.qrynClient.log('Executing hangup action')
         //this.hangupButton = this.page.locator('#call-undefined > button:nth-child(4)')
 
         this.hangupButton = this.page.getByRole('button', { name: 'Hangup' })
@@ -363,7 +365,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async sendDTMF (data: GetActionPayload<SendDTMFAction>): Promise<GetActionResponse<SendDTMFAction>> {
-        // await this.qrynClient.log('Executing send DTMF action', { dtmf: data.dtmf })
+        await this.qrynClient.log('Executing send DTMF action', { dtmf: data.dtmf })
 
         this.DTMFInput = this.page.locator('#dtmfInput')
         this.DTMFSendButton = this.page.locator('#dtmfSendButton')
@@ -378,18 +380,18 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async transfer (data: GetActionPayload<TransferAction>): Promise<GetActionResponse<TransferAction>> {
-        // await this.qrynClient.log('Executing transfer action', { target: data.target })
+        await this.qrynClient.log('Executing transfer action', { target: data.target })
 
         this.page.on('dialog', async dialog => {
-            // await this.qrynClient.log(`Dialog message: ${dialog.message()}`, { target: data.target })
+            await this.qrynClient.log(`Dialog message: ${dialog.message()}`, { target: data.target })
             expect(dialog.type()).toContain('prompt')
             expect(dialog.message()).toContain('Please enter target:')
-            await dialog.accept(data.target) //.catch(e => this.qrynClient.error('Error accepting dialog', { error: e instanceof Error ? e.message : String(e) }))
+            await dialog.accept(data.target).catch(e => this.qrynClient.error('Error accepting dialog', { error: e instanceof Error ? e.message : String(e) }))
         })
 
         this.transferButton = this.page.getByRole('button', { name: 'Transfer' })
         await this.transferButton.click()
-        // this.qrynClient.log('Transfer button clicked')
+        this.qrynClient.log('Transfer button clicked')
 
         return {
             callId: 'call-' + Math.floor(Math.random() * 10000),
@@ -399,7 +401,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async DND (): Promise<GetActionResponse<DNDAction>> {
-        await this.logger.log('Executing DND action')
+        await this.qrynClient.log('Executing DND action')
         this.DNDCheckbox = this.page.locator(Selectors.audioCallsPage.DNDCheckbox)
         await this.DNDCheckbox.click()
 
@@ -409,7 +411,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async unregister (): Promise<GetActionResponse<UnregisterAction>> {
-        // await this.qrynClient.log('Executing unregister action')
+        await this.qrynClient.log('Executing unregister action')
 
         this.logoutButton = this.page.locator('#logoutButton')
 
@@ -444,20 +446,20 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
             }
         }
 
-        // await this.qrynClient.log('Logout button clicked')
+        await this.qrynClient.log('Logout button clicked')
 
         // Log metrics
-        // await this.qrynClient.log('Call metrics collected', {
-        //     setupTimeMs: metrics.setupTime,
-        //     totalDurationMs: metrics.totalDuration,
-        //     connectionSuccessful: metrics.connectionSuccessful,
-        //     audioStats: metrics.audioMetrics
-        // })
+        await this.qrynClient.log('Call metrics collected', {
+            setupTimeMs: metrics.setupTime,
+            totalDurationMs: metrics.totalDuration,
+            connectionSuccessful: metrics.connectionSuccessful,
+            audioStats: metrics.audioMetrics
+        })
 
         // Close browser and log after actually closing
         await this.page.close()
         await this.browser.close()
-        // await this.qrynClient.log('Browser closed')
+        await this.qrynClient.log('Browser closed')
 
         return {
             success: true
@@ -466,7 +468,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
 
     public async playSound (data: GetActionPayload<PlaySoundAction>): Promise<GetActionResponse<PlaySoundAction>> {
         const soundPath = data.sound
-        // await this.qrynClient.log('Playing sound', { soundPath })
+        await this.qrynClient.log('Playing sound', { soundPath })
 
         try {
             let fullPath: string
@@ -512,19 +514,19 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
             const base64Data = fileData.toString('base64')
             const dataUrl = `data:${mimeType};base64,${base64Data}`
 
-            // await this.qrynClient.log(`Playing audio file: ${soundFileName}`, {
-            //     mimeType,
-            //     fileSizeKB: Math.round(fileData.length / 1024)
-            // })
+            await this.qrynClient.log(`Playing audio file: ${soundFileName}`, {
+                mimeType,
+                fileSizeKB: Math.round(fileData.length / 1024)
+            })
 
             // Use the WindowMethodsWorker to play the clip
             const startTime = Date.now()
             await this.windowMethodsWorker.playClip(dataUrl)
             const playDuration = Date.now() - startTime
 
-            // await this.qrynClient.log(`Sound played successfully: ${soundFileName}`, {
-            //     playDurationMs: playDuration
-            // })
+            await this.qrynClient.log(`Sound played successfully: ${soundFileName}`, {
+                playDurationMs: playDuration
+            })
 
             return {
                 success: true,
@@ -532,9 +534,9 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                 duration: playDuration
             }
         } catch (error) {
-            // await this.qrynClient.error('Error playing sound', {
-            //     error: error instanceof Error ? error.message : String(error)
-            // })
+            await this.qrynClient.error('Error playing sound', {
+                error: error instanceof Error ? error.message : String(error)
+            })
             return {
                 success: false,
                 error: error instanceof Error ? error.message : 'Unknown error playing sound'
@@ -543,7 +545,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     }
 
     public async request (data: GetActionPayload<RequestAction>): Promise<GetActionResponse<RequestAction>> {
-        // await this.qrynClient.log('Executing request action', { url: data.url })
+        await this.qrynClient.log('Executing request action', { url: data.url })
 
         try {
             const response = await this.page.request.fetch(
@@ -558,9 +560,9 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                 response: responseBody
             }
         } catch (error) {
-            // await this.qrynClient.error('Error during request', {
-            //     error: error instanceof Error ? error.message : String(error)
-            // })
+            await this.qrynClient.error('Error during request', {
+                error: error instanceof Error ? error.message : String(error)
+            })
 
             const message = error instanceof Error ? error.message : 'Unknown error'
 

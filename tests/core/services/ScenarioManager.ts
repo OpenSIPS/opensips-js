@@ -42,10 +42,10 @@ export default class ScenarioManager {
         // Create an executor for each scenario
         for (let i = 0; i < this.scenarios.length; i++) {
             const scenarioId = `scenario-${i + 1}`
-            // await this.qrynClient.log('Scenario created', {
-            //     scenarioId,
-            //     scenarioName: this.scenarios[i].name
-            // })
+            await this.qrynClient.log('Scenario created', {
+                scenarioId,
+                scenarioName: this.scenarios[i].name
+            })
             const executor = new TestExecutor(
                 scenarioId,
                 this.scenarios[i].name,
@@ -63,9 +63,9 @@ export default class ScenarioManager {
             // Wait for all scenarios to complete
             await Promise.all(scenarioPromises)
         } catch (error) {
-            // await this.qrynClient.error('Error during scenario execution', {
-            //     error: error instanceof Error ? error.message : String(error)
-            // })
+            await this.qrynClient.error('Error during scenario execution', {
+                error: error instanceof Error ? error.message : String(error)
+            })
             throw error
         } finally {
             // Ensure all scenarios are properly cleaned up
@@ -73,9 +73,9 @@ export default class ScenarioManager {
                 try {
                     executor.completeScenario()
                 } catch (e) {
-                    // await this.qrynClient.warn('Error cleaning up executor', {
-                    //     error: e instanceof Error ? e.message : String(e)
-                    // })
+                    await this.qrynClient.warn('Error cleaning up executor', {
+                        error: e instanceof Error ? e.message : String(e)
+                    })
                 }
             }
         }
