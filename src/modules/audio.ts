@@ -373,9 +373,9 @@ export class AudioModule {
     }
 
     public sendDTMF (callId: string, value: string) {
-        const validation_regex = /^[A-D0-9]+$/g
+        const validation_regex = /^[A-D0-9*#]+$/g
         if (!validation_regex.test(value)) {
-            throw new Error('Not allowed character in DTMF input')
+            throw new Error('Not allowed character used in the DTMF input')
         }
 
         const call = this.extendedCalls[callId]
