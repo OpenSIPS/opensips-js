@@ -106,7 +106,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                                     this.pageWebSocketWorker.getConnectedWebsocket(),
                                     {
                                         method: expectation.method,
-                                        status_code: expectation.status_code,
+                                        status_code: expectation?.status_code,
                                         timeout: expectation.timeout || 10000,
                                         checkSentEvent: expectation.checkSentEvent
                                     }
@@ -308,7 +308,20 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
 
         this.answerButton = this.page.locator(Selectors.roomListPage.answerButton)
         await this.answerButton.click()
-
+        try {
+            await this.pageWebSocketWorker.waitForMessage(
+                this.pageWebSocketWorker.getConnectedWebsocket(),
+                {
+                    method: 'ACK',
+                    timeout: 10000
+                }
+            )
+        } catch (error) {
+            return {
+                success: false,
+                error: `Error answer call to ${this.scenarioId}}`
+            }
+        }
         return {
             success: true,
             callId: 'call-' + Math.floor(Math.random() * 10000)

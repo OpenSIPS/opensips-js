@@ -349,7 +349,7 @@ export default class TestExecutor {
                     ]
                 ]
 
-                /*    case 'answer':
+                /*     case 'answer':
                 return [
                     [
                         {
