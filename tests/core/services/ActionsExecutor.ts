@@ -106,7 +106,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                                     this.pageWebSocketWorker.getConnectedWebsocket(),
                                     {
                                         method: expectation.method,
-                                        status_code: expectation?.status_code,
+                                        status_code: expectation.status_code,
                                         timeout: expectation.timeout || 10000,
                                         checkSentEvent: expectation.checkSentEvent
                                     }
