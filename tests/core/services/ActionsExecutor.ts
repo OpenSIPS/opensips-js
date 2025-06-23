@@ -306,7 +306,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     public async answer (): Promise<GetActionResponse<AnswerAction>> {
         await this.logger.log('Executing answer action')
 
-        this.answerButton = this.page.locator('#call-undefined > button:nth-child(7)')
+        this.answerButton = this.page.locator(Selectors.roomListPage.answerButton)
         await this.answerButton.click()
 
         return {

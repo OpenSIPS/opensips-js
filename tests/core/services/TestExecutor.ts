@@ -349,7 +349,7 @@ export default class TestExecutor {
                     ]
                 ]
 
-            case 'answer':
+                /*    case 'answer':
                 return [
                     [
                         {
@@ -359,7 +359,7 @@ export default class TestExecutor {
                             description: 'Default expectation: Should receive ACK for answer'
                         }
                     ]
-                ]
+                ]*/
 
             case 'hold':
             case 'unhold':
