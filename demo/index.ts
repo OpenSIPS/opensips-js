@@ -1,7 +1,7 @@
 import OpenSIPSJS from '../src/index'
 //import OpenSIPSJS from '../dist/opensips-js.es'
 import { ICall, IOpenSIPSConfiguration, IRoom, RoomChangeEmitType, UAConfiguration } from '../src/types/rtc'
-import { runIndicator } from '../src/helpers/volume.helper'
+import { runIndicator } from './helpers/volume.helper'
 import { SendMessageOptions } from 'jssip/lib/Message'
 import { IMessage, MSRPSessionExtended } from '../src/types/msrp'
 import MSRPMessage from '../src/lib/msrp/message'
@@ -237,7 +237,7 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
     ulListEl.querySelectorAll('li').forEach(el => el.remove())
 
     const activeCallsInRoom = Object.values(sessions).filter((call) => call.roomId === room.roomId)
-    activeCallsInRoom.forEach((call, index) => {
+    activeCallsInRoom.forEach(async (call, index) => {
         const listItemEl = document.createElement('li')
         listItemEl.setAttribute('key', `${index}`)
         listItemEl.setAttribute('id', buildCallElementID(call.id))
@@ -367,7 +367,7 @@ const upsertRoomData = (room: IRoom, sessions: {[p: string]: ICall}) => {
         listItemEl.appendChild(indicatorSpanEl)
 
         if (call.audioTag?.srcObject) {
-            runIndicator(call.audioTag.srcObject, call._id)
+            // runIndicator(await openSIPSJS.audio.managedAudioContext.getContext(), call.audioTag.srcObject, call._id)
         }
 
         ulListEl.appendChild(listItemEl)
@@ -724,7 +724,7 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
                 muteContainerEl.appendChild(buttonEl)
             })
             .on('changeActiveStream', (value: MediaStream) => {
-                runIndicator(value, 'agent-voice-level')
+                // runIndicator(value, 'agent-voice-level')
             })
             .on('changeCallVolume', (data: ChangeVolumeEventType) => {
                 //console.log('DEMO', data.callId, data.volume)
