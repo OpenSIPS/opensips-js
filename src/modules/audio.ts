@@ -321,13 +321,13 @@ export class AudioModule {
     private async cleanupConferenceNodes (roomId: number) {
         console.log(`[cleanupConferenceNodes] Cleaning up conference nodes for room ${roomId}`)
         const nodes = this.conferenceNodes[roomId]
-        
+
         if (!nodes) {
             console.log(`[cleanupConferenceNodes] No conference nodes found for room ${roomId}, skipping cleanup`)
             return
         }
-        
-        console.log(`[cleanupConferenceNodes] Found nodes to cleanup:`, {
+
+        console.log('[cleanupConferenceNodes] Found nodes to cleanup:', {
             sources: nodes.sources.size,
             destinations: nodes.destinations.size,
             gains: nodes.gains.size
@@ -343,7 +343,7 @@ export class AudioModule {
                 console.error(`[cleanupConferenceNodes] Error disconnecting source ${key}:`, error)
             }
         })
-        
+
         let disconnectedDestinations = 0
         nodes.destinations.forEach((dest, key) => {
             try {
@@ -353,7 +353,7 @@ export class AudioModule {
                 console.error(`[cleanupConferenceNodes] Error disconnecting destination ${key}:`, error)
             }
         })
-        
+
         let disconnectedGains = 0
         nodes.gains.forEach((gain, key) => {
             try {
@@ -365,7 +365,7 @@ export class AudioModule {
         })
 
         delete this.conferenceNodes[roomId]
-        
+
         console.log(`[cleanupConferenceNodes] ✓ Cleanup completed for room ${roomId}:`, {
             sourcesDisconnected: disconnectedSources,
             destinationsDisconnected: disconnectedDestinations,
@@ -811,350 +811,181 @@ export class AudioModule {
     }
 
     private async roomReconfigure (roomId: number | undefined) {
-        const startTime = Date.now()
-        console.log(`[roomReconfigure_${roomId}] === STARTING ROOM RECONFIGURATION ===`)
-        console.log(`[roomReconfigure_${roomId}] Target room: ${roomId}, current active room: ${this.currentActiveRoomId}`)
-        
         if (roomId === undefined) {
-            console.log(`[roomReconfigure_${roomId}] Room ID is undefined, aborting reconfiguration`)
             return
         }
 
         const callsInRoom = Object.values(this.extendedCalls).filter(call => call.roomId === roomId)
-        const allRooms = Object.keys(this.activeRooms)
-        const totalActiveCalls = Object.keys(this.extendedCalls).length
-        
-        console.log(`[roomReconfigure_${roomId}] Room analysis:`, {
-            roomId,
-            callsInRoom: callsInRoom.length,
-            totalActiveCalls,
-            activeRoomsCount: allRooms.length,
-            allActiveRooms: allRooms,
-            callIds: callsInRoom.map(c => c._id)
-        })
 
         const isHostRoom = this.currentActiveRoomId === roomId
-        console.log(`[roomReconfigure_${roomId}] Host status: isHostRoom=${isHostRoom} (current=${this.currentActiveRoomId})`)
-        
-        // Log detailed call states
-        callsInRoom.forEach((call, index) => {
-            console.log(`[roomReconfigure_${roomId}] Call ${index + 1}/${callsInRoom.length} details:`, {
-                callId: call._id,
-                connectionState: call.connection?.connectionState,
-                isOnHoldLocal: call.isOnHold()?.local,
-                isOnHoldRemote: call.isOnHold()?.remote,
-                automaticHold: call._automaticHold,
-                hasAudioTag: !!call.audioTag,
-                audioTagMuted: call.audioTag?.muted,
-                localMuted: call.localMuted
-            })
-        })
 
-        console.log(`[roomReconfigure_${roomId}] >>> CONFIGURING CALL AUDIO STATES <<<`)
         callsInRoom.forEach((call, index) => {
-            console.log(`[roomReconfigure_${roomId}] Processing call ${index + 1}/${callsInRoom.length}: ${call._id}`)
-            
             if (call.audioTag) {
-                const beforeState = {
-                    audioTagMuted: call.audioTag.muted,
-                    localMuted: call.localMuted,
-                    volume: call.audioTag.volume
-                }
-                
+                call.connection.getReceivers().forEach((receiver: RTCRtpReceiver) => {
+                    receiver.track.enabled = !call.localMuted
+                })
+
                 // Only unmute if this is the host's current room
                 if (isHostRoom) {
-                    console.log(`[roomReconfigure_${roomId}] Applying mute reconfigure for call ${call._id} (host room)`)
                     this.muteReconfigure(call)
-                } else {
-                    console.log(`[roomReconfigure_${roomId}] Skipping mute reconfigure for call ${call._id} (not host room)`)
                 }
 
                 const shouldMute = !isHostRoom
-                console.log(`[roomReconfigure_${roomId}] Setting audioTag.muted=${shouldMute} for call ${call._id}`)
                 call.audioTag.muted = shouldMute
-                
-                const afterState = {
-                    audioTagMuted: call.audioTag.muted,
-                    localMuted: call.localMuted,
-                    volume: call.audioTag.volume
-                }
-                
-                console.log(`[roomReconfigure_${roomId}] Call ${call._id} audio state change:`, {
-                    before: beforeState,
-                    after: afterState,
-                    changed: JSON.stringify(beforeState) !== JSON.stringify(afterState)
-                })
-                
+
                 this.updateCall(call)
-            } else {
-                console.log(`[roomReconfigure_${roomId}] Call ${call._id} has no audioTag, skipping audio configuration`)
             }
         })
 
-        console.log(`[roomReconfigure_${roomId}] ✓ Audio states configured for all calls in room`)
-
         // Clean up empty rooms
         if (callsInRoom.length === 0) {
-            console.log(`[roomReconfigure_${roomId}] >>> EMPTY ROOM CLEANUP <<<`)
-            console.log(`[roomReconfigure_${roomId}] Room ${roomId} has no calls, initiating cleanup`)
-
             const hasConferenceNodes = !!this.conferenceNodes[roomId]
-            console.log(`[roomReconfigure_${roomId}] Conference nodes exist: ${hasConferenceNodes}`)
-            
+
             if (hasConferenceNodes) {
                 await this.cleanupConferenceNodes(roomId)
-                console.log(`[roomReconfigure_${roomId}] ✓ Conference nodes cleaned up`)
             }
-            
-            console.log(`[roomReconfigure_${roomId}] Deleting empty room ${roomId}`)
+
             this.deleteRoomIfEmpty(roomId)
-            console.log(`[roomReconfigure_${roomId}] === ROOM RECONFIGURATION COMPLETED (EMPTY ROOM) === (${Date.now() - startTime}ms)`)
             return
         }
 
         // Single call in non-active room - put on hold
         if (callsInRoom.length === 1 && !isHostRoom) {
             const call = callsInRoom[0]
-            console.log(`[roomReconfigure_${roomId}] >>> SINGLE CALL IN NON-HOST ROOM <<<`)
-            console.log(`[roomReconfigure_${roomId}] Single call ${call._id} in non-host room ${roomId}, will put on hold`)
-            
+
             const holdState = call.isOnHold()
-            console.log(`[roomReconfigure_${roomId}] Current hold state for call ${call._id}:`, holdState)
 
             if (!holdState.local) {
-                console.log(`[roomReconfigure_${roomId}] Putting call ${call._id} on hold (automatic=true)`)
                 await this.holdCall(call._id, true)
-                console.log(`[roomReconfigure_${roomId}] ✓ Call ${call._id} put on hold`)
-            } else {
-                console.log(`[roomReconfigure_${roomId}] Call ${call._id} already on local hold, skipping`)
             }
-            
+
             // Clean up any conference nodes
             const hasConferenceNodes = !!this.conferenceNodes[roomId]
             if (hasConferenceNodes) {
-                console.log(`[roomReconfigure_${roomId}] Cleaning up conference nodes for single-call room ${roomId}`)
                 await this.cleanupConferenceNodes(roomId)
-                console.log(`[roomReconfigure_${roomId}] ✓ Conference nodes cleaned up`)
             }
-            
-            console.log(`[roomReconfigure_${roomId}] === ROOM RECONFIGURATION COMPLETED (SINGLE HOLD) === (${Date.now() - startTime}ms)`)
+
             return
         }
 
         // Single call in active room - unhold if needed and set up direct audio
         if (callsInRoom.length === 1 && isHostRoom) {
             const call = callsInRoom[0]
-            console.log(`[roomReconfigure_${roomId}] >>> SINGLE CALL IN HOST ROOM <<<`)
-            console.log(`[roomReconfigure_${roomId}] Single call ${call._id} in host room ${roomId}, setting up direct audio`)
-            
+
             const holdState = call.isOnHold()
-            console.log(`[roomReconfigure_${roomId}] Hold state for call ${call._id}:`, {
-                local: holdState.local,
-                remote: holdState.remote,
-                automaticHold: call._automaticHold
-            })
 
             if (holdState.local && call._automaticHold) {
-                console.log(`[roomReconfigure_${roomId}] Unholding call ${call._id} (was on automatic hold)`)
                 await this.unholdCall(call._id)
-                console.log(`[roomReconfigure_${roomId}] ✓ Call ${call._id} unheld`)
-            } else {
-                console.log(`[roomReconfigure_${roomId}] Call ${call._id} hold state - no unhold needed`)
             }
 
             const senders = call.connection?.getSenders() || []
             const firstSender = senders[0]
-            console.log(`[roomReconfigure_${roomId}] Setting up direct audio for call ${call._id}:`, {
-                hasConnection: !!call.connection,
-                senderCount: senders.length,
-                hasFirstSender: !!firstSender
-            })
-            
+
             if (call.connection && firstSender) {
                 try {
                     const processedStream = await this.getActiveStream()
                     const tracks = processedStream.getTracks()
-                    console.log(`[roomReconfigure_${roomId}] Got processed stream:`, {
-                        hasStream: !!processedStream,
-                        trackCount: tracks.length,
-                        firstTrackId: tracks[0]?.id
-                    })
-                    
-                    console.log(`[roomReconfigure_${roomId}] Replacing track for call ${call._id}`)
+
                     await firstSender.replaceTrack(tracks[0])
-                    console.log(`[roomReconfigure_${roomId}] ✓ Track replaced for call ${call._id}`)
-                    
-                    console.log(`[roomReconfigure_${roomId}] Applying mute reconfigure for call ${call._id}`)
                     this.muteReconfigure(call)
-                    console.log(`[roomReconfigure_${roomId}] ✓ Mute reconfigure applied for call ${call._id}`)
                 } catch (error) {
-                    console.error(`[roomReconfigure_${roomId}] ERROR setting up direct audio for call ${call._id}:`, error)
+                    console.error(error)
                 }
-            } else {
-                console.error(`[roomReconfigure_${roomId}] ERROR: Cannot set up direct audio for call ${call._id} - missing connection or sender`)
             }
 
             // Clean up any conference nodes for single participant
             const hasConferenceNodes = !!this.conferenceNodes[roomId]
             if (hasConferenceNodes) {
-                console.log(`[roomReconfigure_${roomId}] Cleaning up conference nodes for single-participant room ${roomId}`)
                 await this.cleanupConferenceNodes(roomId)
-                console.log(`[roomReconfigure_${roomId}] ✓ Conference nodes cleaned up`)
             }
-            
-            console.log(`[roomReconfigure_${roomId}] === ROOM RECONFIGURATION COMPLETED (SINGLE DIRECT) === (${Date.now() - startTime}ms)`)
+
             return
         }
 
         // Multiple calls - set up conference
         if (callsInRoom.length > 1) {
-            console.log(`[roomReconfigure_${roomId}] >>> MULTIPLE CALLS - CONFERENCE SETUP <<<`)
-            console.log(`[roomReconfigure_${roomId}] Room ${roomId} has ${callsInRoom.length} calls, setting up conference`)
-            
             // Log all participants before conference
-            callsInRoom.forEach((call, index) => {
+            /*callsInRoom.forEach((call, index) => {
                 console.log(`[roomReconfigure_${roomId}] Conference participant ${index + 1}: ${call._id}`, {
                     connectionState: call.connection?.connectionState,
                     isOnHold: call.isOnHold(),
                     hasAudioTag: !!call.audioTag
                 })
-            })
-            
-            const conferenceStart = Date.now()
+            })*/
+
             await this.doConference(callsInRoom)
-            console.log(`[roomReconfigure_${roomId}] ✓ Conference setup completed in ${Date.now() - conferenceStart}ms`)
-        } else {
-            console.log(`[roomReconfigure_${roomId}] Unexpected call count: ${callsInRoom.length} (should be handled by previous conditions)`)
         }
-        
-        console.log(`[roomReconfigure_${roomId}] === ROOM RECONFIGURATION COMPLETED === (${Date.now() - startTime}ms)`)
     }
 
     private async doConference (sessions: Array<ICall>) {
-        console.log(`[doConference] === STARTING CONFERENCE SETUP ===`)
-        
         if (sessions.length === 0) {
-            console.log(`[doConference] WARNING: No sessions provided, aborting conference`)
             return
         }
-        
+
         const roomId = sessions[0].roomId
         const isHostRoom = this.currentActiveRoomId === roomId
-        
-        console.log(`[doConference] Conference parameters:`, {
-            roomId,
-            sessionCount: sessions.length,
-            isHostRoom,
-            currentActiveRoom: this.currentActiveRoomId,
-            sessionIds: sessions.map(s => s._id)
-        })
-        
+
         // Validate all sessions have same room ID
         const roomMismatch = sessions.find(s => s.roomId !== roomId)
         if (roomMismatch) {
-            console.error(`[doConference] ERROR: Room ID mismatch! Expected ${roomId}, found session ${roomMismatch._id} in room ${roomMismatch.roomId}`)
             return
         }
-        
+
         // Check AudioContext state before proceeding
-        console.log(`[doConference] AudioContext state before getContext: ${this.managedAudioContext.rawContext.state}`)
-        const audioContextStart = Date.now()
         const audioContext = await this.managedAudioContext.getContext()
-        console.log(`[doConference] AudioContext obtained in ${Date.now() - audioContextStart}ms, final state: ${audioContext.state}`)
-        
+
         if (audioContext.state !== 'running') {
             console.error(`[doConference] ERROR: AudioContext is not running! State: ${audioContext.state}`)
             return
         }
 
         // Clean up existing conference nodes for this room
-        console.log(`[doConference] Cleaning up existing conference nodes for room ${roomId}`)
         await this.cleanupConferenceNodes(roomId)
-        console.log(`[doConference] ✓ Conference nodes cleanup completed`)
 
         // Initialize new conference nodes
-        console.log(`[doConference] Initializing new conference nodes for room ${roomId}`)
         this.conferenceNodes[roomId] = {
             sources: new Map(),
             destinations: new Map(),
             gains: new Map()
         }
         const nodes = this.conferenceNodes[roomId]
-        console.log(`[doConference] ✓ Conference nodes initialized`)
 
         // Create a map of all receiver tracks
         const receiverTracks = new Map<string, MediaStreamTrack>()
-        console.log(`[doConference] >>> COLLECTING RECEIVER TRACKS <<<`)
 
         sessions.forEach((session, sessionIndex) => {
-            console.log(`[doConference] Processing session ${sessionIndex + 1}/${sessions.length}: ${session._id}`)
-            console.log(`[doConference] Session details:`, {
-                sessionId: session._id,
-                hasConnection: !!session.connection,
-                connectionState: session.connection?.connectionState,
-                receiverCount: session.connection?.getReceivers().length || 0
-            })
-            
             if (session && session.connection) {
                 const receivers = session.connection.getReceivers()
-                console.log(`[doConference] Found ${receivers.length} receivers for session ${session._id}`)
-                
+
                 receivers.forEach((receiver: RTCRtpReceiver, receiverIndex) => {
+                    receiver.track.enabled = !session.localMuted
                     const trackId = receiver.track?.id
                     const readyState = receiver.track?.readyState
                     const kind = receiver.track?.kind
                     const trackKey = `${session._id}-${trackId}`
-                    
-                    console.log(`[doConference] Receiver ${receiverIndex + 1}/${receivers.length} for session ${session._id}:`, {
-                        hasTrack: !!receiver.track,
-                        trackId,
-                        readyState,
-                        kind,
-                        trackKey,
-                        isLive: receiver.track && receiver.track.readyState === 'live'
-                    })
 
                     if (receiver.track && receiver.track.readyState === 'live') {
                         receiverTracks.set(trackKey, receiver.track)
-                        console.log(`[doConference] ✓ Added track ${trackKey} to receiver tracks map`)
-                    } else {
-                        console.log(`[doConference] ✗ Skipped track ${trackKey} - not live or missing`)
                     }
                 })
-            } else {
-                console.log(`[doConference] ✗ Session ${session._id} has no connection, skipping`)
             }
         })
-        
-        console.log(`[doConference] Total receiver tracks collected: ${receiverTracks.size}`)
-        console.log(`[doConference] Receiver track keys:`, Array.from(receiverTracks.keys()))
 
         // For each session, create a custom mix excluding their own audio
-        console.log(`[doConference] >>> CREATING CUSTOM MIX FOR EACH SESSION <<<`)
         await forEach(sessions, async (session: ICall, sessionIndex) => {
-            console.log(`[doConference] Creating mix for session ${sessionIndex + 1}/${sessions.length}: ${session._id}`)
-            
             if (!session || !session.connection) {
-                console.log(`[doConference] ✗ Skipping session ${session._id} - no session or connection`)
                 return
             }
-            
-            console.log(`[doConference] Session ${session._id} connection state: ${session.connection.connectionState}`)
+
             const mixedOutput = audioContext.createMediaStreamDestination()
             nodes.destinations.set(session._id, mixedOutput)
-            console.log(`[doConference] ✓ Created destination node for session ${session._id}`)
 
             // Add all other participants' audio to this session's mix
-            console.log(`[doConference] Adding other participants' audio to mix for session ${session._id}`)
             let tracksAddedToMix = 0
-            
+
             receiverTracks.forEach((track, trackKey) => {
-                console.log(`[doConference] Evaluating track ${trackKey} for session ${session._id} mix`)
-                
                 // Don't include the session's own received audio
                 if (!trackKey.startsWith(session._id)) {
-                    console.log(`[doConference] ✓ Adding track ${trackKey} to mix for session ${session._id}`)
-                    
                     try {
                         const source = audioContext.createMediaStreamSource(new MediaStream([ track ]))
                         const gainNode = audioContext.createGain()
@@ -1166,31 +997,20 @@ export class AudioModule {
                         // Store references for cleanup
                         nodes.sources.set(sourceKey, source)
                         nodes.gains.set(sourceKey, gainNode)
-                        
+
                         tracksAddedToMix++
-                        console.log(`[doConference] ✓ Successfully connected track ${trackKey} to mix for session ${session._id}`)
                     } catch (error) {
-                        console.error(`[doConference] ERROR: Failed to add track ${trackKey} to mix for session ${session._id}:`, error)
+                        console.error(error)
                     }
-                } else {
-                    console.log(`[doConference] ✗ Skipping own track ${trackKey} for session ${session._id}`)
                 }
             })
-            
-            console.log(`[doConference] Added ${tracksAddedToMix} tracks to mix for session ${session._id}`)
 
             // Only add host's microphone if this is the room where host currently is
             if (isHostRoom && this.activeStreamValue) {
-                console.log(`[doConference] Adding host microphone to mix for session ${session._id} (host room)`)
-                
+
                 try {
                     const processedStream = await this.getActiveStream()
-                    console.log(`[doConference] Got active stream for host microphone:`, {
-                        hasStream: !!processedStream,
-                        trackCount: processedStream?.getTracks().length,
-                        audioTracks: processedStream?.getAudioTracks().length
-                    })
-                    
+
                     const localSource = audioContext.createMediaStreamSource(processedStream)
                     const localGain = audioContext.createGain()
                     const localKey = `${session._id}-local`
@@ -1200,65 +1020,41 @@ export class AudioModule {
 
                     nodes.sources.set(localKey, localSource)
                     nodes.gains.set(localKey, localGain)
-                    
-                    console.log(`[doConference] ✓ Host microphone added to mix for session ${session._id}`)
                 } catch (error) {
-                    console.error(`[doConference] ERROR: Failed to add host microphone to mix for session ${session._id}:`, error)
+                    console.error(error)
                 }
             } else if (isHostRoom) {
-                console.log(`[doConference] Host room but no activeStreamValue - skipping host microphone for session ${session._id}`)
+                console.error(`Host room but no activeStreamValue - skipping host microphone for session ${session._id}`)
             } else {
-                console.log(`[doConference] Not host room - skipping host microphone for session ${session._id}`)
+                session.connection.getReceivers().forEach((receiver: RTCRtpReceiver) => {
+                    receiver.track.enabled = false
+                })
             }
 
             // Replace the track for this session
             const senders = session.connection.getSenders()
             const sender = senders[0]
             const mixedTracks = mixedOutput.stream.getTracks()
-            
-            console.log(`[doConference] Replacing track for session ${session._id}:`, {
-                senderCount: senders.length,
-                hasSender: !!sender,
-                mixedTrackCount: mixedTracks.length,
-                hasFirstMixedTrack: !!mixedTracks[0],
-                mixedTrackIds: mixedTracks.map(t => t.id)
-            })
-            
+
             if (sender && mixedTracks[0]) {
                 try {
-                    console.log(`[doConference] Attempting to replace track for session ${session._id}`)
                     await sender.replaceTrack(mixedTracks[0])
-                    console.log(`[doConference] ✓ Track replaced successfully for session ${session._id}`)
 
                     // IMPORTANT: Only unmute if host is in this room
-                    if (isHostRoom) {
+                    /*if (isHostRoom) {
                         console.log(`[doConference] Applying mute reconfigure for session ${session._id} (host room)`)
                         this.muteReconfigure(session)
                     } else {
                         console.log(`[doConference] Muting session ${session._id} (not host room)`)
                         // Mute the outgoing audio for rooms where host is not present
                         session.mute({ audio: true })
-                    }
-                    
-                    console.log(`[doConference] ✓ Session ${session._id} conference setup completed`)
+                    }*/
+                    this.muteReconfigure(session)
+
                 } catch (error) {
-                    console.error(`[doConference] ERROR: Failed to replace track for session ${session._id}:`, error)
+                    console.error(error)
                 }
-            } else {
-                console.error(`[doConference] ERROR: Cannot replace track for session ${session._id} - missing sender or mixed track`, {
-                    hasSender: !!sender,
-                    hasTrack: !!mixedTracks[0]
-                })
             }
-        })
-        
-        console.log(`[doConference] === CONFERENCE SETUP COMPLETED ===`)
-        console.log(`[doConference] Final conference state for room ${roomId}:`, {
-            totalSessions: sessions.length,
-            sourceNodes: nodes.sources.size,
-            destinationNodes: nodes.destinations.size,
-            gainNodes: nodes.gains.size,
-            isHostRoom
         })
     }
 
@@ -1818,9 +1614,9 @@ export class AudioModule {
     }
 
     async setupStream () {
-        console.log(`[setupStream] Setting up new media stream`)
-        console.log(`[setupStream] Media constraints:`, this.getUserMediaConstraints)
-        
+        console.log('[setupStream] Setting up new media stream')
+        console.log('[setupStream] Media constraints:', this.getUserMediaConstraints)
+
         try {
             const streamStart = Date.now()
             const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
@@ -1832,38 +1628,38 @@ export class AudioModule {
             })
 
             if (this.initialStreamValue) {
-                console.log(`[setupStream] Stopping existing initial stream tracks`)
+                console.log('[setupStream] Stopping existing initial stream tracks')
                 const tracksToStop = this.initialStreamValue.getTracks()
                 tracksToStop.forEach((track, index) => {
                     console.log(`[setupStream] Stopping track ${index + 1}/${tracksToStop.length}: ${track.kind}:${track.id}`)
                     track.stop()
                 })
                 this.initialStreamValue = null
-                console.log(`[setupStream] ✓ Previous stream cleaned up`)
+                console.log('[setupStream] ✓ Previous stream cleaned up')
             }
-            
+
             this.initialStreamValue = stream
-            console.log(`[setupStream] ✓ New initial stream set`)
+            console.log('[setupStream] ✓ New initial stream set')
         } catch (error) {
-            console.error(`[setupStream] ERROR: Failed to get user media:`, error)
+            console.error('[setupStream] ERROR: Failed to get user media:', error)
             throw error
         }
     }
 
     private async triggerAddStream (event: RTCTrackEvent, call: ICall) {
         console.log(`[triggerAddStream] === STARTING ADD STREAM FOR CALL ${call._id} ===`)
-        console.log(`[triggerAddStream] AudioContext debug info:`, this.managedAudioContext.getDebugInfo())
-        
+        console.log('[triggerAddStream] AudioContext debug info:', this.managedAudioContext.getDebugInfo())
+
         const muteState = this.muteWhenJoin || this.isMuted
         console.log(`[triggerAddStream] Setting muted state: ${muteState} (muteWhenJoin=${this.muteWhenJoin}, isMuted=${this.isMuted})`)
         this.setIsMuted(muteState)
 
         if (!this.initialStreamValue) {
-            console.log(`[triggerAddStream] No initial stream, setting up new stream`)
+            console.log('[triggerAddStream] No initial stream, setting up new stream')
             await this.setupStream()
-            console.log(`[triggerAddStream] Initial stream setup completed`)
+            console.log('[triggerAddStream] Initial stream setup completed')
         } else {
-            console.log(`[triggerAddStream] Using existing initial stream:`, {
+            console.log('[triggerAddStream] Using existing initial stream:', {
                 trackCount: this.initialStreamValue.getTracks().length,
                 audioTracks: this.initialStreamValue.getAudioTracks().length,
                 trackIds: this.initialStreamValue.getTracks().map(t => t.id)
@@ -1874,11 +1670,11 @@ export class AudioModule {
         const audioContextStart = Date.now()
         const audioContext = await this.managedAudioContext.getContext()
         console.log(`[triggerAddStream] AudioContext obtained in ${Date.now() - audioContextStart}ms, state: ${audioContext.state}`)
-        
+
         const processedStream = await processAudioVolume(audioContext, this.initialStreamValue, this.microphoneInputLevel * 2)
         const muteMicro = this.isMuted || this.muteWhenJoin
-        
-        console.log(`[triggerAddStream] Processed stream details:`, {
+
+        console.log('[triggerAddStream] Processed stream details:', {
             hasStream: !!processedStream,
             trackCount: processedStream?.getTracks().length,
             audioTracks: processedStream?.getAudioTracks().length,
@@ -1890,10 +1686,10 @@ export class AudioModule {
             track.enabled = !muteMicro
             console.log(`[triggerAddStream] Track ${index + 1} (${track.id}): enabled ${wasEnabled} → ${track.enabled}`)
         })
-        
+
         await this.setActiveStream(processedStream)
-        console.log(`[triggerAddStream] Active stream set`)
-        
+        console.log('[triggerAddStream] Active stream set')
+
         const senders = call.connection.getSenders()
         const firstSender = senders[0]
         console.log(`[triggerAddStream] Replacing track for call ${call._id}:`, {
@@ -1901,7 +1697,7 @@ export class AudioModule {
             hasFirstSender: !!firstSender,
             trackToReplace: processedStream.getTracks()[0]?.id
         })
-        
+
         await firstSender.replaceTrack(processedStream.getTracks()[0])
         console.log(`[triggerAddStream] ✓ Track replaced for call ${call._id}`)
 
@@ -1923,6 +1719,25 @@ export class AudioModule {
 
     //@requireInitialization()
     public initCall (target: string, addToCurrentRoom: boolean, holdOtherCalls = false) {
+        /*console.log('SPECIAL CASE INIT CALL')
+        if (Object.values(this.extendedCalls).length >= 2) {
+            console.log('SPECIAL CASE !!!!!!!!!!!!!!!')
+
+            navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+                const track = stream.getAudioTracks()[0]
+                track.enabled = false
+
+                Object.values(this.extendedCalls).forEach((session) => {
+                    session.connection.getSenders().forEach((sender) => {
+                        sender.replaceTrack(track)
+                    })
+
+                    session.connection.getReceivers().forEach((receiver) => {
+                        receiver.track.enabled = false
+                    })
+                })
+            })
+        }*/
         //this.checkInitialized()
 
         if (target.length === 0) {
@@ -1978,9 +1793,9 @@ export class AudioModule {
     }
 
     private async processRoomChange ({ callId, roomId }: { callId: string, roomId: number }) {
-        console.log(`[processRoomChange] === STARTING ROOM CHANGE PROCESS ===`)
+        console.log('[processRoomChange] === STARTING ROOM CHANGE PROCESS ===')
         console.log(`[processRoomChange] Target: callId=${callId}, roomId=${roomId}`)
-        
+
         const call = this.extendedCalls[callId]
         if (!call) {
             console.error(`[processRoomChange] ERROR: Call not found in extendedCalls: ${callId}`)
@@ -1990,8 +1805,8 @@ export class AudioModule {
         const oldRoomId = call.roomId
         const connectionState = call.connection?.connectionState
         const audioTag = call.audioTag
-        
-        console.log(`[processRoomChange] Call details:`, {
+
+        console.log('[processRoomChange] Call details:', {
             callId,
             oldRoomId,
             newRoomId: roomId,
@@ -2011,7 +1826,7 @@ export class AudioModule {
         console.log(`[processRoomChange] ✓ Room ID updated for call ${callId}: ${oldRoomId} → ${roomId}`)
 
         this.updateCall(call)
-        console.log(`[processRoomChange] ✓ Call state updated and emitted`)
+        console.log('[processRoomChange] ✓ Call state updated and emitted')
 
         // Count calls after change
         const oldRoomCallsAfter = Object.values(this.extendedCalls).filter(c => c.roomId === oldRoomId)
@@ -2022,8 +1837,8 @@ export class AudioModule {
         const oldRoomStart = Date.now()
         await this.roomReconfigure(oldRoomId)
         console.log(`[processRoomChange] ✓ Old room ${oldRoomId} reconfigured in ${Date.now() - oldRoomStart}ms`)
-        
-        console.log(`[processRoomChange] >>> RECONFIGURING NEW ROOM ${roomId} <<<`) 
+
+        console.log(`[processRoomChange] >>> RECONFIGURING NEW ROOM ${roomId} <<<`)
         const newRoomStart = Date.now()
         await this.roomReconfigure(roomId)
         console.log(`[processRoomChange] ✓ New room ${roomId} reconfigured in ${Date.now() - newRoomStart}ms`)
