@@ -25,7 +25,7 @@ import {
 } from '../types/actions'
 import { TestScenario } from '../types/intex'
 import { EventListener, EventListenerData, EventType } from '../types/events'
-import QrynClient from "./QrynClient";
+import QrynClient from './QrynClient'
 
 const SCENARIO_THAT_TRIGGERED_EVENT_KEY = 'SCENARIO_THAT_TRIGGERED_EVENT_KEY' as const
 
@@ -226,6 +226,8 @@ export default class TestExecutor {
                 case 'transfer':
                     result = await this.actionsExecutor.transfer(this.buildPayload('transfer', action))
                     break
+                case 'roomTransfer':
+                    result = await this.actionsExecutor.roomTransfer(this.buildPayload('roomTransfer', action))
                 case 'DND':
                     result = await this.actionsExecutor.DND()
                     break
@@ -349,7 +351,7 @@ export default class TestExecutor {
                     ]
                 ]
 
-            case 'answer':
+                /*   case 'answer':
                 return [
                     [
                         {
@@ -359,7 +361,7 @@ export default class TestExecutor {
                             description: 'Default expectation: Should receive ACK for answer'
                         }
                     ]
-                ]
+                ]*/
 
             case 'hold':
             case 'unhold':

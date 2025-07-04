@@ -18,6 +18,7 @@ export interface EventsMap {
     playSound: AllowedActions<'wait' | 'request'>
     sendDTMF: AllowedActions<'wait' | 'request'>
     transfer: AllowedActions<'wait' | 'request'>
+    roomTransfer: AllowedActions<'wait'>
     DND: AllowedActions<'wait' | 'request' | 'dial' | 'unregister' >
     unregister: AllowedActions<'wait' | 'request'>
     ready: AllowedActions<'register' | 'wait' | 'request' | 'dial'>

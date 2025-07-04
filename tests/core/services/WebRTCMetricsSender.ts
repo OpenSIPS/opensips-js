@@ -1,6 +1,7 @@
 import { Page } from 'playwright'
 import QrynClient from './QrynClient'
 import { Metric } from 'qryn-client'
+import WebRTCMetricsAnalyzer from './WebRTCMetricsAnalyzer'
 
 export interface WebRTCMetricsData {
     setupTime: number | null
@@ -69,7 +70,7 @@ export class WebRTCMetricsSender {
             if (metricsData.allStats.length <= this.lastSentCount) {
                 return
             }
-
+            metricsData.audioMetrics = WebRTCMetricsAnalyzer.calculateAverageMetrics(metricsData.allStats)
             await this.sendMetricsToQryn(metricsData)
             this.lastSentCount = metricsData.allStats.length
 
@@ -147,7 +148,7 @@ export class WebRTCMetricsSender {
                 const entries = Object.entries(definitions)
                 if (entries.length === 0) return metrics
 
-                const [metricName, value] = entries[0]
+                const [ metricName, value ] = entries[0]
                 const metric = new Metric(metricName, labels)
                 metric.addSample(value as number, timestamp)
                 metrics.push(metric)

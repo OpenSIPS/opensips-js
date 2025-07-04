@@ -28,11 +28,13 @@ import {
     BaseActionSuccessResponse,
     Expectation,
     ActionResponse,
-    ActionType, isActionError,
+    ActionType,
+    RoomTransferAction,
+    isActionError,
 } from '../types/actions'
 
 import { expect } from '@playwright/test'
-import QrynClient from "./QrynClient";
+import QrynClient from './QrynClient'
 
 /**
  * TestExecutor - Handles the execution of test actions
@@ -57,6 +59,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     private transferButton: Locator
     private webrtcMetricsSender: WebRTCMetricsSender | null = null
     private qrynClient: QrynClient
+    private addCallToCurrentRoomCheckbox: Locator
 
 
     constructor (
@@ -305,12 +308,46 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         }
     }
 
+    public async roomTransfer (data: GetActionPayload<RoomTransferAction>): Promise<GetActionResponse<RoomTransferAction>> {
+        await this.qrynClient.log('Executing room transfer action', { data })
+
+        const roomSelector = this.page.locator(`#room-${data.fromRoom} [data-test="room-select"]`)
+
+        await roomSelector.waitFor({
+            state: 'visible',
+            timeout: 5000
+        })
+        await roomSelector.selectOption(String(data.toRoom))
+
+        const transferId = `transfer-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+
+        return {
+            success: true,
+            fromRoom: data.fromRoom,
+            toRoom: data.toRoom,
+            transferId
+        }
+    }
+
     public async answer (): Promise<GetActionResponse<AnswerAction>> {
         await this.qrynClient.log('Executing answer action')
 
         this.answerButton = this.page.locator('#call-undefined > button:nth-child(7)')
         await this.answerButton.click()
-
+        try {
+            await this.pageWebSocketWorker.waitForMessage(
+                this.pageWebSocketWorker.getConnectedWebsocket(),
+                {
+                    method: 'ACK',
+                    timeout: 10000
+                }
+            )
+        } catch (error) {
+            return {
+                success: false,
+                error: `Error answer call to ${this.scenarioId}}`
+            }
+        }
         return {
             success: true,
             callId: 'call-' + Math.floor(Math.random() * 10000)
@@ -342,7 +379,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     public async unhold (): Promise<GetActionResponse<UnholdAction>> {
         await this.qrynClient.log('Executing unhold action')
 
-        this.holdButton = this.page.locator('.holdAgent')
+        this.holdButton = this.page.locator('[data-test="unhold-button"]')
         await this.holdButton.click()
 
         return {
