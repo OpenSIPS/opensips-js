@@ -4,7 +4,7 @@ import {
 } from '../types/intex'
 
 import TestExecutor from './TestExecutor'
-import QrynLogger from './QrynLogger'
+import QrynClient from './QrynClient'
 
 /**
  * ScenarioManager - Manages the execution of multiple test scenarios
@@ -13,9 +13,12 @@ export default class ScenarioManager {
     private scenarios: TestScenarios
     protected testContext: TestContext = {}
     private executors: TestExecutor[] = []
-    private logger = new QrynLogger('ScenarioManager')
+    private qrynClient = new QrynClient('ScenarioManager')
 
-    constructor (scenarios: TestScenarios, testContext: TestContext) {
+    constructor (
+        private readonly scenarios: TestScenarios,
+        private readonly testContext: TestContext
+    ) {
         this.scenarios = scenarios
         this.testContext = testContext
     }
@@ -34,12 +37,12 @@ export default class ScenarioManager {
     }
 
     public async runScenarios (): Promise<void> {
-        await this.logger.log('Running test scenarios', { scenarioCount: this.scenarios.length })
+        await this.qrynClient.log('Running test scenarios...', { scenarioCount: this.scenarios.length })
 
         // Create an executor for each scenario
         for (let i = 0; i < this.scenarios.length; i++) {
             const scenarioId = `scenario-${i + 1}`
-            await this.logger.log('Scenario created', {
+            await this.qrynClient.log('Scenario created', {
                 scenarioId,
                 scenarioName: this.scenarios[i].name
             })
@@ -60,7 +63,7 @@ export default class ScenarioManager {
             // Wait for all scenarios to complete
             await Promise.all(scenarioPromises)
         } catch (error) {
-            await this.logger.error('Error during scenario execution', {
+            await this.qrynClient.error('Error during scenario execution', {
                 error: error instanceof Error ? error.message : String(error)
             })
             throw error
@@ -70,13 +73,13 @@ export default class ScenarioManager {
                 try {
                     executor.completeScenario()
                 } catch (e) {
-                    await this.logger.warn('Error cleaning up executor', {
+                    await this.qrynClient.warn('Error cleaning up executor', {
                         error: e instanceof Error ? e.message : String(e)
                     })
                 }
             }
         }
 
-        await this.logger.log('All scenarios completed')
+        // await this.qrynClient.log('All scenarios completed')
     }
 }

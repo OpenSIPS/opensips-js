@@ -6,6 +6,7 @@ import PlaySoundDataForm from '~/components/data/payload/PlaySoundDataForm.vue'
 import SendDtmfDataForm from '~/components/data/payload/SendDtmfDataForm.vue'
 import TransferDataForm from '~/components/data/payload/TransferDataForm.vue'
 import RequestDataForm from '~/components/data/payload/RequestDataForm.vue'
+import RoomTransferForm from '~/components/data/payload/RoomTransferForm.vue'
 
 export const EVENT_ACTIONS: Record<string, TestScenarioEventActionType> = {
     ANSWER: 'answer',
@@ -18,6 +19,7 @@ export const EVENT_ACTIONS: Record<string, TestScenarioEventActionType> = {
     HANGUP: 'hangup',
     SEND_DTMF: 'sendDTMF',
     TRANSFER: 'transfer',
+    ROOMTRANSFER: 'roomTransfer',
     READY: 'ready',
     INCOMING: 'incoming',
     WAIT: 'wait',
@@ -72,6 +74,10 @@ export const SEND_DTMF_ACTION = {
 export const TRANSFER_ACTION = {
     label: 'Transfer',
     value: EVENT_ACTIONS.TRANSFER
+}
+export const ROOM_TRANSFER_ACTION = {
+    label: 'roomTransfer',
+    value: EVENT_ACTIONS.ROOMTRANSFER
 }
 export const DND_ACTION = {
     label: 'DND',
@@ -169,6 +175,15 @@ export const ScenarioActionsMap: TScenarioActionsMap = {
             { ...WAIT_ACTION }, { ...REQUEST_ACTION }
         ]
     },
+    [EVENT_ACTIONS.ROOM_TRANSFER_ACTION]: {
+        key: EVENT_ACTIONS.TRANSFER,
+        label: 'roomTransfer',
+        actions: [
+            { ...WAIT_ACTION },
+            { ...HOLD_ACTION },
+            { ...UNHOLD_ACTION }
+        ]
+    },
     [EVENT_ACTIONS.UNREGISTER]: {
         key: EVENT_ACTIONS.UNREGISTER,
         label: 'Unregister',
@@ -187,7 +202,18 @@ export const ScenarioActionsMap: TScenarioActionsMap = {
         key: EVENT_ACTIONS.INCOMING,
         label: 'Incoming',
         actions: [
-            { ...ANSWER_ACTION }, { ...WAIT_ACTION }, { ...REQUEST_ACTION }
+            {
+                ...ANSWER_ACTION
+            },
+            {
+                ...WAIT_ACTION
+            },
+            {
+                ...REQUEST_ACTION
+            },
+            {
+                ...PLAY_SOUND_ACTION
+            },
         ]
     },
     [EVENT_ACTIONS.DND]: {
@@ -217,6 +243,7 @@ export const CustomAction = {
         { ...ANSWER_ACTION },
         { ...SEND_DTMF_ACTION },
         { ...TRANSFER_ACTION },
+        { ...ROOM_TRANSFER_ACTION },
         { ...UNREGISTER_ACTION },
         { ...DND_ACTION }
     ]
@@ -229,6 +256,7 @@ export const PAYLOAD_COMPONENTS = {
     [EVENT_ACTIONS.PLAY_SOUND]: PlaySoundDataForm,
     [EVENT_ACTIONS.SEND_DTMF]: SendDtmfDataForm,
     [EVENT_ACTIONS.TRANSFER]: TransferDataForm,
+    [EVENT_ACTIONS.ROOMTRANSFER]: RoomTransferForm,
     [EVENT_ACTIONS.REQUEST]: RequestDataForm
 }
 

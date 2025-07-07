@@ -253,6 +253,25 @@ export type TransferAction = Action<
     TransferActionPayload,
     TransferActionSuccessResponse
 >
+
+/* Room Transfer */
+interface RoomTransferActionPayload {
+    fromRoom: number
+    toRoom: number
+}
+
+interface RoomTransferActionSuccessResponse extends BaseActionSuccessResponse {
+    success: true
+    fromRoom: number
+    toRoom: number
+    transferId: string
+}
+
+export type RoomTransferAction = Action<
+    'roomTransfer',
+    RoomTransferActionPayload,
+    RoomTransferActionSuccessResponse
+>
 /* DND */
 interface DNDActionSuccessResponse extends BaseActionSuccessResponse {
     success: true

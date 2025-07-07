@@ -1,0 +1,362 @@
+[
+  {
+    "name": "caller1",
+    "actions": [
+      {
+        "event": "ready",
+        "actions": [
+          {
+            "type": "request",
+            "data": {
+              "payload": {
+                "url": "https://loginapi.voicenter.com/Auth/Login/Voicenter/Chrome",
+                "options": {
+                  "method": "POST",
+                  "headers": {
+                    "Content-Type": "application/json"
+                  },
+                  "data": {
+                    "email": "{{CALLER.API.EMAIL}}",
+                    "password": "{{CALLER.API.PASSWORD}}"
+                  }
+                }
+              },
+              "responseToContext": {
+                "setToContext": true,
+                "contextKeyToSet": "caller_login_api_response"
+              },
+              "waitUntil": {
+                "event": "caller2_registered"
+              }
+            }
+          },
+          {
+            "type": "request",
+            "data": {
+              "payload": {
+                "url": "https://loginapi.voicenter.com/Application/GetSettings",
+                "options": {
+                  "method": "GET",
+                  "headers": {
+                    "Authorization": "Bearer {{caller_login_api_response.response.Data.AccessToken}}"
+                  }
+                }
+              },
+              "responseToContext": {
+                "contextKeyToSet": "caller_get_settings_api_response",
+                "setToContext": true
+              }
+            }
+          },
+          {
+            "type": "register",
+            "data": {
+              "payload": {
+                "sip_domain": "{{caller_get_settings_api_response.response.WebRTCData.domain}}",
+                "username": "{{caller_get_settings_api_response.response.WebRTCData.extension_user}}",
+                "password": "{{caller_get_settings_api_response.response.WebRTCData.extension_pass}}"
+              },
+              "customSharedEvent": "caller1_registered"
+            }
+          },
+          {
+            "type": "dial",
+            "data": {
+              "payload": {
+                "target": "36"
+              },
+              "customSharedEvent": "call_initiated"
+            }
+          }
+        ]
+      },
+      {
+        "event": "user2_answered",
+        "actions": [
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/cust_1.mp3"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "event": "sounduser2_done",
+        "actions": [
+          {
+            "type": "dial",
+            "data": {
+              "payload": {
+                "target": "33"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "event": "user3_answered",
+        "actions": [
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/cust_1.mp3"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "event": "sounduser3_done",
+        "actions": [
+          {
+            "type": "roomTransfer",
+            "data": {
+              "payload": {
+                "fromRoom": "2",
+                "toRoom": "1"
+              }
+            }
+          },
+          {
+            "type": "unhold",
+            "data": {
+              "customSharedEvent": "all_one_room"
+            }
+          },
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/cust_1.mp3"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "event": "user2_finished",
+        "actions": [
+          {
+            "type": "unregister",
+            "data": {
+              "customSharedEvent": "user1_unregistred"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "caller2",
+    "actions": [
+      {
+        "event": "ready",
+        "actions": [
+          {
+            "type": "request",
+            "data": {
+              "payload": {
+                "url": "https://loginapi.voicenter.com/Auth/Login/Voicenter/Chrome",
+                "options": {
+                  "headers": {
+                    "Content-Type": "application/json"
+                  },
+                  "method": "POST",
+                  "data": {
+                    "email": "{{CALLEE.API.EMAIL}}",
+                    "password": "{{CALLEE.API.PASSWORD}}"
+                  }
+                }
+              },
+              "responseToContext": {
+                "setToContext": true,
+                "contextKeyToSet": "callee_login_api_response"
+              }
+            }
+          },
+          {
+            "type": "request",
+            "data": {
+              "payload": {
+                "url": "https://loginapi.voicenter.com/Application/GetSettings",
+                "options": {
+                  "method": "GET",
+                  "headers": {
+                    "Authorization": "Bearer {{callee_login_api_response.response.Data.AccessToken}}"
+                  }
+                }
+              },
+              "responseToContext": {
+                "contextKeyToSet": "callee_get_settings_api_response",
+                "setToContext": true
+              }
+            }
+          },
+          {
+            "type": "register",
+            "data": {
+              "payload": {
+                "sip_domain": "{{callee_get_settings_api_response.response.WebRTCData.domain}}",
+                "username": "{{callee_get_settings_api_response.response.WebRTCData.extension_user}}",
+                "password": "{{callee_get_settings_api_response.response.WebRTCData.extension_pass}}"
+              },
+              "waitUntil": {
+                "event": "caller3_registered"
+              },
+              "customSharedEvent": "caller2_registered"
+            }
+          }
+        ]
+      },
+      {
+        "event": "incoming",
+        "actions": [
+          {
+            "type": "answer",
+            "data": {
+              "customSharedEvent": "user2_answered"
+            }
+          },
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/cust_1.mp3"
+              },
+              "customSharedEvent": "sounduser2_done"
+            }
+          }
+        ]
+      },
+      {
+        "event": "all_one_room",
+        "actions": [
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/cust_1.mp3"
+              },
+              "customSharedEvent": "user2_finished"
+            }
+          }
+        ]
+      },
+      {
+        "event": "user3_finished",
+        "actions": [
+          {
+            "type": "unregister"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "caller3",
+    "actions": [
+      {
+        "event": "ready",
+        "actions": [
+          {
+            "type": "request",
+            "data": {
+              "payload": {
+                "url": "https://loginapi.voicenter.com/Auth/Login/Voicenter/Chrome",
+                "options": {
+                  "method": "POST",
+                  "headers": {
+                    "Content-Type": "application/json"
+                  },
+                  "data": {
+                    "email": "{{CALLEE2.API.EMAIL}}",
+                    "password": "{{CALLEE2.API.PASSWORD}}"
+                  }
+                }
+              },
+              "responseToContext": {
+                "setToContext": true,
+                "contextKeyToSet": "caller2_login_api_response"
+              }
+            }
+          },
+          {
+            "type": "request",
+            "data": {
+              "payload": {
+                "url": "https://loginapi.voicenter.com/Application/GetSettings",
+                "options": {
+                  "method": "GET",
+                  "headers": {
+                    "Authorization": "Bearer {{caller2_login_api_response.response.Data.AccessToken}}"
+                  }
+                }
+              },
+              "responseToContext": {
+                "setToContext": true,
+                "contextKeyToSet": "caller3_get_settings_api_response"
+              }
+            }
+          },
+          {
+            "type": "register",
+            "data": {
+              "payload": {
+                "sip_domain": "{{caller3_get_settings_api_response.response.WebRTCData.domain}}",
+                "username": "{{caller3_get_settings_api_response.response.WebRTCData.extension_user}}",
+                "password": "{{caller3_get_settings_api_response.response.WebRTCData.extension_pass}}"
+              },
+              "customSharedEvent": "caller3_registered"
+            }
+          }
+        ]
+      },
+      {
+        "event": "incoming",
+        "actions": [
+          {
+            "type": "answer",
+            "data": {
+              "customSharedEvent": "user3_answered"
+            }
+          },
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/cust_1.mp3"
+              },
+              "customSharedEvent": "sounduser3_done"
+            }
+          }
+        ]
+      },
+      {
+        "event": "all_one_room",
+        "actions": [
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/cust_1.mp3"
+              },
+              "customSharedEvent": "user3_finished"
+            }
+          }
+        ]
+      },
+      {
+        "event": "user1_unregistred",
+        "actions": [
+          {
+            "type": "unregister"
+          }
+        ]
+      }
+    ]
+  }
+]
