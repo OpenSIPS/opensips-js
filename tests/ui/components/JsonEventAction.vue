@@ -82,10 +82,35 @@
                     />
                 </div>
                 <div v-if="localModel.data.waitUntil">
-                    <DataWaitUntilForm
-                        v-model="localModel.data.waitUntil"
-                        @remove="onRemovePayloadData('waitUntil')"
-                    />
+                    <div class="mb-3 flex items-center justify-between">
+                        <div class="underline text-sm font-medium">
+                            Wait Until Events
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <VcButton
+                                type="outline"
+                                size="small"
+                                icon="vc-lc-plus"
+                                @click="addWaitUntilItem"
+                            >
+                                Add Event
+                            </VcButton>
+                            <UIcon
+                                name="i-heroicons-x-mark"
+                                class="cursor-pointer text-gray-500 hover:text-red-500"
+                                size="16"
+                                @click="onRemovePayloadData('waitUntil')"
+                            />
+                        </div>
+                    </div>
+                    <div class="space-y-2">
+                        <DataWaitUntilForm
+                            v-for="(waitUntilItem, index) in localModel.data.waitUntil"
+                            :key="index"
+                            v-model="localModel.data.waitUntil[index]"
+                            @remove="removeWaitUntilItem(index)"
+                        />
+                    </div>
                 </div>
                 <div v-if="'customSharedEvent' in localModel.data">
                     <DataCustomSharedEventForm
@@ -174,10 +199,12 @@ function getDefaultData (key: DataKey) {
                 contextKeyToSet: ''
             } as TResponseToContext
         case 'waitUntil':
-            return {
-                event: '',
-                timeout: undefined
-            } as TWaitUntil
+            return [
+                {
+                    event: '',
+                    timeout: undefined
+                }
+            ] as TWaitUntil[]
         case 'customSharedEvent':
             return ''
         default:
@@ -202,6 +229,24 @@ function onRemovePayloadData (key: DataKey) {
         const _data = { ...localModel.value.data }
         delete _data[key]
         localModel.value.data = { ..._data }
+    }
+}
+
+function addWaitUntilItem () {
+    if (localModel.value.data?.waitUntil) {
+        localModel.value.data.waitUntil.push({
+            event: '',
+            timeout: undefined
+        })
+    }
+}
+
+function removeWaitUntilItem (index: number) {
+    if (localModel.value.data?.waitUntil) {
+        localModel.value.data.waitUntil.splice(index, 1)
+        if (localModel.value.data.waitUntil.length === 0) {
+            onRemovePayloadData('waitUntil')
+        }
     }
 }
 

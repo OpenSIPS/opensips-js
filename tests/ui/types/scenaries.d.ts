@@ -32,7 +32,7 @@ export type TestScenarioEventActionTypeData = {
     payload?: TestScenarioEventActionTypeDataPayload
     customSharedEvent?: string
     responseToContext?: TResponseToContext
-    waitUntil?: TWaitUntil
+    waitUntil?: Array<TWaitUntil>
 }
 
 export type TestScenarioEventActionTypeDataPayload = {

@@ -8,7 +8,7 @@ const eventNameSchema = z.string()
 const waitUntilSchema = z.object({
     event: z.string(),
     timeout: z.number().optional()
-}).optional()
+})
 
 // Generic filter function schema
 const responseToContextEnabledSchema = z.object({
@@ -43,7 +43,7 @@ const actionDataSchema = z.object({
     type: z.string(),
     data: z.object({
         payload: z.record(z.any()).optional(),
-        waitUntil: waitUntilSchema,
+        waitUntil: z.array(waitUntilSchema).optional(),
         customSharedEvent: z.string().optional(),
         responseToContext: responseToContextSchema,
         expect: expectationsSchema

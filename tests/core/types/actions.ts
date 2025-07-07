@@ -86,8 +86,8 @@ export interface ActionData<
     // Configuration of the context modification after the action
     responseToContext?: ActionResponseToContext
 
-    // The event to wait for before executing the action
-    waitUntil?: ActionWaitUntil
+    // The events to wait for before executing the action
+    waitUntil?: Array<ActionWaitUntil>
 
     // Custom event to trigger after the action
     customSharedEvent?: string

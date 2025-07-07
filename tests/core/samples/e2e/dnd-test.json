@@ -25,9 +25,11 @@
                 "contextKeyToSet": "caller_login_api_response",
                 "setToContext": true
               },
-              "waitUntil": {
-                "event": "callee_registered"
-              }
+              "waitUntil": [
+                {
+                  "event": "callee_registered"
+                }
+              ]
             }
           },
           {

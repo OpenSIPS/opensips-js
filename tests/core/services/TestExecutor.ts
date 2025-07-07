@@ -122,30 +122,43 @@ export default class TestExecutor {
             actionData: JSON.stringify(action.data)
         })
 
-        if (action.data && action.data.waitUntil && action.data.waitUntil.event) {
-            await this.logger.log(`Waiting for event: ${action.data.waitUntil.event}`, {
-                waitingForEvent: action.data.waitUntil.event,
-                timeout: action.data.waitUntil.timeout || 30000
-            })
+        if (action.data && action.data.waitUntil && action.data.waitUntil.length) {
+            const waitingForEventsNames = action.data.waitUntil.map(e => e.event).join(', ')
+            await this.logger.log(
+                `Waiting for events: ${waitingForEventsNames}`,
+                {
+                    events: action.data.waitUntil.map(e => ({
+                        waitingForEvent: e.event,
+                        timeout: e.timeout || 30000
+                    }))
+                }
+            )
 
             try {
-                // Wait for the event globally (not just scenario-specific)
-                await this.eventBus.waitForEvent(
-                    action.data.waitUntil.event,
-                    (_, data) => this.shouldReactToEvent(data),
-                    action.data.waitUntil.timeout || 30000 // Default 30 second timeout
+                // Create promises for all events we need to wait for
+                const eventPromises = action.data.waitUntil.map(waitConfig =>
+                    this.eventBus.waitForEvent(
+                        waitConfig.event,
+                        (_, data) => this.shouldReactToEvent(data),
+                        waitConfig.timeout || 30000
+                    )
                 )
-                await this.logger.log(`Event received: ${action.data.waitUntil.event}`, {
-                    receivedEvent: action.data.waitUntil.event
+
+                // Wait for all events to be received
+                const results = await Promise.all(eventPromises)
+
+                await this.logger.log(`All events received: ${waitingForEventsNames}`, {
+                    receivedEvents: action.data.waitUntil.map(e => e.event),
+                    resultsCount: results.length
                 })
             } catch (error) {
-                await this.logger.error('Error waiting for event', {
+                await this.logger.error('Error waiting for events', {
                     error: error instanceof Error ? error.message : String(error),
-                    waitingForEvent: action.data.waitUntil.event
+                    waitingForEvents: action.data.waitUntil.map(e => e.event)
                 })
                 await this.telemetryService.logError(action.type, error, {
                     phase: 'waitUntil',
-                    waitingFor: action.data.waitUntil.event
+                    waitingFor: waitingForEventsNames
                 })
                 throw error
             }

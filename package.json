@@ -72,7 +72,7 @@
     "playwright": "^1.49.1",
     "pre-commit": "^1.2.2",
     "process": "^0.11.10",
-    "qryn-client": "github:metrico/qryn-client#main",
+    "qryn-client": "github:metrico/qryn-client#main ",
     "regenerator-runtime": "^0.13.11",
     "tsc-alias": "^1.8.6",
     "tsx": "^4.19.4",

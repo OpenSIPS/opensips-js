@@ -9,7 +9,11 @@
             "type": "wait",
             "data": {
               "payload": { "time": 100 },
-              "waitUntil": { "event": "callee_registered" }
+              "waitUntil": [
+                {
+                  "event": "callee_registered"
+                }
+              ]
             }
           },
           {
