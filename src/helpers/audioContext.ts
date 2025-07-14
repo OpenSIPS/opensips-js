@@ -8,34 +8,14 @@ class ManagedAudioContext {
     constructor () {
         this.context = new AudioContext()
 
-        // Handle audio context state changes with detailed logging
         this.context.addEventListener('statechange', () => {
             this.stateChangeCount++
             const now = Date.now()
-            //const timeSinceLastChange = now - this.lastStateChange
             this.lastStateChange = now
-
-            // Log additional context info based on state
-            if (this.context.state === 'suspended') {
-                //console.warn('[ManagedAudioContext] ⚠️ AudioContext SUSPENDED - audio operations may fail')
-                this.logPossibleSuspensionReasons()
-            }
         })
     }
 
-    private logPossibleSuspensionReasons () {
-        /*console.log('[ManagedAudioContext] Possible reasons for AudioContext suspension:')
-        console.log('  - Browser autoplay policy (user hasn\'t interacted with page)')
-        console.log('  - Tab became inactive or hidden')
-        console.log('  - System audio focus changed to another application')
-        console.log('  - Memory pressure or browser resource management')
-        console.log('  - Another AudioContext was created and gained priority')
-        console.log(`  - Document hidden: ${document.hidden}`)
-        console.log(`  - Page visibility: ${document.visibilityState}`)*/
-    }
-
     async getContext (): Promise<AudioContext> {
-
         // Always ensure context is running before returning it
         if (this.context.state === 'suspended') {
             this.resumeAttempts++
