@@ -319,19 +319,11 @@ export class AudioModule {
     }
 
     private async cleanupConferenceNodes (roomId: number) {
-        console.log(`[cleanupConferenceNodes] Cleaning up conference nodes for room ${roomId}`)
         const nodes = this.conferenceNodes[roomId]
 
         if (!nodes) {
-            console.log(`[cleanupConferenceNodes] No conference nodes found for room ${roomId}, skipping cleanup`)
             return
         }
-
-        console.log('[cleanupConferenceNodes] Found nodes to cleanup:', {
-            sources: nodes.sources.size,
-            destinations: nodes.destinations.size,
-            gains: nodes.gains.size
-        })
 
         // Disconnect all nodes with error handling
         let disconnectedSources = 0
@@ -365,12 +357,6 @@ export class AudioModule {
         })
 
         delete this.conferenceNodes[roomId]
-
-        console.log(`[cleanupConferenceNodes] ✓ Cleanup completed for room ${roomId}:`, {
-            sourcesDisconnected: disconnectedSources,
-            destinationsDisconnected: disconnectedDestinations,
-            gainsDisconnected: disconnectedGains
-        })
     }
 
     public setCallTime (value: ITimeData) {
@@ -555,14 +541,26 @@ export class AudioModule {
     }
 
     public async moveCall (callId: string, roomId: number) {
-        console.log('[moveCall], will move call:', {
-            callId,
-            roomId
-        })
         this.updateCallStatus({
             callId,
             isMoving: true
         })
+
+        /*const callsInRoom = Object.values(this.extendedCalls).filter(call => call._id === callId)
+
+        callsInRoom.forEach((call, index) => {
+            call.audioTag.muted = true
+        })*/
+
+        /*const newRoomId = this.getNewRoomId()
+
+        const newRoomInfo: IRoom = {
+            started: new Date(),
+            incomingInProgress: false,
+            roomId: newRoomId
+        }
+        this.addRoom(newRoomInfo)*/
+
         await this.processRoomChange({
             callId,
             roomId
@@ -904,15 +902,6 @@ export class AudioModule {
 
         // Multiple calls - set up conference
         if (callsInRoom.length > 1) {
-            // Log all participants before conference
-            /*callsInRoom.forEach((call, index) => {
-                console.log(`[roomReconfigure_${roomId}] Conference participant ${index + 1}: ${call._id}`, {
-                    connectionState: call.connection?.connectionState,
-                    isOnHold: call.isOnHold(),
-                    hasAudioTag: !!call.audioTag
-                })
-            })*/
-
             await this.doConference(callsInRoom)
         }
     }
@@ -1025,11 +1014,11 @@ export class AudioModule {
                 }
             } else if (isHostRoom) {
                 console.error(`Host room but no activeStreamValue - skipping host microphone for session ${session._id}`)
-            } else {
+            } /*else {
                 session.connection.getReceivers().forEach((receiver: RTCRtpReceiver) => {
                     receiver.track.enabled = false
                 })
-            }
+            }*/
 
             // Replace the track for this session
             const senders = session.connection.getSenders()
@@ -1055,6 +1044,12 @@ export class AudioModule {
                     console.error(error)
                 }
             }
+
+            /*if (!isHostRoom) {
+                session.connection.getReceivers().forEach((receiver: RTCRtpReceiver) => {
+                    receiver.track.enabled = false
+                })
+            }*/
         })
     }
 
@@ -1237,20 +1232,15 @@ export class AudioModule {
     }
 
     public async setActiveRoom (roomId: number | undefined) {
-        console.log('[setActiveRoom] will set active room to be:', roomId)
-
         const oldRoomId = this.currentActiveRoomId
 
         if (roomId === oldRoomId) {
-            console.log('[setActiveRoom] changing to same room so will ignore')
             return
         }
 
         this.currentActiveRoomId = roomId
 
-        console.log('[setActiveRoom] changed active room, now will reconfigure old room')
         await this.roomReconfigure(oldRoomId)
-        console.log('[setActiveRoom] reconfigured old room, now will reconfigure new room')
         await this.roomReconfigure(roomId)
     }
 
@@ -1614,96 +1604,57 @@ export class AudioModule {
     }
 
     async setupStream () {
-        console.log('[setupStream] Setting up new media stream')
-        console.log('[setupStream] Media constraints:', this.getUserMediaConstraints)
-
         try {
             const streamStart = Date.now()
             const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
-            console.log(`[setupStream] Stream obtained in ${Date.now() - streamStart}ms:`, {
-                trackCount: stream.getTracks().length,
-                audioTracks: stream.getAudioTracks().length,
-                videoTracks: stream.getVideoTracks().length,
-                trackIds: stream.getTracks().map(t => `${t.kind}:${t.id}`)
-            })
 
             if (this.initialStreamValue) {
-                console.log('[setupStream] Stopping existing initial stream tracks')
                 const tracksToStop = this.initialStreamValue.getTracks()
                 tracksToStop.forEach((track, index) => {
-                    console.log(`[setupStream] Stopping track ${index + 1}/${tracksToStop.length}: ${track.kind}:${track.id}`)
                     track.stop()
                 })
                 this.initialStreamValue = null
-                console.log('[setupStream] ✓ Previous stream cleaned up')
             }
 
             this.initialStreamValue = stream
-            console.log('[setupStream] ✓ New initial stream set')
         } catch (error) {
-            console.error('[setupStream] ERROR: Failed to get user media:', error)
             throw error
         }
     }
 
     private async triggerAddStream (event: RTCTrackEvent, call: ICall) {
-        console.log(`[triggerAddStream] === STARTING ADD STREAM FOR CALL ${call._id} ===`)
-        console.log('[triggerAddStream] AudioContext debug info:', this.managedAudioContext.getDebugInfo())
-
         const muteState = this.muteWhenJoin || this.isMuted
-        console.log(`[triggerAddStream] Setting muted state: ${muteState} (muteWhenJoin=${this.muteWhenJoin}, isMuted=${this.isMuted})`)
         this.setIsMuted(muteState)
 
         if (!this.initialStreamValue) {
-            console.log('[triggerAddStream] No initial stream, setting up new stream')
             await this.setupStream()
-            console.log('[triggerAddStream] Initial stream setup completed')
-        } else {
-            console.log('[triggerAddStream] Using existing initial stream:', {
-                trackCount: this.initialStreamValue.getTracks().length,
-                audioTracks: this.initialStreamValue.getAudioTracks().length,
-                trackIds: this.initialStreamValue.getTracks().map(t => t.id)
-            })
         }
 
-        console.log(`[triggerAddStream] Processing audio volume with level: ${this.microphoneInputLevel}`)
-        const audioContextStart = Date.now()
         const audioContext = await this.managedAudioContext.getContext()
-        console.log(`[triggerAddStream] AudioContext obtained in ${Date.now() - audioContextStart}ms, state: ${audioContext.state}`)
 
         const processedStream = await processAudioVolume(audioContext, this.initialStreamValue, this.microphoneInputLevel * 2)
         const muteMicro = this.isMuted || this.muteWhenJoin
 
-        console.log('[triggerAddStream] Processed stream details:', {
-            hasStream: !!processedStream,
-            trackCount: processedStream?.getTracks().length,
-            audioTracks: processedStream?.getAudioTracks().length,
-            muteMicro
-        })
-
-        processedStream.getTracks().forEach((track, index) => {
-            const wasEnabled = track.enabled
+        processedStream.getTracks().forEach((track) => {
             track.enabled = !muteMicro
-            console.log(`[triggerAddStream] Track ${index + 1} (${track.id}): enabled ${wasEnabled} → ${track.enabled}`)
         })
 
         await this.setActiveStream(processedStream)
-        console.log('[triggerAddStream] Active stream set')
 
         const senders = call.connection.getSenders()
         const firstSender = senders[0]
-        console.log(`[triggerAddStream] Replacing track for call ${call._id}:`, {
-            senderCount: senders.length,
-            hasFirstSender: !!firstSender,
-            trackToReplace: processedStream.getTracks()[0]?.id
-        })
+
 
         await firstSender.replaceTrack(processedStream.getTracks()[0])
-        console.log(`[triggerAddStream] ✓ Track replaced for call ${call._id}`)
 
         const stream = new MediaStream([ event.track ])
 
-        syncStream(stream, call, this.selectedOutputDevice, this.speakerVolume)
+        const syncStreamNeeded = !Object.values(this.extendedCalls)
+            .find((session) => session.audioTag && session.audioTag.id === call._id)
+
+        if (syncStreamNeeded) {
+            syncStream(stream, call, this.selectedOutputDevice, this.speakerVolume)
+        }
 
         // IMPORTANT: Check if we should hear this call
         const shouldHearThisCall = call.roomId === this.currentActiveRoomId
@@ -1793,63 +1744,18 @@ export class AudioModule {
     }
 
     private async processRoomChange ({ callId, roomId }: { callId: string, roomId: number }) {
-        console.log('[processRoomChange] === STARTING ROOM CHANGE PROCESS ===')
-        console.log(`[processRoomChange] Target: callId=${callId}, roomId=${roomId}`)
-
         const call = this.extendedCalls[callId]
         if (!call) {
-            console.error(`[processRoomChange] ERROR: Call not found in extendedCalls: ${callId}`)
             return
         }
 
         const oldRoomId = call.roomId
-        const connectionState = call.connection?.connectionState
-        const audioTag = call.audioTag
-
-        console.log('[processRoomChange] Call details:', {
-            callId,
-            oldRoomId,
-            newRoomId: roomId,
-            connectionState,
-            hasAudioTag: !!audioTag,
-            audioTagMuted: audioTag?.muted,
-            isOnHold: call.isOnHold(),
-            currentActiveRoom: this.currentActiveRoomId
-        })
-
-        // Count calls in both rooms before change
-        const oldRoomCalls = Object.values(this.extendedCalls).filter(c => c.roomId === oldRoomId)
-        const newRoomCalls = Object.values(this.extendedCalls).filter(c => c.roomId === roomId)
-        console.log(`[processRoomChange] Room populations BEFORE change: oldRoom(${oldRoomId})=${oldRoomCalls.length} calls, newRoom(${roomId})=${newRoomCalls.length} calls`)
 
         call.roomId = roomId
-        console.log(`[processRoomChange] ✓ Room ID updated for call ${callId}: ${oldRoomId} → ${roomId}`)
 
         this.updateCall(call)
-        console.log('[processRoomChange] ✓ Call state updated and emitted')
 
-        // Count calls after change
-        const oldRoomCallsAfter = Object.values(this.extendedCalls).filter(c => c.roomId === oldRoomId)
-        const newRoomCallsAfter = Object.values(this.extendedCalls).filter(c => c.roomId === roomId)
-        console.log(`[processRoomChange] Room populations AFTER change: oldRoom(${oldRoomId})=${oldRoomCallsAfter.length} calls, newRoom(${roomId})=${newRoomCallsAfter.length} calls`)
-
-        console.log(`[processRoomChange] >>> RECONFIGURING OLD ROOM ${oldRoomId} <<<`)
-        const oldRoomStart = Date.now()
         await this.roomReconfigure(oldRoomId)
-        console.log(`[processRoomChange] ✓ Old room ${oldRoomId} reconfigured in ${Date.now() - oldRoomStart}ms`)
-
-        console.log(`[processRoomChange] >>> RECONFIGURING NEW ROOM ${roomId} <<<`)
-        const newRoomStart = Date.now()
         await this.roomReconfigure(roomId)
-        console.log(`[processRoomChange] ✓ New room ${roomId} reconfigured in ${Date.now() - newRoomStart}ms`)
-
-        // Commented out because roomReconfigure for old and current room also called in setActiveRoom and deleteRoomIfEmpty is called in each roomReconfigure method when room has no calls
-        // return Promise.all([
-        //     this.roomReconfigure(oldRoomId),
-        //     this.roomReconfigure(roomId)
-        // ]).then(() => {
-        //     this.deleteRoomIfEmpty(oldRoomId)
-        //     this.deleteRoomIfEmpty(roomId)
-        // })
     }
 }
