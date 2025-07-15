@@ -1,4 +1,4 @@
-import { ICall, StreamMediaType, MediaEvent, CustomLoggerType } from '@/types/rtc'
+import { ICall, StreamMediaType, CustomLoggerType } from '@/types/rtc'
 import { Writeable } from '@/types/generic'
 import { IMessage } from '@/types/msrp'
 
@@ -78,12 +78,11 @@ export function simplifyMessageObject (call: IMessage): IMessageSimplified {
     return simplified as IMessageSimplified
 }
 
-export function processAudioVolume (stream: MediaStream, volume: number) {
-    // volume should be in range from 0 to 2
-    const audioContext = new AudioContext()
+export async function processAudioVolume (audioContext: AudioContext, stream: MediaStream, volume: number): Promise<MediaStream> {
     const audioSource = audioContext.createMediaStreamSource(stream)
     const audioDestination = audioContext.createMediaStreamDestination()
     const gainNode = audioContext.createGain()
+
     audioSource.connect(gainNode)
     gainNode.connect(audioDestination)
     gainNode.gain.value = volume

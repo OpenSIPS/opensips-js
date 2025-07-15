@@ -1550,28 +1550,6 @@
   resolved "https://registry.npmjs.org/@voicenter-team/eslint-config-ts/-/eslint-config-ts-1.0.22.tgz"
   integrity sha512-PvfA4XC/GMxaI7Ku/A7KfCzn6B281o9PdQ+xFzvhH/MM3z9V1pWTWlsLNcYcAgRSXjWZu2KxNIy0lH5dHwfWYA==
 
-"@voicenter-team/opensips-js-screen-share@^0.0.2":
-  version "0.0.2"
-  resolved "https://registry.yarnpkg.com/@voicenter-team/opensips-js-screen-share/-/opensips-js-screen-share-0.0.2.tgz#42886030cab0fb09102ebaa74d066c264186362c"
-  integrity sha512-jLHNnHeFcpoWODMXQY0T5MB9hE8KcxPT1ov/8BTAY4/9XT0Rfjvd4JMN3hBoQExY/acas8f840blVq1kAcXZ+w==
-  dependencies:
-    "@voicenter-team/opensips-js" "^1.0.130"
-
-"@voicenter-team/opensips-js@^1.0.130":
-  version "1.0.130"
-  resolved "https://registry.yarnpkg.com/@voicenter-team/opensips-js/-/opensips-js-1.0.130.tgz#158c4787775b6ce6116c3ebec126cf6713720e79"
-  integrity sha512-WwWpUEU2vvYsfUI6wqI3RhZtwWQkC2i/5UoJQPRofcPY8Jrd785j4jQhs11jjPaKXeaSDDhS8RH6zdJlHlBb5g==
-  dependencies:
-    "@types/mime" "^3.0.1"
-    generate-unique-id "^2.0.1"
-    jssip "3.10.0"
-    konva "^9.3.16"
-    loglevel "^1.8.1"
-    mime "^3.0.0"
-    p-iteration "^1.1.8"
-    sdp-transform "2.14.1"
-    uuid "^10.0.0"
-
 "@volar/language-core@1.11.1", "@volar/language-core@~1.11.1":
   version "1.11.1"
   resolved "https://registry.npmjs.org/@volar/language-core/-/language-core-1.11.1.tgz"
