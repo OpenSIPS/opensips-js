@@ -132,6 +132,28 @@ async function onCreateNewFile (data: TJsonSetupForm) {
     }
 }
 
+async function onDuplicateFile (filename: string) {
+    try {
+        loading.value = true;
+        const dataToSave = await $fetch(`/api/jsons/${filename}`, { method: 'GET' });
+        filename = filename.replace('.json', '')
+                    .replace(/\s/g, '_')
+                    .concat('-copy');
+                    
+        await $fetch(`/api/jsons/${filename}.json`, {
+            method: 'PUT',
+            body: [ ...dataToSave ]
+        })
+        showNotifyMessage(`File ${filename}.json created successfully`)
+        createTabRef.value?.cancel()
+        await fetchFiles()
+        console.log(dataToSave)
+    } catch (e) {
+        console.error('Failed to duplicate JSON:', e);
+    }
+}
+
+
 function showNotifyMessage (message: string) {
     useNotifyService.add({
         type: 'success',
