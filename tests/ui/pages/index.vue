@@ -30,6 +30,7 @@
                         @save="onSaveEditFile"
                         @cancel="closeEditTab"
                         @delete="onDeleteFile"
+                        @duplicate="onDuplicateFile"
                     />
                 </template>
             </MainEditableTabs>
@@ -143,11 +144,10 @@ async function onDuplicateFile (filename: string) {
         await $fetch(`/api/jsons/${filename}.json`, {
             method: 'PUT',
             body: [ ...dataToSave ]
-        })
-        showNotifyMessage(`File ${filename}.json created successfully`)
-        createTabRef.value?.cancel()
-        await fetchFiles()
-        console.log(dataToSave)
+        });
+        showNotifyMessage(`File ${filename}.json created successfully`);
+        createTabRef.value?.cancel();
+        await fetchFiles();
     } catch (e) {
         console.error('Failed to duplicate JSON:', e);
     }

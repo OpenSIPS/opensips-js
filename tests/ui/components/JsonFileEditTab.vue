@@ -31,6 +31,13 @@
                 >
                     Save
                 </VcButton>
+                <VcButton
+                    :loading="loading"
+                    icon="vc-lc-duplicate"
+                    @click="onDuplicate"
+                >
+                    Duplicate
+                </VcButton>
             </div>
         </div>
         <div class="">
@@ -90,6 +97,7 @@ const emit = defineEmits<{
     (e: 'cancel'): void
     (e: 'save', data: TJsonSetupForm): void
     (e: 'delete', fileName: string): void
+    (e: 'duplicate', data: string): void
 }>()
 
 const fetchLoading = ref(false)
@@ -150,6 +158,14 @@ function onDelete () {
             emit('delete', props.entity.fileName!)
         }
     })
+}
+
+function onDuplicate() {
+    baseFormRef.value?.validate().then((valid) => {
+        if (valid.isValid) {
+            emit('duplicate', props.entity.fileName!);
+        }
+    });
 }
 
 async function fetchFileData (fileName: string) {
