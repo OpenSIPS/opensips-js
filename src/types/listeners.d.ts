@@ -19,6 +19,7 @@ export type ChangeVolumeEventType = {
 export type readyListener = (value: boolean) => void
 export type connectionListener = (value: boolean) => void
 export type reconnectionListener = (value: boolean) => void
+export type reconnectionAttemptsLimitListener = () => void
 export type changeActiveCallsListener = (event: { [key: string]: ICall }) => void
 export type changeActiveMessagesListener = (event: { [key: string]: IMessage }) => void
 export type TestEventListener = (event: { test: string }) => void
@@ -61,6 +62,7 @@ export interface OpenSIPSEventMap extends UAEventMap {
     ready: readyListener
     connection: connectionListener
     reconnecting: reconnectionListener
+    reconnectionAttemptsLimitReached: reconnectionAttemptsLimitListener
     // JSSIP
     changeActiveCalls: changeActiveCallsListener
     changeActiveMessages: changeActiveMessagesListener
