@@ -134,6 +134,8 @@ class OpenSIPSJS extends UA {
     private activeConnection = false
     private waitingForSessionHangup = false
     private waitingForSessionTimeout = null
+    private readonly reconnectionAttemptsLimit = Infinity
+    private reconnectionAttemptsCounter = 0
 
     public audio: AudioModule = null
     public msrp: MSRPModule = null
@@ -167,6 +169,10 @@ class OpenSIPSJS extends UA {
         this.options = options
         this.modules = options.modules
 
+        if (options.configuration.reconnectionAttemptsLimit) {
+            this.reconnectionAttemptsLimit = options.configuration.reconnectionAttemptsLimit
+        }
+
         if (logger && isLoggerCompatible(logger)) {
             this.logger = logger
         }
@@ -187,7 +193,7 @@ class OpenSIPSJS extends UA {
         this.waitingForSessionTimeout = null
 
         if (this.activeConnection) {
-            setTimeout(this.start.bind(this), 5000)
+            this.reconnect()
         }
     }
 
@@ -245,6 +251,19 @@ class OpenSIPSJS extends UA {
             .find(plugin => plugin.name === name) || this.processStreamPlugins.find(plugin => plugin.name === name)
     }
 
+    private reconnect () {
+        const shouldReconnect = this.reconnectionAttemptsCounter < this.reconnectionAttemptsLimit
+
+        if (shouldReconnect) {
+            const timeout = 5000 * Math.pow(2, this.reconnectionAttemptsCounter)
+            this.reconnectionAttemptsCounter++
+
+            setTimeout(this.start.bind(this), timeout)
+        } else {
+            this.emit('reconnectionAttemptsLimitReached', undefined)
+        }
+    }
+
     public begin () {
         if (this.isConnected()) {
             console.error('Connection is already established')
@@ -287,6 +306,7 @@ class OpenSIPSJS extends UA {
                 this.setReconnecting(false)
                 this.activeConnection = true
                 this.waitingForSessionHangup = false
+                this.reconnectionAttemptsCounter = 0
             }
         )
 
@@ -308,8 +328,9 @@ class OpenSIPSJS extends UA {
                     this.stop()
                     this.setInitialized(false)
 
+
                     if (this.activeConnection) {
-                        setTimeout(this.start.bind(this), 5000)
+                        this.reconnect()
                     }
                 } else {
                     this.waitingForSessionHangup = true
@@ -322,7 +343,7 @@ class OpenSIPSJS extends UA {
                         this.waitingForSessionHangup = false
 
                         if (this.activeConnection) {
-                            setTimeout(this.start.bind(this), 5000)
+                            this.reconnect()
                         }
                     },1200000)
                 }

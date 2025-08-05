@@ -137,6 +137,7 @@ export type Modules = AudioModuleName | VideoModuleName | MSRPModuleName
 export type OnTransportCallback = (parsed: object, message: string) => void
 
 type UAConfigurationExtended = UAConfiguration & {
+    reconnectionAttemptsLimit?: number
     overrideUserAgent?: (userAgent: string) => string
     onTransportCallback?: OnTransportCallback
 }
