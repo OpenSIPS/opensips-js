@@ -1,0 +1,167 @@
+[
+  {
+    "name": "caller",
+    "actions": [
+      {
+        "event": "ready",
+        "actions": [
+          {
+            "type": "wait",
+            "data": {
+              "payload": { "time": 100 },
+              "waitUntil": { "event": "callee_registered" }
+            }
+          },
+          {
+            "type": "register",
+            "data": {
+              "payload": {
+                "sip_domain": "{{CALLER.SIP_DOMAIN}}",
+                "username": "{{CALLER.USERNAME}}",
+                "password": "{{CALLER.PASSWORD}}"
+              },
+              "customSharedEvent": "caller_registered"
+            }
+          },
+          {
+            "type": "dial",
+            "data": {
+              "payload": { "target": "36" },
+              "customSharedEvent": "call_initiated"
+            }
+          }
+        ]
+      },
+      {
+        "event": "call_answered",
+        "actions": [
+          {
+            "type": "wait",
+            "data": {
+              "payload": { "time": 1000 }
+            }
+          },
+          {
+            "type": "hold",
+            "data": {
+              "customSharedEvent": "call_on_hold"
+            }
+          },
+          {
+            "type": "wait",
+            "data": {
+              "payload": { "time": 1000 }
+            }
+          },
+          {
+            "type": "unhold",
+            "data": {}
+          },
+          {
+            "type": "wait",
+            "data": {
+              "payload": { "time": 1000 }
+            }
+          },
+          {
+            "type": "wait",
+            "data": {
+              "payload": { "time": 2000 },
+              "customSharedEvent": "sound_played"
+            }
+          },
+          {
+            "type": "wait",
+            "data": {
+              "payload": { "time": 1000 }
+            }
+          },
+          {
+            "type": "hangup",
+            "data": {
+              "customSharedEvent": "call_ended"
+            }
+          },
+          {
+            "type": "unregister",
+            "data": {}
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "callee",
+    "actions": [
+      {
+        "event": "ready",
+        "actions": [
+          {
+            "type": "register",
+            "data": {
+              "payload": {
+                "sip_domain": "{{CALLEE.SIP_DOMAIN}}",
+                "username": "{{CALLEE.USERNAME}}",
+                "password": "{{CALLEE.PASSWORD}}"
+              },
+              "customSharedEvent": "callee_registered"
+            }
+          }
+        ]
+      },
+      {
+        "event": "call_initiated",
+        "actions": [
+          {
+            "type": "wait",
+            "data": {
+              "payload": { "time": 500 }
+            }
+          }
+        ]
+      },
+      {
+        "event": "incoming",
+        "actions": [
+          {
+            "type": "answer",
+            "data": {
+              "customSharedEvent": "call_answered"
+            }
+          }
+        ]
+      },
+      {
+        "event": "call_on_hold",
+        "actions": [
+          {
+            "type": "wait",
+            "data": {
+              "payload": { "time": 500 }
+            }
+          }
+        ]
+      },
+      {
+        "event": "sound_played",
+        "actions": [
+          {
+            "type": "wait",
+            "data": {
+              "payload": { "time": 200 }
+            }
+          }
+        ]
+      },
+      {
+        "event": "call_ended",
+        "actions": [
+          {
+            "type": "unregister",
+            "data": {}
+          }
+        ]
+      }
+    ]
+  }
+]
