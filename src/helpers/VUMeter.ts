@@ -25,7 +25,7 @@ export default class VUMeter {
         this.clearVolumeInterval(deviceId)
 
         // Clean up analyser
-        if (this.analysers[deviceId]) {
+        if (this.analysers[deviceId] && typeof this.analysers[deviceId].disconnect === 'function') {
             this.analysers[deviceId].disconnect()
             delete this.analysers[deviceId]
         }
