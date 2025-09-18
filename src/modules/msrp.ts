@@ -19,7 +19,8 @@ export class MSRPModule {
 
         this.context.on(
             this.context.newMSRPSessionEventName,
-            this.newMSRPSessionCallback.bind(this.context)
+            // this.newMSRPSessionCallback.bind(this.context)
+            this.newMSRPSessionCallback.bind(this)
         )
     }
 
@@ -185,6 +186,7 @@ export class MSRPModule {
     }
 
     private newMSRPSessionCallback (event: MSRPSessionEvent) {
+        if(!event.session._id) event.session._id = event.request.call_id + event.request.from._parameters.tag;
         const session = event.session as MSRPSessionExtended
 
         /*if (this.isDND) {
