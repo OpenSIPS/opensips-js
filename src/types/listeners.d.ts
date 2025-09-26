@@ -18,6 +18,8 @@ export type ChangeVolumeEventType = {
 
 export type readyListener = (value: boolean) => void
 export type connectionListener = (value: boolean) => void
+export type reconnectionListener = (value: boolean) => void
+export type reconnectionAttemptsLimitListener = () => void
 export type changeActiveCallsListener = (event: { [key: string]: ICall }) => void
 export type changeActiveMessagesListener = (event: { [key: string]: IMessage }) => void
 export type TestEventListener = (event: { test: string }) => void
@@ -30,6 +32,7 @@ export type changeActiveOutputMediaDeviceListener = (event: string) => void
 export type changeAvailableDeviceListListener = (event: Array<MediaDeviceInfo>) => void
 export type changeMuteWhenJoinListener = (value: boolean) => void
 export type changeIsDNDListener = (value: boolean) => void
+export type changeIsCallWaitingListener = (value: boolean) => void
 export type changeIsMutedListener = (value: boolean) => void
 export type changeActiveStreamListener = (value: MediaStream) => void
 export type addRoomListener = (value: RoomChangeEmitType) => void
@@ -58,6 +61,8 @@ export type changeVideoStateListener = (state: boolean) => void
 export interface OpenSIPSEventMap extends UAEventMap {
     ready: readyListener
     connection: connectionListener
+    reconnecting: reconnectionListener
+    reconnectionAttemptsLimitReached: reconnectionAttemptsLimitListener
     // JSSIP
     changeActiveCalls: changeActiveCallsListener
     changeActiveMessages: changeActiveMessagesListener
@@ -71,6 +76,7 @@ export interface OpenSIPSEventMap extends UAEventMap {
     changeAvailableDeviceList: changeAvailableDeviceListListener
     changeMuteWhenJoin: changeMuteWhenJoinListener
     changeIsDND: changeIsDNDListener
+    changeIsCallWaiting: changeIsCallWaitingListener
     changeIsMuted: changeIsMutedListener
     changeActiveStream: changeActiveStreamListener
     addRoom: addRoomListener

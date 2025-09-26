@@ -1,14 +1,11 @@
-import { IntervalType } from '@/types/rtc'
-import audioContext from '@/helpers/audioContext'
-
 const height = 20
 const lineWidth = 4
 
-let intervals: { [key: string]: IntervalType | undefined } = {}
+let intervals: { [key: string]: ReturnType<typeof setInterval> | undefined } = {}
 
-export const runIndicator = (stream: MediaStream, deviceId: string) => {
+export const runIndicator = (audioContext: AudioContext, stream: MediaStream, deviceId: string) => {
     if (stream && stream.getTracks().length) {
-        requestAnimationFrame(() => getVolumeLevelBar(stream, deviceId))
+        requestAnimationFrame(() => getVolumeLevelBar(audioContext, stream, deviceId))
     } else {
         clearVolumeInterval(deviceId)
     }
@@ -32,7 +29,7 @@ const getMaxSmallIndicatorHeight = (value: number) => {
     return value < halfLineHeight ? value : halfLineHeight
 }
 
-const getVolumeLevelBar = (stream: MediaStream, deviceId: string) => {
+const getVolumeLevelBar = (audioContext: AudioContext, stream: MediaStream, deviceId: string) => {
     clearVolumeInterval(deviceId)
 
     const analyser = audioContext.createAnalyser()

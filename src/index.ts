@@ -36,7 +36,10 @@ import {
     ICallStatus,
     IRoomUpdate,
     IOpenSIPSJSOptions,
-    TriggerListenerOptions, CustomLoggerType, Modules, AudioModuleName
+    TriggerListenerOptions,
+    CustomLoggerType,
+    Modules,
+    AudioModuleName
 } from '@/types/rtc'
 //import { StreamMaskPlugin } from '@/lib/janus/StreamMaskPlugin'
 import JsSIP from 'jssip/lib/JsSIP'
@@ -129,6 +132,10 @@ class OpenSIPSJS extends UA {
     private isMSRPInitializingValue: boolean | undefined
     private isReconnecting = false
     private activeConnection = false
+    private waitingForSessionHangup = false
+    private waitingForSessionTimeout = null
+    private readonly reconnectionAttemptsLimit = Infinity
+    private reconnectionAttemptsCounter = 0
 
     public audio: AudioModule = null
     public msrp: MSRPModule = null
@@ -162,9 +169,40 @@ class OpenSIPSJS extends UA {
         this.options = options
         this.modules = options.modules
 
+        if (options.configuration.reconnectionAttemptsLimit) {
+            this.reconnectionAttemptsLimit = options.configuration.reconnectionAttemptsLimit
+        }
+
         if (logger && isLoggerCompatible(logger)) {
             this.logger = logger
         }
+    }
+
+    /*public setWaitingForSessionHangup (value: boolean) {
+        this.waitingForSessionHangup = value
+    }*/
+
+    public isWaitingForSessionHangup () {
+        return this.waitingForSessionHangup
+    }
+
+    public stopSessionAfterWaiting () {
+        this.setInitialized(false)
+        this.waitingForSessionHangup = false
+        clearTimeout(this.waitingForSessionTimeout)
+        this.waitingForSessionTimeout = null
+
+        if (this.activeConnection) {
+            this.reconnect()
+        }
+    }
+
+    private get hasActiveSessions (): boolean {
+        if (this.modules.includes(MODULES.AUDIO)) {
+            return this.audio.hasActiveAnsweredCalls
+        }
+
+        return false
     }
 
     public on <T extends ListenersKeyType> (type: T, listener: ListenerCallbackFnType<T>) {
@@ -213,6 +251,19 @@ class OpenSIPSJS extends UA {
             .find(plugin => plugin.name === name) || this.processStreamPlugins.find(plugin => plugin.name === name)
     }
 
+    private reconnect () {
+        const shouldReconnect = this.reconnectionAttemptsCounter < this.reconnectionAttemptsLimit
+
+        if (shouldReconnect) {
+            const timeout = 5000 * Math.pow(2, this.reconnectionAttemptsCounter)
+            this.reconnectionAttemptsCounter++
+
+            setTimeout(this.start.bind(this), timeout)
+        } else {
+            this.emit('reconnectionAttemptsLimitReached', undefined)
+        }
+    }
+
     public begin () {
         if (this.isConnected()) {
             console.error('Connection is already established')
@@ -252,29 +303,49 @@ class OpenSIPSJS extends UA {
             () => {
                 this.logger.log('Connected to', this.options.socketInterfaces[0])
                 this.setConnected(true)
-                this.isReconnecting = false
+                this.setReconnecting(false)
                 this.activeConnection = true
+                this.waitingForSessionHangup = false
+                this.reconnectionAttemptsCounter = 0
             }
         )
 
         this.on(
             this.disconnectedEventName,
             () => {
+                this.setConnected(false)
+
                 if (this.isReconnecting) {
                     return
                 } else {
-                    this.isReconnecting = true
+                    this.setReconnecting(true)
                 }
 
                 this.logger.log('Disconnected from', this.options.socketInterfaces[0])
                 this.logger.log('Reconnecting to', this.options.socketInterfaces[0])
 
-                this.stop()
-                this.setInitialized(false)
-                this.setConnected(false)
+                if (!this.hasActiveSessions) {
+                    this.stop()
+                    this.setInitialized(false)
 
-                if (this.activeConnection) {
-                    setTimeout(this.start.bind(this), 5000)
+
+                    if (this.activeConnection) {
+                        this.reconnect()
+                    }
+                } else {
+                    this.waitingForSessionHangup = true
+
+                    // TODO: Handle case when inactive call was disconnected and other side hangs up the call
+                    this.stop(false)
+                    this.waitingForSessionTimeout = setTimeout(() => {
+                        this.terminateAllSessions()
+                        this.setInitialized(false)
+                        this.waitingForSessionHangup = false
+
+                        if (this.activeConnection) {
+                            this.reconnect()
+                        }
+                    },1200000)
                 }
             }
         )
@@ -1294,6 +1365,11 @@ class OpenSIPSJS extends UA {
     private setConnected (value: boolean) {
         this.connected = value
         this.emit('connection', value)
+    }
+
+    private setReconnecting (value: boolean) {
+        this.isReconnecting = value
+        this.emit('reconnecting', value)
     }
 
     /*public setMuteWhenJoin (value: boolean) {

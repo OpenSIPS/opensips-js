@@ -21,7 +21,6 @@ import { isMobile, processAudioVolume, simplifyCallObject, syncStream } from '@/
 import { RTCSessionEvent } from 'jssip/lib/UA'
 import { forEach } from 'p-iteration'
 import { MicVAD, utils, getDefaultRealTimeVADOptions } from '@ricky0123/vad-web'
-import audioContext from '@/helpers/audioContext'
 import { CALL_EVENT_LISTENER_TYPE } from '@/enum/call.event.listener.type'
 import { IncomingAckEvent, IncomingEvent, OutgoingAckEvent, OutgoingEvent } from 'jssip/lib/RTCSession'
 import WebRTCMetrics from '@/helpers/webrtcmetrics/metrics'
@@ -29,6 +28,7 @@ import { filterObjectKeys } from '@/helpers/filter.helper'
 import { METRIC_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
 import VUMeter from '@/helpers/VUMeter'
 import OpenSIPSJS from '@/index'
+import ManagedAudioContext from '@/helpers/audioContext'
 
 import * as ort from 'onnxruntime-web'
 ort.env.wasm.wasmPaths = '/'
@@ -73,6 +73,8 @@ export class AudioModule {
     private isCallAddingInProgress: string | undefined
     private muteWhenJoinEnabled = false
     private isDNDEnabled = false
+    // If false - all incoming calls will be rejected when busy
+    private isCallWaitingEnabled = true
     private muted = false
 
     private microphoneInputLevelValue = 1 // [0;1]
@@ -81,6 +83,14 @@ export class AudioModule {
     private activeRooms: { [key: number]: IRoom } = {}
     private activeCalls: { [key: string]: ICall } = {}
     private extendedCalls: { [key: string]: ICall } = {}
+
+    private conferenceNodes: {
+        [roomId: number]: {
+            sources: Map<string, MediaStreamAudioSourceNode>
+            destinations: Map<string, MediaStreamAudioDestinationNode>
+            gains: Map<string, GainNode>
+        }
+    } = {}
 
     private availableMediaDevices: Array<MediaDeviceInfo> = []
     private selectedMediaDevices: { [key in MediaDeviceType]: string } = {
@@ -104,6 +114,8 @@ export class AudioModule {
     private vadConfiguration: Partial<VADOptions> = {}
 
     private VUMeter: VUMeter
+
+    public managedAudioContext = new ManagedAudioContext()
 
     constructor (context: OpenSIPSJS) {
         this.context = context
@@ -240,6 +252,21 @@ export class AudioModule {
         return this.isDNDEnabled
     }
 
+    /**
+     * Gets the current state of the call waiting feature.
+     *
+     * When call waiting is enabled (true), incoming calls will be allowed even when
+     * other calls are active.
+     *
+     * When call waiting is disabled (false) and there are already active calls,
+     * any new incoming calls will be automatically rejected with a "busy" status.
+     *
+     * @returns {boolean} True if call waiting is enabled, false if disabled
+     */
+    public get isCallWaiting (): boolean {
+        return this.isCallWaitingEnabled
+    }
+
     public get speakerVolume () {
         return this.speakerVolumeValue
     }
@@ -254,6 +281,13 @@ export class AudioModule {
 
     public get hasActiveCalls () {
         return Object.values(this.extendedCalls).length > 0
+    }
+
+    public get hasActiveAnsweredCalls () {
+        const rooms = Object.values(this.activeRooms)
+        const answeredSessions = rooms.filter((room) => !room.incomingInProgress)
+
+        return answeredSessions.length > 0
     }
 
     public get getActiveRooms () {
@@ -340,6 +374,47 @@ export class AudioModule {
 
     }
 
+    private async cleanupConferenceNodes (roomId: number) {
+        const nodes = this.conferenceNodes[roomId]
+
+        if (!nodes) {
+            return
+        }
+
+        // Disconnect all nodes with error handling
+        let disconnectedSources = 0
+        nodes.sources.forEach((source, key) => {
+            try {
+                source.disconnect()
+                disconnectedSources++
+            } catch (error) {
+                console.error(`[cleanupConferenceNodes] Error disconnecting source ${key}:`, error)
+            }
+        })
+
+        let disconnectedDestinations = 0
+        nodes.destinations.forEach((dest, key) => {
+            try {
+                dest.disconnect()
+                disconnectedDestinations++
+            } catch (error) {
+                console.error(`[cleanupConferenceNodes] Error disconnecting destination ${key}:`, error)
+            }
+        })
+
+        let disconnectedGains = 0
+        nodes.gains.forEach((gain, key) => {
+            try {
+                gain.disconnect()
+                disconnectedGains++
+            } catch (error) {
+                console.error(`[cleanupConferenceNodes] Error disconnecting gain ${key}:`, error)
+            }
+        })
+
+        delete this.conferenceNodes[roomId]
+    }
+
     public setCallTime (value: ITimeData) {
         const time: TempTimeData = { ...value }
         delete time.callId
@@ -405,9 +480,9 @@ export class AudioModule {
     }
 
     public sendDTMF (callId: string, value: string) {
-        const validation_regex = /^[A-D0-9]+$/g
+        const validation_regex = /^[A-D0-9*#]+$/g
         if (!validation_regex.test(value)) {
-            throw new Error('Not allowed character in DTMF input')
+            throw new Error('Not allowed character used in the DTMF input')
         }
 
         const call = this.extendedCalls[callId]
@@ -437,31 +512,51 @@ export class AudioModule {
 
     private async processHold ({ callId, toHold, automatic }: { callId: string, toHold: boolean, automatic?: boolean }) {
         const call = this.extendedCalls[callId]
+        if (!call) return
+
         call._automaticHold = automatic ?? false
 
-        const holdPromise = new Promise<void>((resolve) => {
-            const resolveHold = () => {
+        const holdPromise = new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                reject(new Error('Hold operation timeout'))
+            }, 5000)
+
+            const handleComplete = () => {
+                clearTimeout(timeout)
                 call.putOnHoldTimestamp = toHold ? Date.now() : undefined
                 resolve()
             }
 
-            if (toHold) {
-                call.hold({}, resolveHold)
-            } else {
-                call.unhold({}, resolveHold)
+            const handleError = (error: any) => {
+                clearTimeout(timeout)
+                reject(error)
+            }
+
+            try {
+                if (toHold) {
+                    call.hold({}, handleComplete)
+                } else {
+                    call.unhold({}, handleComplete)
+                }
+            } catch (error) {
+                handleError(error)
             }
         })
 
-        await holdPromise
+        try {
+            await holdPromise
+            this.updateCall(call)
 
-        this.updateCall(call)
+            const callsInRoom = Object.values(this.extendedCalls).filter(c =>
+                c.roomId === call.roomId && (toHold ? callId !== c._id : true)
+            )
 
-        const callsInRoom = Object.values(this.extendedCalls).filter(call =>
-            call.roomId === this.currentActiveRoomId
-            && (toHold ? callId !== call._id: true)
-        )
-        if (callsInRoom.length > 1) {
-            await this.doConference(callsInRoom)
+            if (callsInRoom.length > 1) {
+                await this.doConference(callsInRoom)
+            }
+        } catch (error) {
+            console.error('Hold operation failed:', error)
+            throw error
         }
     }
 
@@ -506,6 +601,22 @@ export class AudioModule {
             callId,
             isMoving: true
         })
+
+        /*const callsInRoom = Object.values(this.extendedCalls).filter(call => call._id === callId)
+
+        callsInRoom.forEach((call, index) => {
+            call.audioTag.muted = true
+        })*/
+
+        /*const newRoomId = this.getNewRoomId()
+
+        const newRoomInfo: IRoom = {
+            started: new Date(),
+            incomingInProgress: false,
+            roomId: newRoomId
+        }
+        this.addRoom(newRoomInfo)*/
+
         await this.processRoomChange({
             callId,
             roomId
@@ -575,7 +686,8 @@ export class AudioModule {
             [callId]: {
                 isMoving: false,
                 isTransferring: false,
-                isMerging: false
+                isMerging: false,
+                isTransferred: false
             }
         }
 
@@ -599,6 +711,10 @@ export class AudioModule {
 
         if (value.isMerging !== undefined) {
             newStatus.isMerging = value.isMerging
+        }
+
+        if (value.isTransferred !== undefined) {
+            newStatus.isTransferred = value.isTransferred
         }
 
         this.callStatus = {
@@ -634,10 +750,10 @@ export class AudioModule {
         })
     }
 
-    private getActiveStream () {
-        const processedStream = processAudioVolume(this.initialStreamValue, this.microphoneInputLevel * 2)
+    private async getActiveStream () {
+        const processedStream = await processAudioVolume(await this.managedAudioContext.getContext(), this.initialStreamValue, this.microphoneInputLevel * 2)
         processedStream.getTracks().forEach(track => track.enabled = !this.isMuted)
-        this.setActiveStream(processedStream)
+        await this.setActiveStream(processedStream)
         return processedStream
     }
 
@@ -658,7 +774,7 @@ export class AudioModule {
 
         if (callsInCurrentRoom.length === 1) {
             Object.values(callsInCurrentRoom).forEach(async (call) => {
-                const processedStream = this.getActiveStream()
+                const processedStream = await this.getActiveStream()
                 call.connection.getSenders()[0].replaceTrack(processedStream.getTracks()[0])
                 this.updateCall(call)
             })
@@ -667,12 +783,12 @@ export class AudioModule {
         }
     }
 
-    private setActiveStream (value: MediaStream) {
+    private async setActiveStream (value: MediaStream) {
         if (this.activeStream) {
             this.stopVUMeter('origin')
         }
 
-        this.setupVUMeter(value, 'origin')
+        await this.setupVUMeter(value, 'origin')
 
         this.activeStreamValue = value
         this.context.emit('changeActiveStream', value)
@@ -901,109 +1017,250 @@ export class AudioModule {
 
         const callsInRoom = Object.values(this.extendedCalls).filter(call => call.roomId === roomId)
 
-        // Let`s take care on the audio output first and check if passed room is our selected room
-        if (this.currentActiveRoomId === roomId) {
-            callsInRoom.forEach(call => {
-                if (call.audioTag) {
+        const isHostRoom = this.currentActiveRoomId === roomId
+
+        callsInRoom.forEach((call, index) => {
+            if (call.audioTag) {
+                call.connection.getReceivers().forEach((receiver: RTCRtpReceiver) => {
+                    receiver.track.enabled = !call.localMuted
+                })
+
+                // Only unmute if this is the host's current room
+                if (isHostRoom) {
                     this.muteReconfigure(call)
-                    call.audioTag.muted = false
-                    this.updateCall(call)
                 }
-            })
-        } else {
-            callsInRoom.forEach(call => {
-                if (call.audioTag) {
-                    call.audioTag.muted = true
-                    this.updateCall(call)
-                }
-            })
+
+                const shouldMute = !isHostRoom
+                call.audioTag.muted = shouldMute
+
+                this.updateCall(call)
+            }
+        })
+
+        // Clean up empty rooms
+        if (callsInRoom.length === 0) {
+            const hasConferenceNodes = !!this.conferenceNodes[roomId]
+
+            if (hasConferenceNodes) {
+                await this.cleanupConferenceNodes(roomId)
+            }
+
+            this.deleteRoomIfEmpty(roomId)
+            return
         }
 
-        // Now let`s configure the sound we are sending for each active call on this room
-        if (callsInRoom.length === 0) {
-            this.deleteRoomIfEmpty(roomId)
-        } else if (callsInRoom.length === 1 && this.currentActiveRoomId !== roomId) {
-            if (!callsInRoom[0].isOnHold().local) {
-                await this.holdCall(callsInRoom[0].id, true)
-            }
-        } else if (callsInRoom.length === 1 && this.currentActiveRoomId === roomId) {
-            if (callsInRoom[0].isOnHold().local && callsInRoom[0]._automaticHold) {
-                await this.unholdCall(callsInRoom[0].id)
+        // Single call in non-active room - put on hold
+        if (callsInRoom.length === 1 && !isHostRoom) {
+            const call = callsInRoom[0]
+
+            const holdState = call.isOnHold()
+
+            if (!holdState.local) {
+                await this.holdCall(call._id, true)
             }
 
-            if (callsInRoom[0].connection && callsInRoom[0].connection?.getSenders()[0]) {
-                const processedStream = this.getActiveStream()
+            // Clean up any conference nodes
+            const hasConferenceNodes = !!this.conferenceNodes[roomId]
+            if (hasConferenceNodes) {
+                await this.cleanupConferenceNodes(roomId)
+            }
 
-                if (this.useVAD) {
-                    this.processVAD(callsInRoom[0], processedStream)
+            return
+        }
+
+        // Single call in active room - unhold if needed and set up direct audio
+        if (callsInRoom.length === 1 && isHostRoom) {
+            const call = callsInRoom[0]
+
+            const holdState = call.isOnHold()
+
+            if (holdState.local && call._automaticHold) {
+                await this.unholdCall(call._id)
+            }
+
+            const senders = call.connection?.getSenders() || []
+            const firstSender = senders[0]
+
+            if (call.connection && firstSender) {
+                try {
+                    const processedStream = await this.getActiveStream()
+
+                    if (this.useVAD) {
+                        this.processVAD(callsInRoom[0], processedStream)
+                    }
+
+                    const tracks = processedStream.getTracks()
+
+                    await firstSender.replaceTrack(tracks[0])
+                    this.muteReconfigure(call)
+                } catch (error) {
+                    console.error(error)
                 }
-
-                await callsInRoom[0].connection.getSenders()[0].replaceTrack(processedStream.getTracks()[0])
-                this.muteReconfigure(callsInRoom[0])
             }
-        } else if (callsInRoom.length > 1) {
+
+            // Clean up any conference nodes for single participant
+            const hasConferenceNodes = !!this.conferenceNodes[roomId]
+            if (hasConferenceNodes) {
+                await this.cleanupConferenceNodes(roomId)
+            }
+
+            return
+        }
+
+        // Multiple calls - set up conference
+        if (callsInRoom.length > 1) {
             await this.doConference(callsInRoom)
         }
     }
 
     private async doConference (sessions: Array<ICall>) {
-        /*await forEach(sessions, async (session: ICall) => {
-            if (session._localHold) {
-                await this.unholdCall(session._id)
-            }
-        })*/
+        if (sessions.length === 0) {
+            return
+        }
 
-        // Take all received tracks from the sessions you want to merge
-        const receivedTracks: Array<MediaStreamTrack> = []
+        const roomId = sessions[0].roomId
+        const isHostRoom = this.currentActiveRoomId === roomId
 
-        sessions.forEach(session => {
-            if (session !== null && session !== undefined) {
-                session.connection.getReceivers().forEach((receiver: RTCRtpReceiver) => {
-                    receivedTracks.push(receiver.track)
+        // Validate all sessions have same room ID
+        const roomMismatch = sessions.find(s => s.roomId !== roomId)
+        if (roomMismatch) {
+            return
+        }
+
+        // Check AudioContext state before proceeding
+        const audioContext = await this.managedAudioContext.getContext()
+
+        if (audioContext.state !== 'running') {
+            console.error(`[doConference] ERROR: AudioContext is not running! State: ${audioContext.state}`)
+            return
+        }
+
+        // Clean up existing conference nodes for this room
+        await this.cleanupConferenceNodes(roomId)
+
+        // Initialize new conference nodes
+        this.conferenceNodes[roomId] = {
+            sources: new Map(),
+            destinations: new Map(),
+            gains: new Map()
+        }
+        const nodes = this.conferenceNodes[roomId]
+
+        // Create a map of all receiver tracks
+        const receiverTracks = new Map<string, MediaStreamTrack>()
+
+        sessions.forEach((session, sessionIndex) => {
+            if (session && session.connection) {
+                const receivers = session.connection.getReceivers()
+
+                receivers.forEach((receiver: RTCRtpReceiver, receiverIndex) => {
+                    receiver.track.enabled = !session.localMuted
+                    const trackId = receiver.track?.id
+                    const readyState = receiver.track?.readyState
+                    const kind = receiver.track?.kind
+                    const trackKey = `${session._id}-${trackId}`
+
+                    if (receiver.track && receiver.track.readyState === 'live') {
+                        receiverTracks.set(trackKey, receiver.track)
+                    }
                 })
             }
         })
 
-        // For each call we will build dedicated mix for all other calls
-        await forEach(sessions, async (session: ICall) => {
-            if (session === null || session === undefined) {
+        // For each session, create a custom mix excluding their own audio
+        await forEach(sessions, async (session: ICall, sessionIndex) => {
+            if (!session || !session.connection) {
                 return
             }
 
-            // Use the Web Audio API to mix the received tracks
-            const allReceivedMediaStreams = new MediaStream()
             const mixedOutput = audioContext.createMediaStreamDestination()
+            nodes.destinations.set(session._id, mixedOutput)
 
-            session.connection.getReceivers().forEach((receiver:  RTCRtpReceiver) => {
-                receivedTracks.forEach(track => {
-                    allReceivedMediaStreams.addTrack(receiver.track)
+            // Add all other participants' audio to this session's mix
+            let tracksAddedToMix = 0
 
-                    if (receiver.track.id !== track.id) {
-                        const sourceStream = audioContext.createMediaStreamSource(new MediaStream([ track ]))
-                        sourceStream.connect(mixedOutput)
+            receiverTracks.forEach((track, trackKey) => {
+                // Don't include the session's own received audio
+                if (!trackKey.startsWith(session._id)) {
+                    try {
+                        const source = audioContext.createMediaStreamSource(new MediaStream([ track ]))
+                        const gainNode = audioContext.createGain()
+                        const sourceKey = `${session._id}-${trackKey}`
+
+                        source.connect(gainNode)
+                        gainNode.connect(mixedOutput)
+
+                        // Store references for cleanup
+                        nodes.sources.set(sourceKey, source)
+                        nodes.gains.set(sourceKey, gainNode)
+
+                        tracksAddedToMix++
+                    } catch (error) {
+                        console.error(error)
                     }
-                })
+                }
             })
 
-            if (sessions[0].roomId === this.currentActiveRoomId) {
-                // Mixing your voice with all the received audio
-                const processedStream = this.getActiveStream()
-                const sourceStream = audioContext.createMediaStreamSource(processedStream)
+            // Only add host's microphone if this is the room where host currently is
+            if (isHostRoom && this.activeStreamValue) {
 
-                // stream.getTracks().forEach(track => track.enabled = !getters.isMuted) // TODO: Fix this
+                try {
+                    const processedStream = await this.getActiveStream()
 
-                sourceStream.connect(mixedOutput)
-            }
+                    const localSource = audioContext.createMediaStreamSource(processedStream)
+                    const localGain = audioContext.createGain()
+                    const localKey = `${session._id}-local`
+
+                    localSource.connect(localGain)
+                    localGain.connect(mixedOutput)
+
+                    nodes.sources.set(localKey, localSource)
+                    nodes.gains.set(localKey, localGain)
+                } catch (error) {
+                    console.error(error)
+                }
+            } else if (isHostRoom) {
+                console.error(`Host room but no activeStreamValue - skipping host microphone for session ${session._id}`)
+            } /*else {
+                session.connection.getReceivers().forEach((receiver: RTCRtpReceiver) => {
+                    receiver.track.enabled = false
+                })
+            }*/
+
+            // Replace the track for this session
+            const senders = session.connection.getSenders()
+            const sender = senders[0]
+            const mixedTracks = mixedOutput.stream.getTracks()
 
             if (this.useVAD) {
                 this.processVAD(session, mixedOutput.stream)
             }
 
-            if (session.connection?.getSenders()[0]) {
-                //mixedOutput.stream.getTracks().forEach(track => track.enabled = !getters.isMuted) // Uncomment to mute all callers on mute
-                await session.connection.getSenders()[0].replaceTrack(mixedOutput.stream.getTracks()[0])
-                this.muteReconfigure(session)
+            if (sender && mixedTracks[0]) {
+                try {
+                    await sender.replaceTrack(mixedTracks[0])
+
+                    // IMPORTANT: Only unmute if host is in this room
+                    /*if (isHostRoom) {
+                        console.log(`[doConference] Applying mute reconfigure for session ${session._id} (host room)`)
+                        this.muteReconfigure(session)
+                    } else {
+                        console.log(`[doConference] Muting session ${session._id} (not host room)`)
+                        // Mute the outgoing audio for rooms where host is not present
+                        session.mute({ audio: true })
+                    }*/
+                    this.muteReconfigure(session)
+
+                } catch (error) {
+                    console.error(error)
+                }
             }
+
+            /*if (!isHostRoom) {
+                session.connection.getReceivers().forEach((receiver: RTCRtpReceiver) => {
+                    receiver.track.enabled = false
+                })
+            }*/
         })
     }
 
@@ -1032,7 +1289,12 @@ export class AudioModule {
         // TODO: if it answered incoming call and we are doing hangup we are getting unregistered event and sockets are reconnecting
         const call = this.extendedCalls[callId]
 
-        if (call._status !== 8) {
+        if (call._status === 4) {
+            call.terminate({
+                status_code: 603,
+                reason_phrase: 'Decline'
+            })
+        } else if (call._status !== 8) {
             call.terminate()
         }
     }
@@ -1058,10 +1320,28 @@ export class AudioModule {
 
         this.updateCallStatus({
             callId,
-            isTransferring: true
+            isTransferring: true,
+            isTransferred: false
         })
 
-        call.refer(`sip:${target}@${this.context.sipDomain}`)
+        call.refer(`sip:${target}@${this.context.sipDomain}`, {
+            eventHandlers: {
+                requestSucceeded: () => {
+                    this.updateCallStatus({
+                        callId,
+                        isTransferring: false,
+                        isTransferred: true
+                    })
+                },
+                requestFailed: () => {
+                    this.updateCallStatus({
+                        callId,
+                        isTransferring: false,
+                        isTransferred: false
+                    })
+                }
+            }
+        })
         this.updateCall(call)
     }
 
@@ -1116,6 +1396,25 @@ export class AudioModule {
     public setDND (value: boolean) {
         this.isDNDEnabled = value
         this.context.emit('changeIsDND', value)
+    }
+
+    /**
+     * Sets the call waiting feature state.
+     *
+     * When call waiting is disabled (false) and there are already active calls,
+     * any new incoming calls will be automatically rejected with a "busy" status.
+     *
+     * When call waiting is enabled (true), incoming calls will be allowed even when
+     * other calls are active.
+     *
+     * This setting is used in the shouldTerminateNewSession method to determine whether
+     * to automatically terminate new incoming sessions when the user is already on a call.
+     *
+     * @param {boolean} value - True to enable call waiting, false to disable
+     */
+    public setCallWaiting (value: boolean) {
+        this.isCallWaitingEnabled = value
+        this.context.emit('changeIsCallWaiting', value)
     }
 
     private startCallTimer (callId: string) {
@@ -1258,31 +1557,48 @@ export class AudioModule {
 
     private activeCallListRemove (call: ICall) {
         const session = this.extendedCalls[call._id]
+        if (!session) return
+
         this.stopVUMeter('origin')
+        this.stopVUMeter(call._id)
 
-        // TODO: try without it
-        session.connection?.getSenders().forEach((sender) => {
-            sender.track.stop()
-        })
+        const callRoomId = session.roomId
 
-        const callRoomIdToConfigure = session.roomId
-
-        /*session.removeAllListeners()
-
-        if (session.connection) {
-            session.connection.close()
-        }*/
-
-        //this.extendedCalls[call._id] = null
-
+        // Clean up the call
         this.removeCall(call._id)
-        this.roomReconfigure(callRoomIdToConfigure)
+
+        // Reconfigure the room
+        this.roomReconfigure(callRoomId).then(() => {
+            // Additional cleanup if needed
+        }).catch(error => {
+            console.error('Error reconfiguring room after call removal:', error)
+        })
+    }
+
+
+    /**
+     * Determines whether a new incoming session should be automatically terminated
+     * based on Do Not Disturb (DND) settings and Call Waiting settings.
+     *
+     * @param {RTCSessionEvent} event - The event containing the new RTC session
+     * @returns {boolean} True if the session should be terminated automatically, false otherwise
+     */
+    private shouldTerminateNewSession (event: RTCSessionEvent): boolean {
+        const session = event.session as RTCSessionExtended
+
+        if (session.direction === 'outgoing') {
+            return false
+        }
+
+        const terminateBecauseOfCallWaiting = !this.isCallWaiting && this.hasActiveCalls
+
+        return this.isDND || terminateBecauseOfCallWaiting
     }
 
     private async newRTCSessionCallback (event: RTCSessionEvent) {
         const session = event.session as RTCSessionExtended
 
-        if (this.isDND) {
+        if (this.shouldTerminateNewSession(event)) {
             session.terminate({
                 status_code: 486,
                 reason_phrase: 'Do Not Disturb'
@@ -1325,6 +1641,10 @@ export class AudioModule {
                 //this.vad?.pause()
                 //this.vad = null
             }
+
+            if (this.context.isWaitingForSessionHangup() && !this.hasActiveAnsweredCalls) {
+                this.context.stopSessionAfterWaiting()
+            }
         })
         session.on('progress', (event: IncomingEvent | OutgoingEvent) => {
             this.context.logger.log('Session in progress for', session._remote_identity?._uri?._user)
@@ -1366,6 +1686,10 @@ export class AudioModule {
                 //this.vad?.pause()
                 //this.vad = null
             }
+
+            if (this.context.isWaitingForSessionHangup() && !this.hasActiveAnsweredCalls) {
+                this.context.stopSessionAfterWaiting()
+            }
         })
         session.on('confirmed', (event: IncomingAckEvent | OutgoingAckEvent) => {
             this.context.logger.log('Session confirmed for', session._remote_identity?._uri?._user)
@@ -1385,7 +1709,7 @@ export class AudioModule {
 
         if (session.direction === 'outgoing') {
             const roomId = this.getActiveCalls[session.id].roomId
-            this.setActiveRoom(roomId)
+            await this.setActiveRoom(roomId)
         }
     }
 
@@ -1490,8 +1814,8 @@ export class AudioModule {
         metrics.startAllProbes()
     }
 
-    private setupVUMeter (stream: MediaStream, deviceId: string) {
-        this.VUMeter.start(stream, deviceId)
+    private async setupVUMeter (stream: MediaStream, deviceId: string) {
+        await this.VUMeter.start(await this.managedAudioContext.getContext(), stream, deviceId)
     }
 
     private stopVUMeter (deviceId: string) {
@@ -1499,38 +1823,66 @@ export class AudioModule {
     }
 
     async setupStream () {
-        //const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
+        try {
+            const streamStart = Date.now()
+            const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
 
-        if (this.initialStreamValue) {
-            this.initialStreamValue.getTracks().forEach((track) => track.stop())
-            this.initialStreamValue = null
-            //this.vad?.pause()
-            //this.vad = null
+            if (this.initialStreamValue) {
+                const tracksToStop = this.initialStreamValue.getTracks()
+                tracksToStop.forEach((track, index) => {
+                    track.stop()
+                })
+                this.initialStreamValue = null
+            }
+
+            this.initialStreamValue = stream
+        } catch (error) {
+            throw error
         }
-
-        const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
-
-        this.initialStreamValue = stream
     }
 
     private async triggerAddStream (event: RTCTrackEvent, call: ICall) {
-        this.setIsMuted(this.muteWhenJoin || this.isMuted)
+        const muteState = this.muteWhenJoin || this.isMuted
+        this.setIsMuted(muteState)
 
         if (!this.initialStreamValue) {
             await this.setupStream()
         }
 
-        const processedStream = processAudioVolume(this.initialStreamValue, this.microphoneInputLevel * 2)
+        const audioContext = await this.managedAudioContext.getContext()
+
+        const processedStream = await processAudioVolume(audioContext, this.initialStreamValue, this.microphoneInputLevel * 2)
         const muteMicro = this.isMuted || this.muteWhenJoin
 
-        processedStream.getTracks().forEach(track => track.enabled = !muteMicro)
-        this.setActiveStream(processedStream)
-        await call.connection.getSenders()[0].replaceTrack(processedStream.getTracks()[0])
+        processedStream.getTracks().forEach((track) => {
+            track.enabled = !muteMicro
+        })
+
+        await this.setActiveStream(processedStream)
+
+        const senders = call.connection.getSenders()
+        const firstSender = senders[0]
+
+
+        await firstSender.replaceTrack(processedStream.getTracks()[0])
 
         const stream = new MediaStream([ event.track ])
 
-        syncStream(stream, call, this.selectedOutputDevice, this.speakerVolume)
-        this.setupVUMeter(stream, call._id)
+        const syncStreamNeeded = !Object.values(this.extendedCalls)
+            .find((session) => session.audioTag && session.audioTag.id === call._id)
+
+        if (syncStreamNeeded) {
+            syncStream(stream, call, this.selectedOutputDevice, this.speakerVolume)
+        }
+
+        // IMPORTANT: Check if we should hear this call
+        const shouldHearThisCall = call.roomId === this.currentActiveRoomId
+
+        if (call.audioTag) {
+            call.audioTag.muted = !shouldHearThisCall
+        }
+
+        await this.setupVUMeter(stream, call._id)
         this.getCallQuality(call)
         this.updateCall(call)
 
@@ -1541,6 +1893,25 @@ export class AudioModule {
 
     //@requireInitialization()
     public initCall (target: string, addToCurrentRoom: boolean, holdOtherCalls = false) {
+        /*console.log('SPECIAL CASE INIT CALL')
+        if (Object.values(this.extendedCalls).length >= 2) {
+            console.log('SPECIAL CASE !!!!!!!!!!!!!!!')
+
+            navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+                const track = stream.getAudioTracks()[0]
+                track.enabled = false
+
+                Object.values(this.extendedCalls).forEach((session) => {
+                    session.connection.getSenders().forEach((sender) => {
+                        sender.replaceTrack(track)
+                    })
+
+                    session.connection.getReceivers().forEach((receiver) => {
+                        receiver.track.enabled = false
+                    })
+                })
+            })
+        }*/
         //this.checkInitialized()
 
         if (target.length === 0) {
@@ -1596,22 +1967,18 @@ export class AudioModule {
     }
 
     private async processRoomChange ({ callId, roomId }: { callId: string, roomId: number }) {
-        const oldRoomId = this.extendedCalls[callId].roomId
-
-        this.extendedCalls[callId].roomId = roomId
-
         const call = this.extendedCalls[callId]
+        if (!call) {
+            return
+        }
+
+        const oldRoomId = call.roomId
+
+        call.roomId = roomId
+
         this.updateCall(call)
 
-        await this.setActiveRoom(roomId)
-
-        return Promise.all([
-            this.roomReconfigure(oldRoomId),
-            this.roomReconfigure(roomId)
-        ]).then(() => {
-            this.deleteRoomIfEmpty(oldRoomId)
-            this.deleteRoomIfEmpty(roomId)
-        })
+        await this.roomReconfigure(oldRoomId)
+        await this.roomReconfigure(roomId)
     }
-
 }

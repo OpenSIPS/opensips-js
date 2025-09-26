@@ -114,6 +114,7 @@ export interface ICallStatus {
     isMoving: boolean
     isTransferring: boolean
     isMerging: boolean
+    isTransferred: boolean
 }
 
 export interface ICallStatusUpdate {
@@ -121,6 +122,7 @@ export interface ICallStatusUpdate {
     isMoving?: boolean
     isTransferring?: boolean
     isMerging?: boolean
+    isTransferred?: boolean
 }
 
 export type IRoomUpdate = Omit<IRoom, 'started'> & {
@@ -133,6 +135,8 @@ export type MSRPModuleName = typeof MODULES.MSRP
 
 export type Modules = AudioModuleName | VideoModuleName | MSRPModuleName
 
+export type OnTransportCallback = (parsed: object, message: string) => void
+
 export interface VADOptions {
     model: 'v5' | 'legacy'
     positiveSpeechThreshold: number
@@ -142,9 +146,11 @@ export interface VADOptions {
 }
 
 type UAConfigurationExtended = UAConfiguration & {
+    reconnectionAttemptsLimit?: number
     overrideUserAgent?: (userAgent: string) => string
     useVAD?: boolean
     VADOptions?: Partial<VADOptions>
+    onTransportCallback?: OnTransportCallback
 }
 
 export type IOpenSIPSConfiguration = Omit<UAConfigurationExtended, 'sockets'>

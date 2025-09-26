@@ -49,7 +49,7 @@ and environments.
   applications for both iOS and Android.
   Check React Native wrapper for opensips [here](https://github.com/VoicenterTeam/opensips-react-native).
 
-  Use `npm i @voicenter-team/react-native-opensips` to install module.
+  Use `npm i opensips-js-react-native` to install module.
 
 - **Opensips Ionic**:
   Designed for hybrid mobile app development, this module integrates with the Ionic

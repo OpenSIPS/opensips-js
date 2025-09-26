@@ -26,11 +26,12 @@ import { /*MSRPSession, */JanusOptions } from '@/lib/janus/session' // TODO: imp
 //import Parser from 'jssip/lib/Parser'
 import Parser from '@/lib/janus/Parser'
 
-import { CallOptionsExtended } from '@/types/rtc'
+import { CallOptionsExtended, OnTransportCallback } from '@/types/rtc'
 import { UAExtendedInterface } from '@/lib/msrp/session'
 
 //import Registrator from 'jssip/lib/Registrator'
 import Registrator from '@/lib/janus/Registrator'
+//import Registrator from '@/helpers/Registrator'
 
 const logger = console
 
@@ -83,6 +84,13 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
     protected newStreamPlugins: Array<BaseNewStreamPlugin> = []
     protected processStreamPlugins: Array<BaseProcessStreamPlugin> = []
 
+    protected optionsInterval = null
+
+    protected onTransportCallback: OnTransportCallback
+
+    protected lastOptionsTimestamp = null
+    protected lastRegisterTimestamp = null
+
     //_janus_session: any = null
 
     constructor (configuration: UAConfiguration) {
@@ -95,6 +103,10 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
             'pn-param': 'acme-param',
             'pn-prid': 'ZTY4ZDJlMzODE1NmUgKi0K>'
         })*/
+    }
+
+    setLastRegisterTimestamp () {
+        this.lastRegisterTimestamp = Date.now()
     }
 
     call (target: string, options?: CallOptionsExtended): RTCSession {
@@ -183,6 +195,10 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         this._configuration.user_agent = configuration.overrideUserAgent &&
             typeof configuration.overrideUserAgent === 'function' ?
             configuration.overrideUserAgent(userAgent) : userAgent
+
+        if (configuration.onTransportCallback && typeof configuration.onTransportCallback === 'function') {
+            this.onTransportCallback = configuration.onTransportCallback
+        }
 
         // Jssip_id instance parameter. Static random tag of length 5.
         this._configuration.jssip_id = Utils.createRandomToken(5)
@@ -364,6 +380,11 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         delete this._janus_sessions[session.id]
     }
 
+    clearKeepAliveInterval () {
+        clearInterval(this.optionsInterval)
+        this.optionsInterval = null
+    }
+
     receiveRequest (request: any) {
         const method = request.method
         // Check that request URI points to us.
@@ -406,6 +427,26 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
          * They are processed as if they had been received outside the dialog.
          */
         if (method === JsSIP_C.OPTIONS) {
+            this.lastOptionsTimestamp = Date.now()
+
+            if (!this.optionsInterval) {
+                this.emit('initKeepAliveInterval')
+                this.optionsInterval = setInterval(() => {
+                    const currentTimestamp = Date.now()
+
+                    const optionsTimeoutCondition = this.lastOptionsTimestamp > currentTimestamp - 35000
+
+                    const registerTimeoutCondition = (this.lastRegisterTimestamp +
+                        (this._configuration.register_expires * 1000)) > currentTimestamp
+
+                    if (optionsTimeoutCondition && registerTimeoutCondition) {
+                        this.emit('keepAliveInterval')
+                    }
+
+                }, 35000)
+            }
+
+
             if (this.listeners('newOptions').length === 0) {
                 request.reply(200)
 
@@ -610,7 +651,21 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         }
     }
 
-    stop () {
+    terminateAllSessions () {
+        for (const session in this._sessions) {
+            if (Object.prototype.hasOwnProperty.call(this._sessions, session)) {
+                logger.debug(`closing session ${session}`)
+
+                try {
+                    this._sessions[session].terminate()
+                } catch (error) {
+                    console.error(error)
+                }
+            }
+        }
+    }
+
+    stop (closeSessions = true) {
         logger.debug('stop()')
 
         // Remove dynamic settings.
@@ -628,18 +683,29 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         // If there are session wait a bit so CANCEL/BYE can be sent and their responses received.
         const num_sessions = Object.keys(this._sessions).length
 
+        if (closeSessions) {
+            this.terminateAllSessions()
+        }
         // Run  _terminate_ on every Session.
-        for (const session in this._sessions) {
+        /*for (const session in this._sessions) {
             if (Object.prototype.hasOwnProperty.call(this._sessions, session)) {
                 logger.debug(`closing session ${session}`)
 
                 try {
-                    this._sessions[session].terminate()
+                    console.log('IN TRY')
+                    if (closeSessions) {
+                        this._sessions[session].terminate()
+                        //console.log('IN ENDED')
+                        /!*this._sessions[session]._ended('local', null, JsSIP_C.causes.BYE)*!/
+                    } /!*else {
+                        console.log('IN TERMINATE')
+                        this._sessions[session].terminate()
+                    }*!/
                 } catch (error) {
                     console.error(error)
                 }
             }
-        }
+        }*/
 
         // If there are session wait a bit so CANCEL/BYE can be sent and their responses received.
         // const num_msrp_sessions = Object.keys(this._msrp_sessions).length
@@ -765,8 +831,12 @@ function onTransportData (data) {
     const transport = data.transport
     let message = data.message
 
+    const originalMessage = message
     message = Parser.parseMessage(message, this)
-    //console.log('onTransportData method', message.method)
+
+    if (this.onTransportCallback && typeof this.onTransportCallback === 'function') {
+        this.onTransportCallback(message, originalMessage)
+    }
 
     if (!message) {
         return

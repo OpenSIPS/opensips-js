@@ -1,4 +1,4 @@
-import { ICall, StreamMediaType, MediaEvent, CustomLoggerType } from '@/types/rtc'
+import { ICall, StreamMediaType, CustomLoggerType } from '@/types/rtc'
 import { Writeable } from '@/types/generic'
 import { IMessage } from '@/types/msrp'
 
@@ -78,12 +78,11 @@ export function simplifyMessageObject (call: IMessage): IMessageSimplified {
     return simplified as IMessageSimplified
 }
 
-export function processAudioVolume (stream: MediaStream, volume: number) {
-    // volume should be in range from 0 to 2
-    const audioContext = new AudioContext()
+export async function processAudioVolume (audioContext: AudioContext, stream: MediaStream, volume: number): Promise<MediaStream> {
     const audioSource = audioContext.createMediaStreamSource(stream)
     const audioDestination = audioContext.createMediaStreamDestination()
     const gainNode = audioContext.createGain()
+
     audioSource.connect(gainNode)
     gainNode.connect(audioDestination)
     gainNode.gain.value = volume
@@ -92,16 +91,18 @@ export function processAudioVolume (stream: MediaStream, volume: number) {
 }
 
 export function syncStream (stream: MediaStream, call: ICall, outputDevice: string, volume: number) {
+    if (isMobile()) {
+        return
+    }
+
     const audio = document.createElement('audio') as StreamMediaType
 
     audio.id = call._id
     audio.className = 'audioTag'
     audio.srcObject = stream
 
-    if (!isMobile()) {
-        audio.setSinkId(outputDevice)
-        audio.volume = volume
-    }
+    audio.setSinkId(outputDevice)
+    audio.volume = volume
 
     audio.play()
     call.audioTag = audio
@@ -118,5 +119,5 @@ export function isLoggerCompatible (logger: CustomLoggerType) {
 }
 
 export function isMobile () {
-    return /Mobi|Android|iPhone/i.test(navigator.userAgent)
+    return /Mobi|react-native|Android|iPhone/i.test(navigator.userAgent)
 }
