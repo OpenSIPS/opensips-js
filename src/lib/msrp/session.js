@@ -136,8 +136,12 @@ export class MSRPSession extends EventEmitter{
 
         const msgObj = new Message('')
         msgObj.method = 'SEND'
+        let toPath = ""
+        if(this.my_addr[1]) toPath = this.my_addr[1]
+        if(this.target_addr[1]) toPath += " " + this.target_addr[1]
+        if(this.target_addr[0]) toPath += " " + this.target_addr[0]
         // msgObj.addHeader('To-Path', `${this.my_addr[1]}`)
-        msgObj.addHeader('To-Path', `${this.my_addr[1]} ${this.target_addr[1]} ${this.target_addr[0]}`)
+        msgObj.addHeader('To-Path', toPath)
         msgObj.addHeader('From-Path', `${this.my_addr[0]}`)
         msgObj.addHeader('Message-ID', Utils.createRandomToken(10))
         msgObj.addHeader('Byte-Range', '0-0/0')
@@ -621,7 +625,7 @@ export class MSRPSession extends EventEmitter{
         if(this.target_addr[0]) toPath += " " + this.target_addr[0];
         msgObj.method = 'SEND';
         // msgObj.addHeader('To-Path', `${this.my_addr[1]} ${this.target_addr[1]} ${this.target_addr[0]}`)
-        msgObj.addHeader('To-Path', `${toPath}`)
+        msgObj.addHeader('To-Path', toPath)
         msgObj.addHeader('From-Path', `${this.my_addr[0]}`)
         msgObj.addHeader('Message-ID', Utils.createRandomToken(10))
         msgObj.addHeader('Byte-Range', '1-25/25')
