@@ -66,6 +66,109 @@ function addAudio (audioUrl) {
     return entry
 }
 
+async function createVADControlledStream (originalStream: MediaStream, delayMs = 150) {
+    const audioCtx = new AudioContext()
+
+    const source = audioCtx.createMediaStreamSource(originalStream)
+
+    const delay = audioCtx.createDelay()
+    delay.delayTime.value = delayMs / 1000
+
+    const gainNode = audioCtx.createGain()
+    gainNode.gain.value = 0
+
+    const destination = audioCtx.createMediaStreamDestination()
+
+    source.connect(delay).connect(gainNode).connect(destination)
+
+    return {
+        stream: destination.stream,
+        setSpeaking: (speaking: boolean) => {
+            gainNode.gain.value = speaking ? 1 : 0
+        },
+    }
+}
+
+/*async function createVADStream (originalStream: MediaStream) {
+    const [ micTrack ] = originalStream.getAudioTracks()
+
+    // 1. Processor + Generator
+    const processor = new MediaStreamTrackProcessor({ track: micTrack })
+    const generator = new MediaStreamTrackGenerator({ kind: 'audio' })
+
+    const reader = processor.readable.getReader()
+    const writer = generator.writable.getWriter()
+
+    // Silence frame helper
+    function makeSilentFrame (frame: AudioData) {
+        const bytesPerPlane = frame.allocationSize({ planeIndex: 0 })
+        const totalBytes = bytesPerPlane * frame.numberOfChannels
+
+        return new AudioData({
+            format: frame.format,
+            sampleRate: frame.sampleRate,
+            numberOfFrames: frame.numberOfFrames,
+            numberOfChannels: frame.numberOfChannels,
+            timestamp: frame.timestamp,
+            data: new ArrayBuffer(totalBytes), // ✅ correct total size
+        })
+    }
+
+    // Circular buffer for preSpeechPadMs (~500ms)
+    const preBuffer: AudioData[] = []
+    const maxPreBufferMs = 150 // same as preSpeechPadMs
+    let speaking = false
+
+    function pushToPreBuffer (frame: AudioData) {
+        // Clone the frame for later use
+        const plane = new Float32Array(frame.numberOfFrames * frame.numberOfChannels)
+        frame.copyTo(plane, { planeIndex: 0 })
+
+        const clone = new AudioData({
+            format: frame.format,
+            sampleRate: frame.sampleRate,
+            numberOfFrames: frame.numberOfFrames,
+            numberOfChannels: frame.numberOfChannels,
+            timestamp: frame.timestamp,
+            data: plane.buffer,
+        })
+
+        preBuffer.push(clone)
+    }
+
+    // 2. Main processing loop
+    (async () => {
+        while (true) {
+            const { value: frame, done } = await reader.read()
+            if (done) break
+
+            if (!speaking) {
+                pushToPreBuffer(frame)
+                await writer.write(makeSilentFrame(frame))
+                frame.close()
+            } else {
+                while (preBuffer.length > 0) {
+                    const buffered = preBuffer.shift()!
+                    await writer.write(buffered)
+                    buffered.close()
+                }
+
+                await writer.write(frame)
+                frame.close()
+            }
+        }
+    })()
+
+    // Return the modified stream
+    const vadStream = new MediaStream([ generator ])
+    return {
+        vadStream,
+        setSpeaking: (val: boolean) => {
+            speaking = val
+        },
+    }
+}*/
+
 export class AudioModule {
     private context: OpenSIPSJS
     private currentActiveRoomIdValue: number | undefined
@@ -318,7 +421,13 @@ export class AudioModule {
             audio: {
                 deviceId: {
                     exact: this.selectedMediaDevices.input
-                }
+                },
+                echoCancellation: true,
+                echoCancellationType: 'system',
+                noiseSuppression: true,
+                autoGainControl: true,
+                sampleRate: 48000,
+                latency: 0.01
             },
             video: false
         }
@@ -864,91 +973,48 @@ export class AudioModule {
         }
     }
 
-    private async processVAD (session, stream) {
-        const clonedStream = stream.clone()
+    private async processVAD (session: ICall, stream: MediaStream) {
+        //const clonedStream = stream.clone()
+        //clonedStream.getTracks().forEach((track) => track.enabled = true)
+        //const options = getDefaultRealTimeVADOptions('v5')
 
-        clonedStream.getTracks().forEach((track) => track.enabled = true)
+        const { stream: vadStream, setSpeaking } = await createVADControlledStream(stream, 150)
 
-        const newStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                sampleRate: 16000, // <-- ensure this is at least 16000
-                channelCount: 1,
-                echoCancellation: false,
-                noiseSuppression: false,
-                autoGainControl: false
-            },
-            video: false
-        })
+        if (session.connection.getSenders()[0]) {
+            await session.connection.getSenders()[0].replaceTrack(vadStream.getAudioTracks()[0])
+        }
 
-        const options = getDefaultRealTimeVADOptions('legacy')
-        console.log('VAD Options', {
-            ...options,
-            ...this.vadConfiguration,
-            stream: newStream,
-        })
+        /*const { vadStream, setSpeaking } = await createVADStream(stream)
+
+        if (session.connection.getSenders()[0]) {
+            await session.connection.getSenders()[0].replaceTrack(vadStream.getAudioTracks()[0])
+        }*/
 
         const vadSession = await MicVAD.new({
-            ...options,
-            /*positiveSpeechThreshold: 0.35,
-            negativeSpeechThreshold: 0.35,
-            preSpeechPadFrames: 4,
-            redemptionFrames: 8,
-            frameSamples: 1536,
-            minSpeechFrames: 2,
-            submitUserSpeechOnPause: false,*/
-            ...this.vadConfiguration,
-            stream: newStream,
-            /*model: 'v5',
-            //baseAssetPath: '/',
-            //onnxWASMBasePath: '/',
-            positiveSpeechThreshold: 0.4,
-            negativeSpeechThreshold: 0.4,
-            minSpeechFrames: 15,
-            preSpeechPadFrames: 30,*/
-            /*model: 'legacy',
-            positiveSpeechThreshold: 0.4,
-            negativeSpeechThreshold: 0.4,
-            minSpeechFrames: 15,
-            preSpeechPadFrames: 30,*/
-            /*model: 'v5',
-            positiveSpeechThreshold: 0.5,
-            negativeSpeechThreshold: 0.35,
-            minSpeechFrames: 9,
-            preSpeechPadFrames: 3,
-            redemptionFrames: 24,
-            frameSamples: 512,
-            submitUserSpeechOnPause: false,
-            baseAssetPath: 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.20/dist/',
-            onnxWASMBasePath: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/',*/
+            getStream: () => new Promise((res) => res(stream)),
+            positiveSpeechThreshold: 0.6,//0.3
+            negativeSpeechThreshold: 0.3,//0.25
+            preSpeechPadMs: 150,
+            redemptionMs: 1500,
+            minSpeechMs: 50,
+            baseAssetPath: 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.28/dist/',
+            onnxWASMBasePath: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/',
             onVADMisfire: () => {
-                console.log('Vad misfire')
-                /*if (session.connection?.getSenders()[0]) {
-                    session.connection.getSenders()[0].track.enabled = false
-                    console.log('After disable', session._id)
-                }*/
+                console.log('⚠️ Misfire (too short)')
             },
             onFrameProcessed: (probabilities, frame) => {
                 console.log('onFrameProcessed')
             },
             onSpeechStart: () => {
-                console.log('Speech start')
-                if (session.connection?.getSenders()[0]) {
-                    session.connection.getSenders()[0].track.enabled = true
-                    console.log('After enable', session._id)
-                }
+                console.log('🎤 Speech started')
+                setSpeaking(true)
             },
             onSpeechRealStart: () => {
                 console.log('Speech real start')
             },
             onSpeechEnd: (arr) => {
-                console.log('Speech end')
-                /*const wavBuffer = utils.encodeWAV(audio)
-                const base64 = utils.arrayBufferToBase64(wavBuffer)
-                const url = `data:audio/wav;base64,${base64}`*/
-                if (session.connection?.getSenders()[0]) {
-                    session.connection.getSenders()[0].track.enabled = false
-                    console.log('After disable', session._id)
-                }
+                console.log('🛑 Speech end')
+                setSpeaking(false)
 
 
                 const wavBuffer = utils.encodeWAV(arr)
@@ -1086,6 +1152,7 @@ export class AudioModule {
                     const processedStream = await this.getActiveStream()
 
                     if (this.useVAD) {
+                        console.log('TTT roomReconfigure processVad')
                         this.processVAD(callsInRoom[0], processedStream)
                     }
 
@@ -1233,6 +1300,7 @@ export class AudioModule {
             const mixedTracks = mixedOutput.stream.getTracks()
 
             if (this.useVAD) {
+                console.log('TTT doConference processVad')
                 this.processVAD(session, mixedOutput.stream)
             }
 
@@ -1887,6 +1955,7 @@ export class AudioModule {
         this.updateCall(call)
 
         if (this.useVAD) {
+            console.log('TTT triggerAddStream processVad')
             this.processVAD(call, processedStream)
         }
     }

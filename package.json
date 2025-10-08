@@ -59,7 +59,7 @@
     "vue": "3.2.25"
   },
   "dependencies": {
-    "@ricky0123/vad-web": "^0.0.24",
+    "@ricky0123/vad-web": "^0.0.28",
     "@types/mime": "^3.0.1",
     "generate-unique-id": "^2.0.1",
     "jssip": "3.10.0",

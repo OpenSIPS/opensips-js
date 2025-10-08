@@ -13,7 +13,10 @@ console.log('TARGET:', target)
 export default defineConfig(({ command }) => {
     if (command === 'serve') {
         return {
-            plugins: [ vue(), viteSingleFile() ],
+            plugins: [
+                vue(),
+                viteSingleFile()
+            ],
             root: './demo',
             base: '',
             resolve: {
