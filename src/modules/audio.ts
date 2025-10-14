@@ -26,6 +26,7 @@ import { IncomingAckEvent, IncomingEvent, OutgoingAckEvent, OutgoingEvent } from
 import WebRTCMetrics from '@/helpers/webrtcmetrics/metrics'
 import { filterObjectKeys } from '@/helpers/filter.helper'
 import { METRIC_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
+import vadDefaultConfig from '@/enum/vad.default.config'
 import VUMeter from '@/helpers/VUMeter'
 import OpenSIPSJS from '@/index'
 import ManagedAudioContext from '@/helpers/audioContext'
@@ -87,6 +88,115 @@ async function createVADControlledStream (originalStream: MediaStream, delayMs =
             gainNode.gain.value = speaking ? 1 : 0
         },
     }
+}
+
+/*function computeRMS (samples: Float32Array) {
+    let sum = 0
+    for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i]
+    return Math.sqrt(sum / samples.length)
+}
+
+function startNoiseMonitor (stream, { threshold = 0.015, onNoiseDetected }) {
+    const ctx = new AudioContext()
+    const source = ctx.createMediaStreamSource(stream)
+    const analyser = ctx.createAnalyser()
+    analyser.fftSize = 1024
+    const buf = new Float32Array(analyser.fftSize)
+    source.connect(analyser)
+
+    let lastHighTime = 0
+    let noiseActive = false
+
+    const check = () => {
+        console.log('CHECK')
+        analyser.getFloatTimeDomainData(buf)
+        const rms = computeRMS(buf)
+        const now = performance.now()
+
+        if (rms > threshold) lastHighTime = now
+        const noisy = now - lastHighTime < 2000 // 2s hold
+
+        if (noisy !== noiseActive) {
+            noiseActive = noisy
+            onNoiseDetected(noisy)
+        }
+
+        //requestAnimationFrame(check)
+    }
+    //check()
+
+    setInterval(check, 1000)
+}*/
+
+function computeRMS (samples: Float32Array): number {
+    let sum = 0
+    for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i]
+    return Math.sqrt(sum / samples.length)
+}
+
+/**
+ * Monitors background noise while user is not speaking.
+ * Calls `onNoiseDetected()` or `onNoiseStop()` when mode should switch.
+ */
+function startNoiseMonitor ({
+    stream,
+    getIsSpeaking,
+    getCurrentMode,
+    setMode,
+    onNoiseDetected,
+    onNoiseStop,
+    threshold = 0.003,
+    pollIntervalMs = 2000,
+    holdMs = 2500, // must stay noisy/quiet this long to switch
+}: {
+    stream: MediaStream;
+    getIsSpeaking: () => boolean;
+    getCurrentMode: () => 'clean' | 'noisy';
+    setMode: (mode: 'clean' | 'noisy') => void;
+    onNoiseDetected: () => void;
+    onNoiseStop: () => void;
+    threshold?: number;
+    pollIntervalMs?: number;
+    holdMs?: number;
+}) {
+    const ctx = new AudioContext()
+    const source = ctx.createMediaStreamSource(stream.clone())
+    const analyser = ctx.createAnalyser()
+    analyser.fftSize = 1024
+    const buf = new Float32Array(analyser.fftSize)
+    source.connect(analyser)
+
+    let lastAboveThreshold = 0
+    let lastBelowThreshold = 0
+
+    setInterval(() => {
+        analyser.getFloatTimeDomainData(buf)
+        const rms = computeRMS(buf)
+        const now = performance.now()
+
+        const isNoisyNow = rms > threshold
+        const isSpeaking = getIsSpeaking()
+        const mode = getCurrentMode()
+
+        if (isNoisyNow) lastAboveThreshold = now
+        else lastBelowThreshold = now
+
+        const noiseHigh = now - lastAboveThreshold < holdMs
+        const noiseLow = now - lastBelowThreshold < holdMs
+
+        // Only act if user is NOT speaking
+        if (!isSpeaking) {
+            if (noiseHigh && mode === 'clean') {
+                console.log('🔊 Persistent background noise detected → enable VAD')
+                setMode('noisy')
+                onNoiseDetected()
+            } else if (noiseLow && mode === 'noisy') {
+                console.log('🌤️ Background quiet again → disable VAD')
+                setMode('clean')
+                onNoiseStop()
+            }
+        }
+    }, pollIntervalMs)
 }
 
 /*async function createVADStream (originalStream: MediaStream) {
@@ -973,89 +1083,156 @@ export class AudioModule {
         }
     }
 
+    onProcessFrameCallback (stream, {
+        threshold,
+        onNoiseDetected,
+        onNoiseStop
+    }) {
+        const ctx = new AudioContext()
+        const source = ctx.createMediaStreamSource(stream.clone())
+        const analyser = ctx.createAnalyser()
+        analyser.fftSize = 1024
+        const buf = new Float32Array(analyser.fftSize)
+        source.connect(analyser)
+
+        let lastHighTime = 0
+        let noiseActive = false
+
+        const check = () => {
+            analyser.getFloatTimeDomainData(buf)
+            const rms = computeRMS(buf)
+            const now = performance.now()
+
+            console.log('rms', rms)
+
+            if (rms > threshold) lastHighTime = now
+            const isNoisy = now - lastHighTime < 2000 // 2s hold
+
+            if (isNoisy !== noiseActive) {
+                noiseActive = isNoisy
+                //onNoiseDetected(noisy)
+                if (isNoisy && this.currentMode === 'clean') {
+                    if (!this.isSpeaking) {
+                        this.currentMode = 'noisy'
+
+                        console.log('change mode attempt, mode:', this.currentMode)
+                        console.log('🔊 Noise detected and no speaking → enabling VAD stream')
+                        onNoiseDetected()
+                    }
+                }
+
+                if (!isNoisy && this.currentMode === 'noisy') {
+                    if (!this.isSpeaking) {
+                        this.currentMode = 'clean'
+
+                        console.log('change mode attempt, mode:', this.currentMode)
+                        console.log('🌤️ Noise gone and no speaking → disabling VAD stream')
+                        onNoiseStop()
+                    }
+                }
+            }
+
+            //requestAnimationFrame(check)
+        }
+        //check()
+
+        setInterval(check, 1000)
+    }
+
     private async processVAD (session: ICall, stream: MediaStream) {
         //const clonedStream = stream.clone()
         //clonedStream.getTracks().forEach((track) => track.enabled = true)
         //const options = getDefaultRealTimeVADOptions('v5')
 
-        const { stream: vadStream, setSpeaking } = await createVADControlledStream(stream, 150)
+        this.currentMode = 'clean' // "clean" | "noisy"
+        this.isSpeaking = false
+        //let micVAD
 
-        if (session.connection.getSenders()[0]) {
-            await session.connection.getSenders()[0].replaceTrack(vadStream.getAudioTracks()[0])
-        }
+        const vadControlled = await createVADControlledStream(stream, 150)
 
-        /*const { vadStream, setSpeaking } = await createVADStream(stream)
-
-        if (session.connection.getSenders()[0]) {
-            await session.connection.getSenders()[0].replaceTrack(vadStream.getAudioTracks()[0])
+        /*if (session.connection.getSenders()[0]) {
+            await session.connection.getSenders()[0].replaceTrack(vadControlled.stream.getAudioTracks()[0])
         }*/
+
+        let isFirstFrameProcessed = false
 
         const vadSession = await MicVAD.new({
             getStream: () => new Promise((res) => res(stream)),
-            positiveSpeechThreshold: 0.6,//0.3
-            negativeSpeechThreshold: 0.3,//0.25
-            preSpeechPadMs: 150,
-            redemptionMs: 1500,
-            minSpeechMs: 50,
+            ...vadDefaultConfig,
+            ...this.vadConfiguration,
             baseAssetPath: 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.28/dist/',
             onnxWASMBasePath: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/',
             onVADMisfire: () => {
                 console.log('⚠️ Misfire (too short)')
             },
             onFrameProcessed: (probabilities, frame) => {
+                /*if (!isFirstFrameProcessed) {
+                    isFirstFrameProcessed = true
+                    this.onProcessFrameCallback(stream, {
+                        threshold: 0.003,
+                        onNoiseDetected: async () => {
+                            console.log('🔊 Noise detected → enabling VAD stream')
+                            await session.connection.getSenders()[0]
+                                ?.replaceTrack(vadControlled.stream.getAudioTracks()[0])
+                        },
+                        onNoiseStop: async () => {
+                            console.log('🌤️ Noise gone → using original stream')
+                            await session.connection.getSenders()[0]
+                                ?.replaceTrack(stream.getAudioTracks()[0])
+                        }
+                    })
+                }*/
+
+                if (!isFirstFrameProcessed) {
+                    isFirstFrameProcessed = true
+                    console.log('✅ VAD initialized, starting background noise monitoring')
+
+                    startNoiseMonitor({
+                        stream,
+                        threshold: 0.004,
+                        pollIntervalMs: 2000,
+                        holdMs: 2500,
+                        getIsSpeaking: () => this.isSpeaking,
+                        getCurrentMode: () => this.currentMode,
+                        setMode: (mode) => (this.currentMode = mode),
+                        onNoiseDetected: async () => {
+                            console.log('OVERRIDE: use vad stream')
+                            await session.connection
+                                .getSenders()[0]
+                                ?.replaceTrack(vadControlled.stream.getAudioTracks()[0])
+                        },
+                        onNoiseStop: async () => {
+                            console.log('OVERRIDE: use original stream')
+                            await session.connection
+                                .getSenders()[0]
+                                ?.replaceTrack(stream.getAudioTracks()[0])
+                        },
+                    })
+                }
+
                 console.log('onFrameProcessed')
             },
             onSpeechStart: () => {
                 console.log('🎤 Speech started')
-                setSpeaking(true)
+                vadControlled.setSpeaking(true)
+                this.isSpeaking = true
             },
             onSpeechRealStart: () => {
                 console.log('Speech real start')
             },
             onSpeechEnd: (arr) => {
                 console.log('🛑 Speech end')
-                setSpeaking(false)
+                vadControlled.setSpeaking(false)
+                this.isSpeaking = false
 
-
-                const wavBuffer = utils.encodeWAV(arr)
+                /*const wavBuffer = utils.encodeWAV(arr)
                 const base64 = utils.arrayBufferToBase64(wavBuffer)
                 const url = `data:audio/wav;base64,${base64}`
                 const el = addAudio(url)
                 const speechList = document.getElementById('playlist')
                 console.log('prepend')
-                speechList.prepend(el)
-                //setAudioList((old) => [ url, ...old ])
-            },
-            /*onFrameProcessed: (probabilities, frame) => {
-                console.log('onFrameProcessed')
-            },
-            onSpeechRealStart: () => {
-                console.log('Speech real start')
-            },
-            onSpeechStart: async () => {
-                console.log('onSpeechStart', session._id)
-                if (session.connection?.getSenders()[0]) {
-                    session.connection.getSenders()[0].track.enabled = true
-                    console.log('After enable', session._id)
-                }
-            },
-            onVADMisfire: async () => {
-                console.log('onVADMisfire', session._id)
-                if (session.connection?.getSenders()[0]) {
-                    session.connection.getSenders()[0].track.enabled = false
-                    console.log('After disable', session._id)
-                }
-            },
-            onSpeechEnd: (arr) => {
-                console.log('onSpeechEnd')
-                const wavBuffer = utils.encodeWAV(arr)
-                const base64 = utils.arrayBufferToBase64(wavBuffer)
-                const url = `data:audio/wav;base64,${base64}`
-                const el = addAudio(url)
-                const speechList = document.getElementById('playlist')
-                console.log('prepend')
-                speechList.prepend(el)
-            },*/
+                speechList.prepend(el)*/
+            }
         })
 
         if (this.vadSessions[session._id]) {
@@ -1067,6 +1244,18 @@ export class AudioModule {
         vadSession.start()
 
         console.log('this.vadSessions', this.vadSessions)
+
+        /*const { stream: vadStream, setSpeaking } = await createVADControlledStream(stream, 150)
+
+        if (session.connection.getSenders()[0]) {
+            await session.connection.getSenders()[0].replaceTrack(vadStream.getAudioTracks()[0])
+        }*/
+
+        /*const { vadStream, setSpeaking } = await createVADStream(stream)
+
+        if (session.connection.getSenders()[0]) {
+            await session.connection.getSenders()[0].replaceTrack(vadStream.getAudioTracks()[0])
+        }*/
     }
 
     private stopSessionVad (session) {
