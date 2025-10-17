@@ -572,6 +572,9 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
     try {
         const configuration: IOpenSIPSConfiguration = {
             session_timers: false,
+            noiseReductionOptions: {
+                mode: 'disabled'
+            },
             uri: `sip:${username}@${domain}`,
             overrideUserAgent: (userAgent) => userAgent + ' Vue 3.0'
         }

@@ -145,11 +145,25 @@ export interface VADOptions {
     preSpeechPadFrames: number
 }
 
+export interface VADSessionState {
+    isSpeaking: boolean
+    currentMode: 'clean' | 'noisy'
+}
+
+export type NoiseReductionMode = 'disabled' | 'enabled' | 'dynamic'
+
+export interface NoiseReductionOptions {
+    mode: NoiseReductionMode,
+    vadConfig?: Partial<VADOptions>
+    backgroundNoiseThreshold?: number
+    backgroundNoiseHoldMs?: number
+    backgroundNoiseCheckInterval?: number
+}
+
 type UAConfigurationExtended = UAConfiguration & {
     reconnectionAttemptsLimit?: number
     overrideUserAgent?: (userAgent: string) => string
-    useVAD?: boolean
-    VADOptions?: Partial<VADOptions>
+    noiseReductionOptions?: NoiseReductionOptions
     onTransportCallback?: OnTransportCallback
 }
 

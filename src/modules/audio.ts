@@ -6,10 +6,12 @@ import {
     IRoom,
     IRoomUpdate,
     RTCSessionExtended,
-    VADOptions
+    VADSessionState,
+    NoiseReductionOptions
 } from '@/types/rtc'
 import { CallTime, ITimeData, TempTimeData } from '@/types/timer'
 import { setupTime } from '@/helpers/time.helper'
+import { computeRMS } from '@/helpers/vad.helper'
 import {
     MediaDeviceType,
     MetricAudioData,
@@ -20,7 +22,7 @@ import {
 import { isMobile, processAudioVolume, simplifyCallObject, syncStream } from '@/helpers/audio.helper'
 import { RTCSessionEvent } from 'jssip/lib/UA'
 import { forEach } from 'p-iteration'
-import { MicVAD, utils, getDefaultRealTimeVADOptions } from '@ricky0123/vad-web'
+import { MicVAD } from '@ricky0123/vad-web'
 import { CALL_EVENT_LISTENER_TYPE } from '@/enum/call.event.listener.type'
 import { IncomingAckEvent, IncomingEvent, OutgoingAckEvent, OutgoingEvent } from 'jssip/lib/RTCSession'
 import WebRTCMetrics from '@/helpers/webrtcmetrics/metrics'
@@ -39,33 +41,6 @@ const STORAGE_KEYS = {
     SELECTED_OUTPUT_DEVICE: 'OpensipsJSOutputDevice'
 }
 const CALL_STATUS_UNANSWERED = 0
-
-export function debounce (callback, wait) {
-    let timerId
-
-    const debounced = (...args) => {
-        clearTimeout(timerId)
-        timerId = setTimeout(() => {
-            callback(...args)
-        }, wait)
-    }
-
-    debounced.cancel = () => {
-        clearTimeout(timerId)
-    }
-
-    return debounced
-}
-
-function addAudio (audioUrl) {
-    const entry = document.createElement('li')
-    const audio = document.createElement('audio')
-    audio.controls = true
-    audio.src = audioUrl
-    entry.classList.add('newItem')
-    entry.appendChild(audio)
-    return entry
-}
 
 async function createVADControlledStream (originalStream: MediaStream, delayMs = 150) {
     const audioCtx = new AudioContext()
@@ -89,195 +64,6 @@ async function createVADControlledStream (originalStream: MediaStream, delayMs =
         },
     }
 }
-
-/*function computeRMS (samples: Float32Array) {
-    let sum = 0
-    for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i]
-    return Math.sqrt(sum / samples.length)
-}
-
-function startNoiseMonitor (stream, { threshold = 0.015, onNoiseDetected }) {
-    const ctx = new AudioContext()
-    const source = ctx.createMediaStreamSource(stream)
-    const analyser = ctx.createAnalyser()
-    analyser.fftSize = 1024
-    const buf = new Float32Array(analyser.fftSize)
-    source.connect(analyser)
-
-    let lastHighTime = 0
-    let noiseActive = false
-
-    const check = () => {
-        console.log('CHECK')
-        analyser.getFloatTimeDomainData(buf)
-        const rms = computeRMS(buf)
-        const now = performance.now()
-
-        if (rms > threshold) lastHighTime = now
-        const noisy = now - lastHighTime < 2000 // 2s hold
-
-        if (noisy !== noiseActive) {
-            noiseActive = noisy
-            onNoiseDetected(noisy)
-        }
-
-        //requestAnimationFrame(check)
-    }
-    //check()
-
-    setInterval(check, 1000)
-}*/
-
-function computeRMS (samples: Float32Array): number {
-    let sum = 0
-    for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i]
-    return Math.sqrt(sum / samples.length)
-}
-
-/**
- * Monitors background noise while user is not speaking.
- * Calls `onNoiseDetected()` or `onNoiseStop()` when mode should switch.
- */
-function startNoiseMonitor ({
-    stream,
-    getIsSpeaking,
-    getCurrentMode,
-    setMode,
-    onNoiseDetected,
-    onNoiseStop,
-    threshold = 0.003,
-    pollIntervalMs = 2000,
-    holdMs = 2500, // must stay noisy/quiet this long to switch
-}: {
-    stream: MediaStream;
-    getIsSpeaking: () => boolean;
-    getCurrentMode: () => 'clean' | 'noisy';
-    setMode: (mode: 'clean' | 'noisy') => void;
-    onNoiseDetected: () => void;
-    onNoiseStop: () => void;
-    threshold?: number;
-    pollIntervalMs?: number;
-    holdMs?: number;
-}) {
-    const ctx = new AudioContext()
-    const source = ctx.createMediaStreamSource(stream.clone())
-    const analyser = ctx.createAnalyser()
-    analyser.fftSize = 1024
-    const buf = new Float32Array(analyser.fftSize)
-    source.connect(analyser)
-
-    let lastAboveThreshold = 0
-    let lastBelowThreshold = 0
-
-    setInterval(() => {
-        analyser.getFloatTimeDomainData(buf)
-        const rms = computeRMS(buf)
-        const now = performance.now()
-
-        const isNoisyNow = rms > threshold
-        const isSpeaking = getIsSpeaking()
-        const mode = getCurrentMode()
-
-        if (isNoisyNow) lastAboveThreshold = now
-        else lastBelowThreshold = now
-
-        const noiseHigh = now - lastAboveThreshold < holdMs
-        const noiseLow = now - lastBelowThreshold < holdMs
-
-        // Only act if user is NOT speaking
-        if (!isSpeaking) {
-            if (noiseHigh && mode === 'clean') {
-                console.log('🔊 Persistent background noise detected → enable VAD')
-                setMode('noisy')
-                onNoiseDetected()
-            } else if (noiseLow && mode === 'noisy') {
-                console.log('🌤️ Background quiet again → disable VAD')
-                setMode('clean')
-                onNoiseStop()
-            }
-        }
-    }, pollIntervalMs)
-}
-
-/*async function createVADStream (originalStream: MediaStream) {
-    const [ micTrack ] = originalStream.getAudioTracks()
-
-    // 1. Processor + Generator
-    const processor = new MediaStreamTrackProcessor({ track: micTrack })
-    const generator = new MediaStreamTrackGenerator({ kind: 'audio' })
-
-    const reader = processor.readable.getReader()
-    const writer = generator.writable.getWriter()
-
-    // Silence frame helper
-    function makeSilentFrame (frame: AudioData) {
-        const bytesPerPlane = frame.allocationSize({ planeIndex: 0 })
-        const totalBytes = bytesPerPlane * frame.numberOfChannels
-
-        return new AudioData({
-            format: frame.format,
-            sampleRate: frame.sampleRate,
-            numberOfFrames: frame.numberOfFrames,
-            numberOfChannels: frame.numberOfChannels,
-            timestamp: frame.timestamp,
-            data: new ArrayBuffer(totalBytes), // ✅ correct total size
-        })
-    }
-
-    // Circular buffer for preSpeechPadMs (~500ms)
-    const preBuffer: AudioData[] = []
-    const maxPreBufferMs = 150 // same as preSpeechPadMs
-    let speaking = false
-
-    function pushToPreBuffer (frame: AudioData) {
-        // Clone the frame for later use
-        const plane = new Float32Array(frame.numberOfFrames * frame.numberOfChannels)
-        frame.copyTo(plane, { planeIndex: 0 })
-
-        const clone = new AudioData({
-            format: frame.format,
-            sampleRate: frame.sampleRate,
-            numberOfFrames: frame.numberOfFrames,
-            numberOfChannels: frame.numberOfChannels,
-            timestamp: frame.timestamp,
-            data: plane.buffer,
-        })
-
-        preBuffer.push(clone)
-    }
-
-    // 2. Main processing loop
-    (async () => {
-        while (true) {
-            const { value: frame, done } = await reader.read()
-            if (done) break
-
-            if (!speaking) {
-                pushToPreBuffer(frame)
-                await writer.write(makeSilentFrame(frame))
-                frame.close()
-            } else {
-                while (preBuffer.length > 0) {
-                    const buffered = preBuffer.shift()!
-                    await writer.write(buffered)
-                    buffered.close()
-                }
-
-                await writer.write(frame)
-                frame.close()
-            }
-        }
-    })()
-
-    // Return the modified stream
-    const vadStream = new MediaStream([ generator ])
-    return {
-        vadStream,
-        setSpeaking: (val: boolean) => {
-            speaking = val
-        },
-    }
-}*/
 
 export class AudioModule {
     private context: OpenSIPSJS
@@ -322,9 +108,10 @@ export class AudioModule {
     private activeStreamValue: MediaStream | null = null
     private initialStreamValue: MediaStream | null = null
 
-    private useVAD = false
+    private noiseReduction: NoiseReductionOptions
     private vadSessions: object = {}
-    private vadConfiguration: Partial<VADOptions> = {}
+    private vadSessionsState: { [key: string]: VADSessionState } = {}
+    private vadIntervals: object = {}
 
     private VUMeter: VUMeter
 
@@ -346,23 +133,15 @@ export class AudioModule {
         this.initializeMediaDevices()
     }
 
-    public setVADConfiguration (options) {
-        console.log('setVADConfiguration', options)
-        this.vadConfiguration = {
-            ...options
-        }
-    }
-
     private processVADConfiguration () {
-        this.useVAD = this.context.options.configuration?.useVAD ?? true
-
-        /*this.vadConfiguration = {
-            model: this.context.options.configuration?.VADOptions?.model ?? 'legacy',
-            positiveSpeechThreshold: this.context.options.configuration?.VADOptions?.positiveSpeechThreshold ?? 0.4,
-            negativeSpeechThreshold: this.context.options.configuration?.VADOptions?.negativeSpeechThreshold ?? 0.4,
-            minSpeechFrames: this.context.options.configuration?.VADOptions?.minSpeechFrames ?? 15,
-            preSpeechPadFrames: this.context.options.configuration?.VADOptions?.preSpeechPadFrames ?? 30
-        }*/
+        const options: Partial<NoiseReductionOptions> = this.context.options.configuration?.noiseReductionOptions || {}
+        this.noiseReduction = {
+            mode: options.mode || 'disabled',
+            backgroundNoiseHoldMs: options.backgroundNoiseHoldMs || 2500,
+            backgroundNoiseCheckInterval: options.backgroundNoiseCheckInterval || 2000,
+            backgroundNoiseThreshold: options.backgroundNoiseThreshold || 0.004,
+            vadConfig: options.vadConfig || {}
+        }
     }
 
     public get sipOptions () {
@@ -718,6 +497,7 @@ export class AudioModule {
         this.setIsMuted(value)
 
         this.initialStreamValue.getTracks().forEach(track => track.enabled = !value)
+        //this.roomReconfigureForMicrophoneAction()
         this.roomReconfigure(activeRoomId)
     }
 
@@ -969,6 +749,12 @@ export class AudioModule {
         })
     }
 
+    private async setupActiveStream () {
+        const processedStream = await processAudioVolume(await this.managedAudioContext.getContext(), this.initialStreamValue, this.microphoneInputLevel * 2)
+        processedStream.getTracks().forEach(track => track.enabled = !this.isMuted)
+        await this.setActiveStream(processedStream)
+    }
+
     private async getActiveStream () {
         const processedStream = await processAudioVolume(await this.managedAudioContext.getContext(), this.initialStreamValue, this.microphoneInputLevel * 2)
         processedStream.getTracks().forEach(track => track.enabled = !this.isMuted)
@@ -993,7 +779,9 @@ export class AudioModule {
 
         if (callsInCurrentRoom.length === 1) {
             Object.values(callsInCurrentRoom).forEach(async (call) => {
-                const processedStream = await this.getActiveStream()
+                await this.setupActiveStream()
+                const processedStream = this.activeStream
+                //const processedStream = await this.getActiveStream()
                 call.connection.getSenders()[0].replaceTrack(processedStream.getTracks()[0])
                 this.updateCall(call)
             })
@@ -1083,11 +871,22 @@ export class AudioModule {
         }
     }
 
-    onProcessFrameCallback (stream, {
-        threshold,
+    /**
+     * Monitors background noise while user is not speaking.
+     * Calls `onNoiseDetected()` or `onNoiseStop()` when mode should switch.
+     */
+    private startNoiseMonitor ({
+        sessionId,
+        stream,
         onNoiseDetected,
-        onNoiseStop
+        onNoiseStop,
+    }: {
+        sessionId: string,
+        stream: MediaStream;
+        onNoiseDetected: () => void;
+        onNoiseStop: () => void;
     }) {
+        // holdMs = 2500, - must stay noisy/quiet this long to switch
         const ctx = new AudioContext()
         const source = ctx.createMediaStreamSource(stream.clone())
         const analyser = ctx.createAnalyser()
@@ -1095,143 +894,129 @@ export class AudioModule {
         const buf = new Float32Array(analyser.fftSize)
         source.connect(analyser)
 
-        let lastHighTime = 0
-        let noiseActive = false
+        let lastAboveThreshold = 0
+        let lastBelowThreshold = 0
 
-        const check = () => {
+        if (this.vadIntervals[sessionId]) {
+            clearInterval(this.vadIntervals[sessionId])
+            this.vadIntervals[sessionId] = null
+        }
+
+        this.vadIntervals[sessionId] = setInterval(() => {
             analyser.getFloatTimeDomainData(buf)
             const rms = computeRMS(buf)
             const now = performance.now()
 
-            console.log('rms', rms)
+            const isNoisyNow = rms > this.noiseReduction.backgroundNoiseThreshold
 
-            if (rms > threshold) lastHighTime = now
-            const isNoisy = now - lastHighTime < 2000 // 2s hold
+            if (isNoisyNow) lastAboveThreshold = now
+            else lastBelowThreshold = now
 
-            if (isNoisy !== noiseActive) {
-                noiseActive = isNoisy
-                //onNoiseDetected(noisy)
-                if (isNoisy && this.currentMode === 'clean') {
-                    if (!this.isSpeaking) {
-                        this.currentMode = 'noisy'
+            const noiseHigh = now - lastAboveThreshold < this.noiseReduction.backgroundNoiseHoldMs
+            const noiseLow = now - lastBelowThreshold < this.noiseReduction.backgroundNoiseHoldMs
 
-                        console.log('change mode attempt, mode:', this.currentMode)
-                        console.log('🔊 Noise detected and no speaking → enabling VAD stream')
-                        onNoiseDetected()
-                    }
-                }
+            // Only act if user is NOT speaking
+            if (!this.vadSessionsState[sessionId].isSpeaking) {
+                if (noiseHigh && this.vadSessionsState[sessionId].currentMode === 'clean') {
+                    this.vadSessionsState[sessionId].currentMode = 'noisy'
 
-                if (!isNoisy && this.currentMode === 'noisy') {
-                    if (!this.isSpeaking) {
-                        this.currentMode = 'clean'
+                    this.context.emit('changeNoiseReductionState', {
+                        sessionId,
+                        enabled: true
+                    })
+                    onNoiseDetected()
+                } else if (noiseLow && this.vadSessionsState[sessionId].currentMode === 'noisy') {
+                    this.vadSessionsState[sessionId].currentMode ='clean'
 
-                        console.log('change mode attempt, mode:', this.currentMode)
-                        console.log('🌤️ Noise gone and no speaking → disabling VAD stream')
-                        onNoiseStop()
-                    }
+                    this.context.emit('changeNoiseReductionState', {
+                        sessionId,
+                        enabled: false
+                    })
+                    onNoiseStop()
                 }
             }
-
-            //requestAnimationFrame(check)
-        }
-        //check()
-
-        setInterval(check, 1000)
+        }, this.noiseReduction.backgroundNoiseCheckInterval)
     }
 
     private async processVAD (session: ICall, stream: MediaStream) {
-        //const clonedStream = stream.clone()
-        //clonedStream.getTracks().forEach((track) => track.enabled = true)
-        //const options = getDefaultRealTimeVADOptions('v5')
+        if (this.muted) {
+            this.stopSessionVad(session)
 
-        this.currentMode = 'clean' // "clean" | "noisy"
-        this.isSpeaking = false
-        //let micVAD
+            return
+        }
+
+        this.vadSessionsState[session._id] = {
+            currentMode: 'clean',
+            isSpeaking: false
+        }
 
         const vadControlled = await createVADControlledStream(stream, 150)
-
-        /*if (session.connection.getSenders()[0]) {
-            await session.connection.getSenders()[0].replaceTrack(vadControlled.stream.getAudioTracks()[0])
-        }*/
 
         let isFirstFrameProcessed = false
 
         const vadSession = await MicVAD.new({
             getStream: () => new Promise((res) => res(stream)),
             ...vadDefaultConfig,
-            ...this.vadConfiguration,
+            ...this.noiseReduction.vadConfig,
             baseAssetPath: 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.28/dist/',
             onnxWASMBasePath: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/',
-            onVADMisfire: () => {
-                console.log('⚠️ Misfire (too short)')
-            },
-            onFrameProcessed: (probabilities, frame) => {
-                /*if (!isFirstFrameProcessed) {
-                    isFirstFrameProcessed = true
-                    this.onProcessFrameCallback(stream, {
-                        threshold: 0.003,
-                        onNoiseDetected: async () => {
-                            console.log('🔊 Noise detected → enabling VAD stream')
-                            await session.connection.getSenders()[0]
-                                ?.replaceTrack(vadControlled.stream.getAudioTracks()[0])
-                        },
-                        onNoiseStop: async () => {
-                            console.log('🌤️ Noise gone → using original stream')
-                            await session.connection.getSenders()[0]
-                                ?.replaceTrack(stream.getAudioTracks()[0])
-                        }
-                    })
-                }*/
-
+            onFrameProcessed: () => {
                 if (!isFirstFrameProcessed) {
                     isFirstFrameProcessed = true
                     console.log('✅ VAD initialized, starting background noise monitoring')
 
-                    startNoiseMonitor({
+                    if (this.noiseReduction.mode === 'enabled') {
+                        if (session.connection.getSenders()[0]) {
+                            session.connection.getSenders()[0].replaceTrack(vadControlled.stream.getAudioTracks()[0])
+                        }
+
+                        return
+                    }
+
+                    this.startNoiseMonitor({
+                        sessionId: session._id,
                         stream,
-                        threshold: 0.004,
-                        pollIntervalMs: 2000,
-                        holdMs: 2500,
-                        getIsSpeaking: () => this.isSpeaking,
-                        getCurrentMode: () => this.currentMode,
-                        setMode: (mode) => (this.currentMode = mode),
                         onNoiseDetected: async () => {
-                            console.log('OVERRIDE: use vad stream')
-                            await session.connection
-                                .getSenders()[0]
+                            await session.connection.getSenders()[0]
                                 ?.replaceTrack(vadControlled.stream.getAudioTracks()[0])
                         },
                         onNoiseStop: async () => {
-                            console.log('OVERRIDE: use original stream')
-                            await session.connection
-                                .getSenders()[0]
-                                ?.replaceTrack(stream.getAudioTracks()[0])
+                            const sender = session.connection.getSenders()[0]
+
+                            if (
+                                sender &&
+                                sender.track &&
+                                sender.transport &&
+                                sender.transport.state !== 'closed' &&
+                                sender.transport.state !== 'failed'
+                            ) {
+                                await sender.replaceTrack(stream.getAudioTracks()[0])
+                            }
                         },
                     })
                 }
-
-                console.log('onFrameProcessed')
             },
             onSpeechStart: () => {
                 console.log('🎤 Speech started')
                 vadControlled.setSpeaking(true)
-                this.isSpeaking = true
+
+                if (this.noiseReduction.mode === 'enabled') {
+                    session.connection.getSenders()[0]
+                        ?.replaceTrack(vadControlled.stream.getAudioTracks()[0])
+                }
+
+                this.vadSessionsState[session._id].isSpeaking = true
             },
-            onSpeechRealStart: () => {
-                console.log('Speech real start')
-            },
-            onSpeechEnd: (arr) => {
+            onSpeechEnd: () => {
                 console.log('🛑 Speech end')
                 vadControlled.setSpeaking(false)
-                this.isSpeaking = false
 
-                /*const wavBuffer = utils.encodeWAV(arr)
-                const base64 = utils.arrayBufferToBase64(wavBuffer)
-                const url = `data:audio/wav;base64,${base64}`
-                const el = addAudio(url)
-                const speechList = document.getElementById('playlist')
-                console.log('prepend')
-                speechList.prepend(el)*/
+                if (this.noiseReduction.mode === 'enabled') {
+                    session.connection.getSenders()[0]
+                        ?.replaceTrack(vadControlled.stream.getAudioTracks()[0])
+                }
+
+                this.vadSessionsState[session._id].isSpeaking = false
             }
         })
 
@@ -1242,26 +1027,21 @@ export class AudioModule {
 
         this.vadSessions[session._id] = vadSession
         vadSession.start()
-
-        console.log('this.vadSessions', this.vadSessions)
-
-        /*const { stream: vadStream, setSpeaking } = await createVADControlledStream(stream, 150)
-
-        if (session.connection.getSenders()[0]) {
-            await session.connection.getSenders()[0].replaceTrack(vadStream.getAudioTracks()[0])
-        }*/
-
-        /*const { vadStream, setSpeaking } = await createVADStream(stream)
-
-        if (session.connection.getSenders()[0]) {
-            await session.connection.getSenders()[0].replaceTrack(vadStream.getAudioTracks()[0])
-        }*/
     }
 
     private stopSessionVad (session) {
         if (this.vadSessions[session._id]) {
             this.vadSessions[session._id].pause()
-            this.vadSessions[session._id] = null
+            delete this.vadSessions[session._id]
+        }
+
+        if (this.vadIntervals[session._id]) {
+            clearInterval(this.vadIntervals[session._id])
+            delete this.vadIntervals[session._id]
+        }
+
+        if (this.vadSessionsState[session._id]) {
+            delete this.vadSessionsState[session._id]
         }
     }
 
@@ -1338,10 +1118,12 @@ export class AudioModule {
 
             if (call.connection && firstSender) {
                 try {
-                    const processedStream = await this.getActiveStream()
+                    await this.setupActiveStream()
+                    const processedStream = this.activeStream
 
-                    if (this.useVAD) {
-                        console.log('TTT roomReconfigure processVad')
+                    //const processedStream = await this.getActiveStream()
+
+                    if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
                         this.processVAD(callsInRoom[0], processedStream)
                     }
 
@@ -1423,6 +1205,8 @@ export class AudioModule {
             }
         })
 
+        //await this.setupActiveStream()
+
         // For each session, create a custom mix excluding their own audio
         await forEach(sessions, async (session: ICall, sessionIndex) => {
             if (!session || !session.connection) {
@@ -1461,7 +1245,10 @@ export class AudioModule {
             if (isHostRoom && this.activeStreamValue) {
 
                 try {
-                    const processedStream = await this.getActiveStream()
+                    await this.setupActiveStream()
+                    const processedStream = this.activeStream
+
+                    //const processedStream = await this.getActiveStream()
 
                     const localSource = audioContext.createMediaStreamSource(processedStream)
                     const localGain = audioContext.createGain()
@@ -1488,8 +1275,7 @@ export class AudioModule {
             const sender = senders[0]
             const mixedTracks = mixedOutput.stream.getTracks()
 
-            if (this.useVAD) {
-                console.log('TTT doConference processVad')
+            if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
                 this.processVAD(session, mixedOutput.stream)
             }
 
@@ -1530,7 +1316,6 @@ export class AudioModule {
                 receiver.track.enabled = !value
             })
             this.updateCall(call)
-            //this.roomReconfigure(call.roomId)
         }
     }
 
@@ -1880,7 +1665,10 @@ export class AudioModule {
                 event
             })
 
-            this.stopSessionVad(session)
+            if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
+                this.stopSessionVad(session)
+            }
+
             const s = this.getActiveCalls[session.id]
 
             if (s) {
@@ -1920,7 +1708,9 @@ export class AudioModule {
                 event
             })
 
-            this.stopSessionVad(session)
+            if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
+                this.stopSessionVad(session)
+            }
 
             if (session.id === this.callAddingInProgress) {
                 this.callAddingInProgress = undefined
@@ -1980,6 +1770,7 @@ export class AudioModule {
             throw new Error('Value should be in range from 0 to 1!')
         }
         this.microphoneInputLevelValue = value
+        //this.roomReconfigureForMicrophoneAction()
         this.roomReconfigure(this.currentActiveRoomId)
     }
 
@@ -2143,8 +1934,7 @@ export class AudioModule {
         this.getCallQuality(call)
         this.updateCall(call)
 
-        if (this.useVAD) {
-            console.log('TTT triggerAddStream processVad')
+        if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
             this.processVAD(call, processedStream)
         }
     }
