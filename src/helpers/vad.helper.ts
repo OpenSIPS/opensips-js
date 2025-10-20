@@ -5,8 +5,6 @@ export function computeRMS (samples: Float32Array): number {
 }
 
 export async function createVADControlledStream (originalStream: MediaStream, audioCtx: AudioContext, delayMs = 150) {
-    //const audioCtx = new AudioContext()
-
     const source = audioCtx.createMediaStreamSource(originalStream)
 
     const delay = audioCtx.createDelay()

@@ -759,7 +759,6 @@ export class AudioModule {
             Object.values(callsInCurrentRoom).forEach(async (call) => {
                 await this.setupActiveStream()
                 const processedStream = this.activeStream
-                //const processedStream = await this.getActiveStream()
                 call.connection.getSenders()[0].replaceTrack(processedStream.getTracks()[0])
                 this.updateCall(call)
             })
@@ -907,7 +906,7 @@ export class AudioModule {
             if (!state.isSpeaking) {
                 if (isNoisy && state.currentMode === 'clean') {
                     state.currentMode = 'noisy'
-                    console.log('🔊 Average noise high → enable VAD')
+                    console.log('Average noise high → enable VAD')
                     this.context.emit('changeNoiseReductionState', {
                         sessionId,
                         enabled: true,
@@ -915,7 +914,7 @@ export class AudioModule {
                     onNoiseDetected()
                 } else if (!isNoisy && state.currentMode === 'noisy') {
                     state.currentMode = 'clean'
-                    console.log('🌤️ Average noise low → disable VAD')
+                    console.log('Average noise low → disable VAD')
                     this.context.emit('changeNoiseReductionState', {
                         sessionId,
                         enabled: false,
@@ -963,7 +962,7 @@ export class AudioModule {
                         sessionId: session._id,
                         stream,
                         onNoiseDetected: async () => {
-                            console.log('➕ Replace track with Vad Controlled')
+                            console.log('Replace track with Vad Controlled')
                             await session.connection.getSenders()[0]
                                 ?.replaceTrack(vadControlled.stream.getAudioTracks()[0])
                         },
@@ -977,7 +976,7 @@ export class AudioModule {
                                 sender.transport.state !== 'closed' &&
                                 sender.transport.state !== 'failed'
                             ) {
-                                console.log('➖ Replace track with Original')
+                                console.log('Replace track with Original')
                                 await sender.replaceTrack(stream.getAudioTracks()[0])
                             }
                         },
@@ -1114,8 +1113,6 @@ export class AudioModule {
                     await this.setupActiveStream()
                     const processedStream = this.activeStream
 
-                    //const processedStream = await this.getActiveStream()
-
                     if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
                         this.processVAD(callsInRoom[0], processedStream)
                     }
@@ -1240,8 +1237,6 @@ export class AudioModule {
                 try {
                     //await this.setupActiveStream()
                     const processedStream = this.activeStream
-
-                    //const processedStream = await this.getActiveStream()
 
                     const localSource = audioContext.createMediaStreamSource(processedStream)
                     const localGain = audioContext.createGain()
