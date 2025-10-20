@@ -557,6 +557,9 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
     try {
         const configuration: IOpenSIPSConfiguration = {
             session_timers: false,
+            noiseReductionOptions: {
+                mode: 'dynamic'
+            },
             uri: `sip:${username}@${domain}`,
             overrideUserAgent: (userAgent) => userAgent + ' Vue 3.0'
         }
@@ -612,10 +615,10 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
             imageSrc: base64Image
         })
 
-        openSIPSJS.use(screenSharePlugin)
+        /*openSIPSJS.use(screenSharePlugin)
         //openSIPSJS.use(streamMaskPlugin)
         openSIPSJS.use(whiteBoardPlugin)
-        openSIPSJS.use(screenShareWhiteBoardPlugin)
+        openSIPSJS.use(screenShareWhiteBoardPlugin)*/
 
         /* openSIPSJS Listeners */
         openSIPSJS

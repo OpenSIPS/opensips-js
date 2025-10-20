@@ -13,6 +13,7 @@ import {
     IncomingRequest
 } from 'jssip/lib/SIPMessage'
 import { UAConfiguration } from 'jssip/lib/UA'
+import { RealTimeVADOptions } from '@ricky0123/vad-web'
 
 import { MODULES } from '@/enum/modules'
 
@@ -136,9 +137,33 @@ export type Modules = AudioModuleName | VideoModuleName | MSRPModuleName
 
 export type OnTransportCallback = (parsed: object, message: string) => void
 
+export interface VADOptions {
+    model: 'v5' | 'legacy'
+    positiveSpeechThreshold: number
+    negativeSpeechThreshold: number
+    minSpeechFrames: number
+    preSpeechPadFrames: number
+}
+
+export interface VADSessionState {
+    isSpeaking: boolean
+    currentMode: 'clean' | 'noisy'
+}
+
+export type NoiseReductionMode = 'disabled' | 'enabled' | 'dynamic'
+
+export interface NoiseReductionOptions {
+    mode: NoiseReductionMode,
+    vadConfig?: Partial<VADOptions>
+    noiseThreshold?: number
+    checkEveryMs?: number
+    noiseCheckInterval?: number
+}
+
 type UAConfigurationExtended = UAConfiguration & {
     reconnectionAttemptsLimit?: number
     overrideUserAgent?: (userAgent: string) => string
+    noiseReductionOptions?: NoiseReductionOptions
     onTransportCallback?: OnTransportCallback
 }
 

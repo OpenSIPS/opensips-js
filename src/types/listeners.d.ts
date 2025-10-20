@@ -16,6 +16,11 @@ export type ChangeVolumeEventType = {
     volume: number
 }
 
+export type NoiseReductionStateEventType = {
+    sessionId: string
+    enabled: boolean
+}
+
 export type readyListener = (value: boolean) => void
 export type connectionListener = (value: boolean) => void
 export type reconnectionListener = (value: boolean) => void
@@ -46,6 +51,7 @@ export type changeCallStatusListener = (event: { [key: string]: ICallStatus }) =
 export type changeCallTimeListener = (event: { [key: string]: ITimeData }) => void
 export type changeCallMetricsListener = (event: { [key: string]: any }) => void
 export type changeCallVolumeListener = (event: ChangeVolumeEventType) => void
+export type changeNoiseReductionStateListener = (event: NoiseReductionStateEventType) => void
 export type conferenceStartListener = () => void
 export type conferenceEndListener = (sessionId) => void
 export type changeMainVideoStreamListener = (event: { name: string, event: MediaStream }) => void
@@ -86,6 +92,7 @@ export interface OpenSIPSEventMap extends UAEventMap {
     changeCallTime: changeCallTimeListener
     changeCallMetrics: changeCallMetricsListener
     changeCallVolume: changeCallVolumeListener
+    changeNoiseReductionState: changeNoiseReductionStateListener
     newMSRPMessage: MSRPMessageListener
     newMSRPSession: MSRPSessionListener
     // JANUS
