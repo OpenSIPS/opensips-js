@@ -119,27 +119,33 @@ If you prefer using ES modules in the browser and your environment supports them
     import OpensipsJS from 'https://cdn.opensipsjs.org/opensipsjs/v0.1.1/opensips-js.es.js';\
 
     const opensipsJS = new OpensipsJS({
-      configuration: {
-        session_timers: false,
-        uri: 'sip:extension_user@domain',
-        // --- Use password or authorization_jwt to authorize
-        password: 'password',
-        // or
-        authorization_jwt: 'token',
-      },
-      socketInterfaces: ['wss://domain'],
-      pnExtraHeaders: {
-        'pn-provider': 'acme',
-        'pn-param': 'acme-param',
-        'pn-prid': 'ZH11Y4ZDJlMNzODE1NgKi0K>',
-      },
-      sipDomain: 'domain',
-      sipOptions: {
-        session_timers: false,
-        extraHeaders: ['X-Bar: bar'],
-        pcConfig: {},
-      },
-      modules: ['audio', 'video', 'msrp'],
+        configuration: {
+            session_timers: false,
+            noiseReductionOptions: {
+                mode: 'dynamic',
+                noiseThreshold: 0.004
+                checkEveryMs: 500
+                noiseCheckInterval: 2000
+            },
+            uri: 'sip:extension_user@domain',
+            // --- Use password or authorization_jwt to authorize
+            password: 'password',
+            // or
+            authorization_jwt: 'token',
+        },
+        socketInterfaces: ['wss://domain'],
+        pnExtraHeaders: {
+            'pn-provider': 'acme',
+            'pn-param': 'acme-param',
+            'pn-prid': 'ZH11Y4ZDJlMNzODE1NgKi0K>',
+        },
+        sipDomain: 'domain',
+        sipOptions: {
+            session_timers: false,
+            extraHeaders: ['X-Bar: bar'],
+            pcConfig: {},
+        },
+        modules: ['audio', 'video', 'msrp'],
     });
 
     // Use the modules as before
@@ -236,6 +242,16 @@ Also, there are next public fields on OpensipsJS instance:
 - `selectedOutputDevice: String` - returns current selected output device id
 - `isDND: Boolean` - returns if the agent is in "Do not disturb" status
 - `isMuted: Boolean` - returns if the agent is muted
+
+### Noise Reduction Options
+
+| Parameter            | Type                             | Default    | Description                                                                                                                                                                                                                                                                                      |
+|----------------------|----------------------------------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `mode`               | `disabled \| enabled \| dynamic` | `disabled` | Noice reduction mode                                                                                                                                                                                                                                                                             |
+| `vadConfig`          | `Partial<RealTimeVADOptions>`    | `{}`       | VAD configuration                                                                                                                                                                                                                                                                                |
+| `noiseThreshold`     | `number`                         | `0.004`    | Noise threshold                                                                                                                                                                                                                                                                                  |
+| `noiseCheckInterval` | `number`                         | `2000`     | The interval, used to check if we need to disable/enable outgoing audio every N-milliseconds                                                                                                                                                                                                     |
+| `checkEveryMs`       | `number`                         | `500`      | The interval, used inside noiseCheckInterval loop, checks current noise state every N-milliseconds, to define the average noise level. Then on every noiseCheckInterval iteration, the values getting on checkEveryMs will be summed, then divided by it's number and compared to noiseThreshold |
 
 ## MSRP
 
