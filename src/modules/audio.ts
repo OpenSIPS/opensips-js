@@ -115,9 +115,9 @@ export class AudioModule {
         const options: Partial<NoiseReductionOptions> = this.context.options.configuration?.noiseReductionOptions || {}
         this.noiseReduction = {
             mode: options.mode || 'disabled',
-            backgroundNoiseHoldMs: options.backgroundNoiseHoldMs || 2500,
-            backgroundNoiseCheckInterval: options.backgroundNoiseCheckInterval || 2000,
-            backgroundNoiseThreshold: options.backgroundNoiseThreshold || 0.004,
+            checkEveryMs: options.checkEveryMs || 500,
+            noiseCheckInterval: options.noiseCheckInterval || 2000,
+            noiseThreshold: options.noiseThreshold || 0.004,
             vadConfig: options.vadConfig || {}
         }
     }
@@ -871,7 +871,6 @@ export class AudioModule {
         const buf = new Float32Array(analyser.fftSize)
         source.connect(analyser)
 
-        const checkEveryMs = 500
         const rmsHistory: number[] = []
 
         if (this.vadIntervals[sessionId]) {
@@ -890,10 +889,10 @@ export class AudioModule {
             rmsHistory.push(rms)
 
             const maxSamples = Math.ceil(
-                this.noiseReduction.backgroundNoiseCheckInterval / checkEveryMs
+                this.noiseReduction.noiseCheckInterval / this.noiseReduction.checkEveryMs
             )
             if (rmsHistory.length > maxSamples) rmsHistory.shift()
-        }, checkEveryMs)
+        }, this.noiseReduction.checkEveryMs)
 
         this.vadIntervals[sessionId] = setInterval(() => {
             if (rmsHistory.length === 0) return
@@ -901,12 +900,9 @@ export class AudioModule {
             const avgRms =
                 rmsHistory.reduce((a, b) => a + b, 0) / rmsHistory.length
 
-            const now = performance.now()
             const state = this.vadSessionsState[sessionId]
-            const threshold = this.noiseReduction.backgroundNoiseThreshold
-            const holdMs = this.noiseReduction.backgroundNoiseHoldMs
 
-            const isNoisy = avgRms > threshold
+            const isNoisy = avgRms > this.noiseReduction.noiseThreshold
 
             if (!state.isSpeaking) {
                 if (isNoisy && state.currentMode === 'clean') {
@@ -927,7 +923,7 @@ export class AudioModule {
                     onNoiseStop()
                 }
             }
-        }, this.noiseReduction.backgroundNoiseCheckInterval)
+        }, this.noiseReduction.noiseCheckInterval)
     }
 
     private async processVAD (session: ICall, originalStream: MediaStream) {

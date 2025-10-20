@@ -155,9 +155,9 @@ export type NoiseReductionMode = 'disabled' | 'enabled' | 'dynamic'
 export interface NoiseReductionOptions {
     mode: NoiseReductionMode,
     vadConfig?: Partial<VADOptions>
-    backgroundNoiseThreshold?: number
-    backgroundNoiseHoldMs?: number
-    backgroundNoiseCheckInterval?: number
+    noiseThreshold?: number
+    checkEveryMs?: number
+    noiseCheckInterval?: number
 }
 
 type UAConfigurationExtended = UAConfiguration & {
