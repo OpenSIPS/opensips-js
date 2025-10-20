@@ -86,10 +86,10 @@ export class AudioModule {
     private initialStreamValue: MediaStream | null = null
 
     private noiseReduction: NoiseReductionOptions
-    private vadSessions: object = {}
+    private vadSessions: { [key: string]: MicVAD } = {}
     private vadSessionsState: { [key: string]: VADSessionState } = {}
-    private vadIntervals: object = {}
-    private vadMrsIntervals: object = {}
+    private vadIntervals: Record<string, ReturnType<typeof setInterval>> = {}
+    private vadMrsIntervals: Record<string, ReturnType<typeof setInterval>> = {}
 
     private VUMeter: VUMeter
 
