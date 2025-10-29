@@ -13,7 +13,6 @@ import {
     IncomingRequest
 } from 'jssip/lib/SIPMessage'
 import { UAConfiguration } from 'jssip/lib/UA'
-import { RealTimeVADOptions } from '@ricky0123/vad-web'
 
 import { MODULES } from '@/enum/modules'
 
@@ -154,10 +153,15 @@ export type NoiseReductionMode = 'disabled' | 'enabled' | 'dynamic'
 
 export interface NoiseReductionOptions {
     mode: NoiseReductionMode,
+    vadModule?: VADModule
     vadConfig?: Partial<VADOptions>
     noiseThreshold?: number
     checkEveryMs?: number
     noiseCheckInterval?: number
+}
+
+export interface VADModule {
+    MicVAD: any
 }
 
 type UAConfigurationExtended = UAConfiguration & {

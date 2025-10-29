@@ -53,6 +53,9 @@ export default defineConfig(({ command }) => {
                     fileName: (format) => {
                         return `opensips-js.${format}.js`
                     },
+                },
+                rollupOptions: {
+                    external: ['@ricky0123/vad-web']
                 }
             },
             plugins: [

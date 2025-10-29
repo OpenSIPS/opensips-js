@@ -243,11 +243,64 @@ Also, there are next public fields on OpensipsJS instance:
 - `isDND: Boolean` - returns if the agent is in "Do not disturb" status
 - `isMuted: Boolean` - returns if the agent is muted
 
-### Noise Reduction Options
+### Noise Reduction Options (VAD)
+
+**Important**: Voice Activity Detection (VAD) is an **optional feature** that requires installing an additional peer dependency. It is **NOT compatible with React Native**.
+
+#### For Web Applications (with VAD support)
+
+Install the VAD library:
+```bash
+npm install @ricky0123/vad-web
+# or
+yarn add @ricky0123/vad-web
+```
+
+Then import and inject it in your configuration:
+```javascript
+import OpenSIPSJS from 'opensips-js'
+import * as VAD from '@ricky0123/vad-web'
+
+const opensipsJS = new OpenSIPSJS({
+  configuration: {
+    // ... other configuration
+    noiseReductionOptions: {
+      mode: 'dynamic', // or 'enabled'
+      vadModule: VAD,  // Inject the VAD module
+      noiseThreshold: 0.004,
+      checkEveryMs: 500,
+      noiseCheckInterval: 2000
+    }
+  },
+  // ... rest of configuration
+})
+```
+
+#### For React Native Applications (VAD not supported)
+
+Simply omit the VAD module and disable noise reduction:
+```javascript
+import OpenSIPSJS from 'opensips-js'
+
+const opensipsJS = new OpenSIPSJS({
+  configuration: {
+    // ... other configuration
+    noiseReductionOptions: {
+      mode: 'disabled'  // or omit noiseReductionOptions entirely
+    }
+    // NO vadModule needed
+  },
+  // ... rest of configuration
+})
+```
+
+**See [VAD_USAGE.md](VAD_USAGE.md) and [EXAMPLES.md](EXAMPLES.md) for detailed usage examples.**
+
+#### Configuration Parameters
 
 | Parameter            | Type                             | Default    | Description                                                                                                                                                                                                                                                                                      |
 |----------------------|----------------------------------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `mode`               | `disabled \| enabled \| dynamic` | `disabled` | Noice reduction mode                                                                                                                                                                                                                                                                             |
+| `mode`               | `disabled \| enabled \| dynamic` | `disabled` | Noise reduction mode. **Note**: `enabled` and `dynamic` modes require `vadModule` to be provided                                                                                                                                                                                                 |
 | `vadConfig`          | `Partial<RealTimeVADOptions>`    | `{}`       | VAD configuration                                                                                                                                                                                                                                                                                |
 | `noiseThreshold`     | `number`                         | `0.004`    | Noise threshold                                                                                                                                                                                                                                                                                  |
 | `noiseCheckInterval` | `number`                         | `2000`     | The interval, used to check if we need to disable/enable outgoing audio every N-milliseconds                                                                                                                                                                                                     |
