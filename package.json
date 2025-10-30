@@ -1,6 +1,6 @@
 {
   "name": "opensips-js",
-  "version": "0.1.12",
+  "version": "0.1.17",
   "description": "The JS package for opensips",
   "default": "src/index.ts",
   "jsdelivr": "dist/opensips-js.iife.js",
@@ -59,7 +59,6 @@
     "vue": "3.2.25"
   },
   "dependencies": {
-    "@ricky0123/vad-web": "^0.0.28",
     "@types/mime": "^3.0.1",
     "generate-unique-id": "^2.0.1",
     "jssip": "3.10.0",
@@ -69,6 +68,14 @@
     "p-iteration": "^1.1.8",
     "sdp-transform": "2.14.1",
     "uuid": "^10.0.0"
+  },
+  "peerDependencies": {
+    "@ricky0123/vad-web": "^0.0.28"
+  },
+  "peerDependenciesMeta": {
+    "@ricky0123/vad-web": {
+      "optional": true
+    }
   },
   "files": [
     "dist",

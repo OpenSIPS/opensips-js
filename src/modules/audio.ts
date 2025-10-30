@@ -22,7 +22,6 @@ import {
 import { isMobile, processAudioVolume, simplifyCallObject, syncStream } from '@/helpers/audio.helper'
 import { RTCSessionEvent } from 'jssip/lib/UA'
 import { forEach } from 'p-iteration'
-import { MicVAD } from '@ricky0123/vad-web'
 import { CALL_EVENT_LISTENER_TYPE } from '@/enum/call.event.listener.type'
 import { IncomingAckEvent, IncomingEvent, OutgoingAckEvent, OutgoingEvent } from 'jssip/lib/RTCSession'
 import WebRTCMetrics from '@/helpers/webrtcmetrics/metrics'
@@ -32,9 +31,6 @@ import vadDefaultConfig from '@/enum/vad.default.config'
 import VUMeter from '@/helpers/VUMeter'
 import OpenSIPSJS from '@/index'
 import ManagedAudioContext from '@/helpers/audioContext'
-
-import * as ort from 'onnxruntime-web'
-ort.env.wasm.wasmPaths = '/'
 
 const STORAGE_KEYS = {
     SELECTED_INPUT_DEVICE: 'OpensipsJSInputDevice',
@@ -86,12 +82,13 @@ export class AudioModule {
     private initialStreamValue: MediaStream | null = null
 
     private noiseReduction: NoiseReductionOptions
-    private vadSessions: { [key: string]: MicVAD } = {}
+    private vadSessions: { [key: string]: any } = {}
     private vadSessionsState: { [key: string]: VADSessionState } = {}
     private vadIntervals: Record<string, ReturnType<typeof setInterval>> = {}
     private vadMrsIntervals: Record<string, ReturnType<typeof setInterval>> = {}
 
     private VUMeter: VUMeter
+    private MicVAD: any
 
     public managedAudioContext = new ManagedAudioContext()
 
@@ -109,6 +106,19 @@ export class AudioModule {
 
         this.processVADConfiguration()
         this.initializeMediaDevices()
+
+        // Check if VAD module is injected
+        if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
+            const vadModule = this.context.options.configuration?.noiseReductionOptions?.vadModule
+            if (vadModule && vadModule.MicVAD) {
+                this.MicVAD = vadModule.MicVAD
+                console.log('✅ VAD module loaded successfully')
+            } else {
+                console.warn('⚠️ Noise reduction is enabled but VAD module is not provided. To use VAD features, please install @ricky0123/vad-web and pass it via configuration.noiseReductionOptions.vadModule option.')
+                // Disable noise reduction if VAD is not available
+                this.noiseReduction.mode = 'disabled'
+            }
+        }
     }
 
     private processVADConfiguration () {
@@ -939,7 +949,7 @@ export class AudioModule {
 
         let isFirstFrameProcessed = false
 
-        const vadSession = await MicVAD.new({
+        const vadSession = await this.MicVAD.new({
             getStream: () => new Promise((res) => res(stream)),
             ...vadDefaultConfig,
             ...this.noiseReduction.vadConfig,

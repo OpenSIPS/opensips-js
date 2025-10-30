@@ -14,6 +14,8 @@ import { ScreenSharePlugin } from '../src/lib/janus/ScreenSharePlugin'
 import { ScreenShareWhiteBoardPlugin } from '../src/lib/janus/ScreenShareWhiteBoardPlugin'
 //import { StreamMaskPlugin } from '../src/lib/janus/StreamMaskPlugin'
 import { WhiteBoardPlugin } from '../src/lib/janus/WhiteBoardPlugin'
+import * as VAD from '@ricky0123/vad-web'
+
 //import UA from 'jssip/lib/UA'
 //import JsSIP from 'jssip/lib/JsSIP'
 
@@ -558,10 +560,11 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
         const configuration: IOpenSIPSConfiguration = {
             session_timers: false,
             noiseReductionOptions: {
-                mode: 'dynamic'
+                mode: 'dynamic',
+                vadModule: VAD
             },
             uri: `sip:${username}@${domain}`,
-            overrideUserAgent: (userAgent) => userAgent + ' Vue 3.0'
+            overrideUserAgent: (userAgent) => userAgent + ' Vue 3.0',
         }
 
         if (password) {
