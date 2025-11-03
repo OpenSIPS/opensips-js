@@ -8,7 +8,6 @@ import ActionsExecutor from './ActionsExecutor'
 import WindowMethodsWorker from './WindowMethodsWorker'
 import ScenarioManager from './ScenarioManager'
 import { TelemetryService } from './TelemetryService'
-import QrynLogger from './QrynLogger'
 
 import env from '../env'
 
@@ -26,6 +25,7 @@ import {
 } from '../types/actions'
 import { TestScenario } from '../types/intex'
 import { EventListener, EventListenerData, EventType } from '../types/events'
+import QrynClient from './QrynClient'
 
 const SCENARIO_THAT_TRIGGERED_EVENT_KEY = 'SCENARIO_THAT_TRIGGERED_EVENT_KEY' as const
 
@@ -124,7 +124,7 @@ export default class TestExecutor {
 
         if (action.data && action.data.waitUntil && action.data.waitUntil.length) {
             const waitingForEventsNames = action.data.waitUntil.map(e => e.event).join(', ')
-            await this.logger.log(
+            await this.qrynClient.log(
                 `Waiting for events: ${waitingForEventsNames}`,
                 {
                     events: action.data.waitUntil.map(e => ({
@@ -147,12 +147,12 @@ export default class TestExecutor {
                 // Wait for all events to be received
                 const results = await Promise.all(eventPromises)
 
-                await this.logger.log(`All events received: ${waitingForEventsNames}`, {
+                await this.qrynClient.log(`All events received: ${waitingForEventsNames}`, {
                     receivedEvents: action.data.waitUntil.map(e => e.event),
                     resultsCount: results.length
                 })
             } catch (error) {
-                await this.logger.error('Error waiting for events', {
+                await this.qrynClient.error('Error waiting for events', {
                     error: error instanceof Error ? error.message : String(error),
                     waitingForEvents: action.data.waitUntil.map(e => e.event)
                 })
@@ -241,6 +241,7 @@ export default class TestExecutor {
                     break
                 case 'roomTransfer':
                     result = await this.actionsExecutor.roomTransfer(this.buildPayload('roomTransfer', action))
+                    break
                 case 'DND':
                     result = await this.actionsExecutor.DND()
                     break
