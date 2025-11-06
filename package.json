@@ -1,6 +1,6 @@
 {
   "name": "opensips-js",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "description": "The JS package for opensips",
   "default": "src/index.ts",
   "jsdelivr": "dist/opensips-js.iife.js",
@@ -39,6 +39,7 @@
   },
   "homepage": "https://github.com/OpenSIPS/opensips-js#readme",
   "devDependencies": {
+    "@ricky0123/vad-web": "^0.0.29",
     "@types/node": "^18.14.2",
     "@typescript-eslint/eslint-plugin": "^5.53.0",
     "@typescript-eslint/parser": "^5.53.0",
