@@ -15,6 +15,7 @@ import { ScreenShareWhiteBoardPlugin } from '../src/lib/janus/ScreenShareWhiteBo
 //import { StreamMaskPlugin } from '../src/lib/janus/StreamMaskPlugin'
 import { WhiteBoardPlugin } from '../src/lib/janus/WhiteBoardPlugin'
 import * as VAD from '@ricky0123/vad-web'
+import { log } from 'console'
 
 //import UA from 'jssip/lib/UA'
 //import JsSIP from 'jssip/lib/JsSIP'
@@ -38,6 +39,8 @@ const webRTCPageEl = document.getElementById('webRTCPage')
 const logoutButtonEl = document.getElementById('logoutButton')
 
 const makeCallFormEl = document.getElementById('makeCallForm')
+//const vadFormEl = document.getElementById('vadForm')
+const vadModeSelectEl = document.getElementById('vadModeSelect') as HTMLSelectElement
 const videoCallFormEl = document.getElementById('videoCallForm')
 const sendMessageFormEl = document.getElementById('sendMessageForm')
 const callAddingIndicatorEl = document.getElementById('callAddingIndicator')
@@ -622,6 +625,10 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
         //openSIPSJS.use(streamMaskPlugin)
         openSIPSJS.use(whiteBoardPlugin)
         openSIPSJS.use(screenShareWhiteBoardPlugin)*/
+
+        if (vadModeSelectEl) {
+            vadModeSelectEl.value = configuration.noiseReductionOptions?.mode || 'disabled'
+        }
 
         /* openSIPSJS Listeners */
         openSIPSJS
@@ -1216,6 +1223,44 @@ makeCallFormEl?.addEventListener(
         openSIPSJS.audio?.initCall(target, addCallToCurrentRoom, onHoldWhenAddCall)
     }
 )
+
+/* vadFormEl?.addEventListener(
+    'submit',
+    (event) => {
+        event.preventDefault()
+
+        const form = event.target
+
+        if (!(form instanceof HTMLFormElement)) {
+            return
+        }
+
+        const formData = new FormData(form)
+        const target = formData.get('target')
+
+        if (typeof target !== 'string' || target.length === 0) {
+            alert('Please provide a valid string!')
+
+            return
+        }
+
+        openSIPSJS.audio?.setVADConfiguration({
+            mode: 'dynamic',
+        })
+    }
+) */
+
+vadModeSelectEl?.addEventListener(
+    'change',
+    async (event) => {
+        event.preventDefault()
+
+        const target = event.target as HTMLSelectElement
+        console.log('mode', target.value)
+        await openSIPSJS.audio.setVADConfiguration({
+            mode: target.value
+        })
+    })
 
 videoCallFormEl?.addEventListener(
     'submit',

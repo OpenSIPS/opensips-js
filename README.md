@@ -229,6 +229,7 @@ Also, there are next public fields on OpensipsJS instance:
 - `setSpeakerVolume(value: Number): void` - set volume of callers. Value should be in range from 0 to 1
 - `setDND(value: Boolean): void` - set the agent "Do not disturb" status
 - `setMetricsConfig(config: WebrtcMetricsConfigType): void` - set the metric config (used for audio quality indicator)
+- `setVADConfiguration(options: Partial<Omit<NoiseReductionOptions, 'vadModule'>>): void` - update noise reduction configuration at runtime. **Requires `vadModule` to be passed in the constructor, otherwise throws an error**
 
 ### Audio instance fields
 - `sipOptions: Object` - returns sip options
@@ -247,6 +248,14 @@ Also, there are next public fields on OpensipsJS instance:
 
 **Important**: Voice Activity Detection (VAD) is an **optional feature** that requires installing an additional peer dependency. It is **NOT compatible with React Native**.
 
+#### Critical: VAD Module Must Be Passed to Constructor
+
+**If you plan to use noise reduction features (including `setVADConfiguration` in runtime), you MUST pass `vadModule` to the OpenSIPSJS constructor during initialization.**
+
+- ✅ **Required**: Pass `vadModule` in the constructor if you want to use noise reduction
+- ❌ **Will throw error**: Calling `setVADConfiguration()` without `vadModule` in the constructor will throw an error
+- ⚠️ **Cannot be changed later**: The `vadModule` cannot be set after initialization - it must be provided in the constructor
+
 #### For Web Applications (with VAD support)
 
 Install the VAD library:
@@ -256,7 +265,7 @@ npm install @ricky0123/vad-web
 yarn add @ricky0123/vad-web
 ```
 
-Then import and inject it in your configuration:
+Then import and inject it in your configuration **during initialization**:
 ```javascript
 import OpenSIPSJS from 'opensips-js'
 import * as VAD from '@ricky0123/vad-web'
@@ -266,13 +275,19 @@ const opensipsJS = new OpenSIPSJS({
     // ... other configuration
     noiseReductionOptions: {
       mode: 'dynamic', // or 'enabled'
-      vadModule: VAD,  // Inject the VAD module
+      vadModule: VAD,  // ⚠️ REQUIRED: Must be passed here if you plan to use noise reduction
       noiseThreshold: 0.004,
       checkEveryMs: 500,
       noiseCheckInterval: 2000
     }
   },
   // ... rest of configuration
+})
+
+// ✅ Now you can use setVADConfiguration
+opensipsJS.audio.setVADConfiguration({
+  mode: 'enabled',
+  noiseThreshold: 0.005
 })
 ```
 
