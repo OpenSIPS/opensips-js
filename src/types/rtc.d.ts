@@ -160,6 +160,8 @@ export interface NoiseReductionOptions {
     noiseCheckInterval?: number
 }
 
+export type NoiseReductionOptionsWithoutVadModule = Omit<NoiseReductionOptions, 'vadModule'>
+
 export interface VADModule {
     MicVAD: any
 }
