@@ -7,7 +7,8 @@ import {
     IRoomUpdate,
     RTCSessionExtended,
     VADSessionState,
-    NoiseReductionOptions
+    NoiseReductionOptions,
+    NoiseReductionOptionsWithoutVadModule
 } from '@/types/rtc'
 import { CallTime, ITimeData, TempTimeData } from '@/types/timer'
 import { setupTime } from '@/helpers/time.helper'
@@ -105,25 +106,40 @@ export class AudioModule {
             onChangeFunction: this.emitVolumeChange.bind(this)
         })
 
-        this.processVADConfiguration()
         this.initializeMediaDevices()
 
-        // Check if VAD module is injected
-        if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
-            const vadModule = this.context.options.configuration?.noiseReductionOptions?.vadModule
-            if (vadModule && vadModule.MicVAD) {
-                this.MicVAD = vadModule.MicVAD
-                console.log('✅ VAD module loaded successfully')
-            } else {
-                console.warn('⚠️ Noise reduction is enabled but VAD module is not provided. To use VAD features, please install @ricky0123/vad-web and pass it via configuration.noiseReductionOptions.vadModule option.')
-                // Disable noise reduction if VAD is not available
-                this.noiseReduction.mode = 'disabled'
-            }
+        this.processVADConfiguration(this.context.options.configuration?.noiseReductionOptions || {})
+        this.setupVADInstance()
+    }
+
+    public setVADConfiguration (options: Partial<NoiseReductionOptionsWithoutVadModule>) {
+        if (!this.MicVAD) {
+            throw new Error('VAD module is not provided in the initial configuration')
+        }
+
+        const iterationKeys = Object.keys(options)
+        for (const key of iterationKeys) {
+            this.noiseReduction[key] = options[key]
+        }
+
+        if (this.hasActiveCalls) {
+            this.roomReconfigure(this.currentActiveRoomId)
         }
     }
 
-    private processVADConfiguration () {
-        const options: Partial<NoiseReductionOptions> = this.context.options.configuration?.noiseReductionOptions || {}
+    private setupVADInstance () {
+        const vadModule = this.context.options.configuration?.noiseReductionOptions?.vadModule
+        if (vadModule && vadModule.MicVAD) {
+            this.MicVAD = vadModule.MicVAD
+            console.log('✅ VAD module loaded successfully')
+        } else if (this.noiseReduction.mode !== 'disabled') {
+            console.warn('⚠️ Noise reduction is enabled but VAD module is not provided. To use VAD features, please install @ricky0123/vad-web and pass it via configuration.noiseReductionOptions.vadModule option.')
+            // Disable noise reduction if VAD is not available
+            this.noiseReduction.mode = 'disabled'
+        }
+    }
+
+    private processVADConfiguration (options: Partial<NoiseReductionOptions>) {
         this.noiseReduction = {
             mode: options.mode || 'disabled',
             checkEveryMs: options.checkEveryMs || 500,
@@ -457,6 +473,10 @@ export class AudioModule {
             callId,
             volume
         })
+    }
+
+    public getNoiseReductionMode() {
+        return this.noiseReduction.mode
     }
 
     public setMetricsConfig (config: WebrtcMetricsConfigType)  {

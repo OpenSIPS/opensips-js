@@ -38,6 +38,7 @@ const webRTCPageEl = document.getElementById('webRTCPage')
 const logoutButtonEl = document.getElementById('logoutButton')
 
 const makeCallFormEl = document.getElementById('makeCallForm')
+const vadModeSelectEl = document.getElementById('vadModeSelect') as HTMLSelectElement
 const videoCallFormEl = document.getElementById('videoCallForm')
 const sendMessageFormEl = document.getElementById('sendMessageForm')
 const callAddingIndicatorEl = document.getElementById('callAddingIndicator')
@@ -622,6 +623,10 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
         //openSIPSJS.use(streamMaskPlugin)
         openSIPSJS.use(whiteBoardPlugin)
         openSIPSJS.use(screenShareWhiteBoardPlugin)*/
+
+        if (vadModeSelectEl) {
+            vadModeSelectEl.value = configuration.noiseReductionOptions?.mode || 'disabled'
+        }
 
         /* openSIPSJS Listeners */
         openSIPSJS
@@ -1216,6 +1221,18 @@ makeCallFormEl?.addEventListener(
         openSIPSJS.audio?.initCall(target, addCallToCurrentRoom, onHoldWhenAddCall)
     }
 )
+
+vadModeSelectEl?.addEventListener(
+    'change',
+    async (event) => {
+        event.preventDefault()
+
+        const target = event.target as HTMLSelectElement
+        console.log('mode', target.value)
+        await openSIPSJS.audio.setVADConfiguration({
+            mode: target.value
+        })
+    })
 
 videoCallFormEl?.addEventListener(
     'submit',
