@@ -23,6 +23,7 @@ import { isMobile, processAudioVolume, simplifyCallObject, syncStream } from '@/
 import { RTCSessionEvent } from 'jssip/lib/UA'
 import { forEach } from 'p-iteration'
 import { CALL_EVENT_LISTENER_TYPE } from '@/enum/call.event.listener.type'
+import { SIP_STATUS_CODE } from '@/enum/sip.status.code'
 import { IncomingAckEvent, IncomingEvent, OutgoingAckEvent, OutgoingEvent } from 'jssip/lib/RTCSession'
 import WebRTCMetrics from '@/helpers/webrtcmetrics/metrics'
 import { filterObjectKeys } from '@/helpers/filter.helper'
@@ -1561,11 +1562,20 @@ export class AudioModule {
                 }
             })
         } else if (session.direction === 'outgoing') {
+            // Start timer when call starts RINGING (183 Session Progress - actual ringing)
+            const progressHandler = (event: IncomingEvent | OutgoingEvent) => {
+                if (event.response && event.response.status_code === SIP_STATUS_CODE.SESSION_PROGRESS) {
+                    this.startCallTimer(session.id)
+                    // Remove this listener after first 183 to avoid multiple starts
+                    session.off('progress', progressHandler)
+                }
+            }
+            session.on('progress', progressHandler)
+
+            // Reset timer when call is ANSWERED
             session.once('confirmed', () => {
                 this.startCallTimer(session.id)
             })
-
-            this.startCallTimer(session.id)
         }
 
         const call = session as ICall
