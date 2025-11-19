@@ -107,7 +107,9 @@ export class MSRPSession extends EventEmitter{
             this._direction = 'outgoing'
         }
         this.target = target
-        this._connection = new WebSocket(`wss://${this._ua.options.msrpDomain || this._ua._configuration.realm}`, 'msrp')
+        const protocolScheme = this._ua.options.msrpWs ? 'ws': 'wss'
+
+        this._connection = new WebSocket(`${protocolScheme}://${this._ua.options.msrpDomain || this._ua._configuration.realm}`, 'msrp')
         // MSRP WebSocket connection
         this._connection.binaryType = 'arraybuffer'
         this._connection.onopen = (event) => {
@@ -136,10 +138,10 @@ export class MSRPSession extends EventEmitter{
 
         const msgObj = new Message('')
         msgObj.method = 'SEND'
-        let toPath = ""
+        let toPath = ''
         if(this.my_addr[1]) toPath = this.my_addr[1]
-        if(this.target_addr[1]) toPath += " " + this.target_addr[1]
-        if(this.target_addr[0]) toPath += " " + this.target_addr[0]
+        if(this.target_addr[1]) toPath += ' ' + this.target_addr[1]
+        if(this.target_addr[0]) toPath += ' ' + this.target_addr[0]
         // msgObj.addHeader('To-Path', `${this.my_addr[1]}`)
         msgObj.addHeader('To-Path', toPath)
         msgObj.addHeader('From-Path', `${this.my_addr[0]}`)
@@ -199,7 +201,7 @@ export class MSRPSession extends EventEmitter{
             'a=accept-types:text/plain text/html\n' +
             `a=path:${msgObj.getHeader('Use-Path')} msrp://${this._ua._configuration.authorization_user}.${this._ua._configuration.realm}:2856/${this.auth_id};ws\n`)
         this._newMSRPSession('local', this._request)
-        if(!this._from_tag) this._from_tag= this._request.from._parameters.tag;
+        if(!this._from_tag) this._from_tag= this._request.from._parameters.tag
         this._id = this._request.call_id + this._from_tag
         const request_sender = new RequestSender(this._ua, this._request, {
             onRequestTimeout: () => {
@@ -619,11 +621,11 @@ export class MSRPSession extends EventEmitter{
 
     sendMSRP (message) {
         const msgObj = new Message('')
-        let toPath = "";
-        if(this.my_addr[1]) toPath = this.my_addr[1];
-        if(this.target_addr[1]) toPath += " " + this.target_addr[1];
-        if(this.target_addr[0]) toPath += " " + this.target_addr[0];
-        msgObj.method = 'SEND';
+        let toPath = ''
+        if(this.my_addr[1]) toPath = this.my_addr[1]
+        if(this.target_addr[1]) toPath += ' ' + this.target_addr[1]
+        if(this.target_addr[0]) toPath += ' ' + this.target_addr[0]
+        msgObj.method = 'SEND'
         // msgObj.addHeader('To-Path', `${this.my_addr[1]} ${this.target_addr[1]} ${this.target_addr[0]}`)
         msgObj.addHeader('To-Path', toPath)
         msgObj.addHeader('From-Path', `${this.my_addr[0]}`)
@@ -1006,37 +1008,37 @@ export class MSRPSession extends EventEmitter{
         })
     }
 
-    _runKeepAliveTimer() {
+    _runKeepAliveTimer () {
         if (!this._sessionTimers || !this._sessionTimers.enabled || this._sessionTimers.running) {
-            return;
+            return
         }
 
         if (!this._sessionTimers.currentExpires) {
-            this._sessionTimers.currentExpires = this._sessionTimers.defaultExpires || 30;
+            this._sessionTimers.currentExpires = this._sessionTimers.defaultExpires || 30
         }
 
         if (!this._sessionTimers.refresher) {
-            console.log("Not the refresher; waiting for remote keep-alive");
-            return;
+            console.log('Not the refresher; waiting for remote keep-alive')
+            return
         }
 
-        const t = this._sessionTimers.currentExpires;
-        this._sessionTimers.running = true;
-        clearTimeout(this._sessionTimers.timer);
+        const t = this._sessionTimers.currentExpires
+        this._sessionTimers.running = true
+        clearTimeout(this._sessionTimers.timer)
 
         this._sessionTimers.timer = setTimeout(() => {
             if (this._connection.readyState === WebSocket.OPEN) {
                 try {
-                    this._sendKeepAlive();
-                    console.log("Session timer: sending MSRP keep-alive");
+                    this._sendKeepAlive()
+                    console.log('Session timer: sending MSRP keep-alive')
                 } catch (err) {
-                    console.error("Failed to send keep-alive:", err);
+                    console.error('Failed to send keep-alive:', err)
                 }
             }
 
-            this._sessionTimers.running = false;
-            this._runKeepAliveTimer();
-        }, t * 1000 * 0.5);
+            this._sessionTimers.running = false
+            this._runKeepAliveTimer()
+        }, t * 1000 * 0.5)
     }
 
     _handleSessionTimersInIncomingResponse (response) {

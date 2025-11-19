@@ -186,6 +186,8 @@ export interface IOpenSIPSJSOptions {
     },
     modules: Array<Modules>
     pnExtraHeaders?: ExtraContactParams
+    msrpDomain?: string
+    msrpWs?: boolean
 }
 
 export interface TriggerListenerOptions {
