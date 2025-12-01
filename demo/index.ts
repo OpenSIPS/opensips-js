@@ -560,6 +560,7 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
     try {
         const configuration: IOpenSIPSConfiguration = {
             session_timers: false,
+            register_expires: 60,
             noiseReductionOptions: {
                 mode: 'dynamic',
                 vadModule: VAD
