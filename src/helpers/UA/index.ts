@@ -2,7 +2,8 @@ import { Options, Message, UA as UAType } from 'jssip'
 
 import UA, { UAConfiguration } from 'jssip/lib/UA'
 import * as JsSIP_C from 'jssip/lib/Constants'
-import RTCSessionConstructor, { Originator, RTCSession } from 'jssip/lib/RTCSession'
+import { Originator, RTCSession } from 'jssip/lib/RTCSession'
+import RTCSessionConstructor from '@/lib/jssip/session'
 import Transactions from 'jssip/lib/Transactions'
 import { IncomingRequest } from 'jssip/lib/SIPMessage'
 import JanusSession from '@/lib/janus/session'
@@ -112,7 +113,15 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
     call (target: string, options?: CallOptionsExtended): RTCSession {
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore
-        return super.call(target, options)
+        //return super.call(target, options)
+
+        logger.debug('call()')
+
+        const session = new RTCSessionConstructor(this)
+
+        session.connect(target, options)
+
+        return session
     }
 
     joinVideoCall (target: string, displayName: string, options: VideoConferenceJoinOptions) {
