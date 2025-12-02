@@ -160,6 +160,8 @@ export interface NoiseReductionOptions {
     noiseCheckInterval?: number
 }
 
+export type NoiseReductionOptionsWithoutVadModule = Omit<NoiseReductionOptions, 'vadModule'>
+
 export interface VADModule {
     MicVAD: any
 }
@@ -184,6 +186,8 @@ export interface IOpenSIPSJSOptions {
     },
     modules: Array<Modules>
     pnExtraHeaders?: ExtraContactParams
+    msrpDomain?: string
+    msrpWs?: boolean
 }
 
 export interface TriggerListenerOptions {

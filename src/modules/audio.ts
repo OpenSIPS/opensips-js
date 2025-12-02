@@ -7,7 +7,8 @@ import {
     IRoomUpdate,
     RTCSessionExtended,
     VADSessionState,
-    NoiseReductionOptions
+    NoiseReductionOptions,
+    NoiseReductionOptionsWithoutVadModule
 } from '@/types/rtc'
 import { CallTime, ITimeData, TempTimeData } from '@/types/timer'
 import { setupTime } from '@/helpers/time.helper'
@@ -111,7 +112,7 @@ export class AudioModule {
         this.setupVADInstance()
     }
 
-    public setVADConfiguration (options: Partial<Omit<NoiseReductionOptions, 'vadModule'>>) {
+    public setVADConfiguration (options: Partial<NoiseReductionOptionsWithoutVadModule>) {
         if (!this.MicVAD) {
             throw new Error('VAD module is not provided in the initial configuration')
         }
@@ -472,6 +473,10 @@ export class AudioModule {
             callId,
             volume
         })
+    }
+
+    public getNoiseReductionMode() {
+        return this.noiseReduction.mode
     }
 
     public setMetricsConfig (config: WebrtcMetricsConfigType)  {
