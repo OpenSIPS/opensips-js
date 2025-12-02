@@ -1,7 +1,7 @@
 import { UAEventMap } from 'jssip/lib/UA'
 
 import { IMessage, MSRPSessionExtended } from '@/types/msrp'
-import { ICall, RoomChangeEmitType, ICallStatus } from '@/types/rtc'
+import { ICall, RoomChangeEmitType, ICallStatus, RTCSessionExtended } from '@/types/rtc'
 import MSRPMessage from '@/lib/msrp/message'
 import { ITimeData } from '@/types/timer'
 import { IncomingMSRPSessionEvent, OutgoingMSRPSessionEvent } from '@/helpers/UA'
@@ -19,6 +19,11 @@ export type ChangeVolumeEventType = {
 export type NoiseReductionStateEventType = {
     sessionId: string
     enabled: boolean
+}
+
+export type ConnectionStateChangeType = {
+    session: RTCSessionExtended,
+    connectionState: string
 }
 
 export type readyListener = (value: boolean) => void
@@ -52,7 +57,7 @@ export type changeCallTimeListener = (event: { [key: string]: ITimeData }) => vo
 export type changeCallMetricsListener = (event: { [key: string]: any }) => void
 export type changeCallVolumeListener = (event: ChangeVolumeEventType) => void
 export type changeNoiseReductionStateListener = (event: NoiseReductionStateEventType) => void
-export type connectionStateChangeListener = (event: string) => void
+export type connectionStateChangeListener = (event: ConnectionStateChangeType) => void
 export type conferenceStartListener = () => void
 export type conferenceEndListener = (sessionId) => void
 export type changeMainVideoStreamListener = (event: { name: string, event: MediaStream }) => void

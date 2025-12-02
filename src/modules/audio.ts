@@ -1695,9 +1695,12 @@ export class AudioModule {
 
             if (session.connection) {
                 const connectionState = session.connection.connectionState
-                
+
                 if (connectionState === 'closed' || connectionState === 'disconnected') {
-                    this.context.emit('connectionStateChange', connectionState)
+                    this.context.emit('connectionStateChange', {
+                        session,
+                        connectionState
+                    })
                 }
             }
 
@@ -1744,9 +1747,12 @@ export class AudioModule {
 
             if (session.connection) {
                 const connectionState = session.connection.connectionState
-                
+
                 if (connectionState === 'closed' || connectionState === 'disconnected') {
-                    this.context.emit('connectionStateChange', connectionState)
+                    this.context.emit('connectionStateChange', {
+                        session,
+                        connectionState
+                    })
                 }
             }
 
@@ -1796,7 +1802,10 @@ export class AudioModule {
             if (!connection) return
 
             connection.addEventListener('connectionstatechange', (event) => {
-                this.context.emit('connectionStateChange', connection.connectionState)
+                this.context.emit('connectionStateChange', {
+                    session,
+                    connectionState: connection.connectionState
+                })
             })
         }
 
