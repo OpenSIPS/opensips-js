@@ -475,7 +475,7 @@ export class AudioModule {
         })
     }
 
-    public getNoiseReductionMode() {
+    public getNoiseReductionMode () {
         return this.noiseReduction.mode
     }
 
@@ -1693,6 +1693,14 @@ export class AudioModule {
                 event
             })
 
+            if (session.connection) {
+                const connectionState = session.connection.connectionState
+                
+                if (connectionState === 'closed' || connectionState === 'disconnected') {
+                    this.context.emit('connectionStateChange', connectionState)
+                }
+            }
+
             if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
                 this.stopSessionVad(session._id)
             }
@@ -1734,6 +1742,14 @@ export class AudioModule {
                 event
             })
 
+            if (session.connection) {
+                const connectionState = session.connection.connectionState
+                
+                if (connectionState === 'closed' || connectionState === 'disconnected') {
+                    this.context.emit('connectionStateChange', connectionState)
+                }
+            }
+
             if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
                 this.stopSessionVad(session._id)
             }
@@ -1774,6 +1790,22 @@ export class AudioModule {
             if (session.id === this.callAddingInProgress) {
                 this.callAddingInProgress = undefined
             }
+        })
+
+        const setupConnectionListeners = (connection: RTCPeerConnection) => {
+            if (!connection) return
+
+            connection.addEventListener('connectionstatechange', (event) => {
+                this.context.emit('connectionStateChange', connection.connectionState)
+            })
+        }
+
+        if (session.connection) {
+            setupConnectionListeners(session.connection)
+        }
+
+        session.on('peerconnection', ({ peerconnection }: { peerconnection: RTCPeerConnection }) => {
+            setupConnectionListeners(peerconnection)
         })
 
         await this.setupCall(event)
@@ -1933,7 +1965,6 @@ export class AudioModule {
 
         const senders = call.connection.getSenders()
         const firstSender = senders[0]
-
 
         await firstSender.replaceTrack(processedStream.getTracks()[0])
 
