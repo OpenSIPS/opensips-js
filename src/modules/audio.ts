@@ -88,6 +88,8 @@ export class AudioModule {
     private vadSessionsState: { [key: string]: VADSessionState } = {}
     private vadIntervals: Record<string, ReturnType<typeof setInterval>> = {}
     private vadMrsIntervals: Record<string, ReturnType<typeof setInterval>> = {}
+    // TODO: Conference health check - uncomment if needed for automatic track state monitoring
+    // private conferenceHealthCheckIntervals: Record<number, ReturnType<typeof setInterval>> = {}
 
     private VUMeter: VUMeter
     private MicVAD: any
@@ -378,6 +380,8 @@ export class AudioModule {
     }
 
     private async cleanupConferenceNodes (roomId: number) {
+        // TODO: Conference health check - uncomment if needed
+        // this.stopConferenceHealthCheck(roomId)
         const nodes = this.conferenceNodes[roomId]
 
         if (!nodes) {
@@ -392,6 +396,7 @@ export class AudioModule {
                 disconnectedSources++
             } catch (error) {
                 console.error(`[cleanupConferenceNodes] Error disconnecting source ${key}:`, error)
+                this.context.logger?.error(`[cleanupConferenceNodes] Error disconnecting source ${key}:`, error)
             }
         })
 
@@ -402,6 +407,7 @@ export class AudioModule {
                 disconnectedDestinations++
             } catch (error) {
                 console.error(`[cleanupConferenceNodes] Error disconnecting destination ${key}:`, error)
+                this.context.logger?.error(`[cleanupConferenceNodes] Error disconnecting destination ${key}:`, error)
             }
         })
 
@@ -412,6 +418,7 @@ export class AudioModule {
                 disconnectedGains++
             } catch (error) {
                 console.error(`[cleanupConferenceNodes] Error disconnecting gain ${key}:`, error)
+                this.context.logger?.error(`[cleanupConferenceNodes] Error disconnecting gain ${key}:`, error)
             }
         })
 
@@ -883,7 +890,7 @@ export class AudioModule {
      * Monitors background noise while user is not speaking.
      * Calls `onNoiseDetected()` or `onNoiseStop()` when mode should switch.
      */
-    private startNoiseMonitor ({
+    private async startNoiseMonitor ({
         sessionId,
         stream,
         onNoiseDetected,
@@ -894,9 +901,27 @@ export class AudioModule {
         onNoiseDetected: () => void;
         onNoiseStop: () => void;
     }) {
-        const ctx = new AudioContext()
-        const source = ctx.createMediaStreamSource(stream.clone())
-        const analyser = ctx.createAnalyser()
+        let ctx: AudioContext
+        try {
+            ctx = await this.managedAudioContext.getContext()
+        } catch (error) {
+            console.error('[startNoiseMonitor] Failed to get AudioContext:', error)
+            this.context.logger?.error('[startNoiseMonitor] Failed to get AudioContext:', error)
+            return
+        }
+
+        let source: MediaStreamAudioSourceNode
+        let analyser: AnalyserNode
+        try {
+            source = ctx.createMediaStreamSource(stream.clone())
+            analyser = ctx.createAnalyser()
+        } catch (error) {
+            console.error('[startNoiseMonitor] Failed to create audio nodes:', error)
+            console.error('[startNoiseMonitor] AudioContext state:', ctx.state)
+            this.context.logger?.error('[startNoiseMonitor] Failed to create audio nodes:', error)
+            this.context.logger?.error('[startNoiseMonitor] AudioContext state:', ctx.state)
+            return
+        }
         analyser.fftSize = 1024
         const buf = new Float32Array(analyser.fftSize)
         source.connect(analyser)
@@ -932,6 +957,20 @@ export class AudioModule {
 
             const state = this.vadSessionsState[sessionId]
 
+            if (!state) {
+                console.warn(`[startNoiseMonitor] State not found for sessionId ${sessionId}, stopping interval`)
+                this.context.logger?.warn(`[startNoiseMonitor] State not found for sessionId ${sessionId}, stopping interval`)
+                if (this.vadIntervals[sessionId]) {
+                    clearInterval(this.vadIntervals[sessionId])
+                    delete this.vadIntervals[sessionId]
+                }
+                if (this.vadMrsIntervals[sessionId]) {
+                    clearInterval(this.vadMrsIntervals[sessionId])
+                    delete this.vadMrsIntervals[sessionId]
+                }
+                return
+            }
+
             const isNoisy = avgRms > this.noiseReduction.noiseThreshold
 
             if (!state.isSpeaking) {
@@ -965,6 +1004,9 @@ export class AudioModule {
             isSpeaking: false
         }
 
+        console.log('[processVAD] Process for', session._id)
+        this.context.logger?.log('[processVAD] Process for', session._id)
+
         const audioContext = await this.managedAudioContext.getContext()
         const vadControlled = await createVADControlledStream(stream, audioContext, 150)
 
@@ -989,11 +1031,19 @@ export class AudioModule {
                         return
                     }
 
+                    if (!this.vadSessionsState[session._id]) {
+                        console.error(`[processVAD] CRITICAL: State not found for session ${session._id} after being set at line 988! This should not happen.`)
+                        this.context.logger?.error(`[processVAD] CRITICAL: State not found for session ${session._id} after being set at line 988! This should not happen.`)
+                        return
+                    }
+
+                    // Start noise monitor asynchronously (don't await to avoid blocking callback)
                     this.startNoiseMonitor({
                         sessionId: session._id,
                         stream,
                         onNoiseDetected: async () => {
-                            console.log('Replace track with Vad Controlled')
+                            console.log('[processVad] - Replace track with Vad Controlled')
+                            this.context.logger?.log('[processVad] - Replace track with Vad Controlled')
                             await session.connection.getSenders()[0]
                                 ?.replaceTrack(vadControlled.stream.getAudioTracks()[0])
                         },
@@ -1077,6 +1127,8 @@ export class AudioModule {
 
         const isHostRoom = this.currentActiveRoomId === roomId
 
+        console.log('[roomReconfigure] - Calls In Room:', callsInRoom)
+        this.context.logger?.log('[roomReconfigure] - Calls In Room:', callsInRoom)
         callsInRoom.forEach((call, index) => {
             if (call.audioTag) {
                 call.connection.getReceivers().forEach((receiver: RTCRtpReceiver) => {
@@ -1103,6 +1155,8 @@ export class AudioModule {
                 await this.cleanupConferenceNodes(roomId)
             }
 
+            console.log('[roomReconfigure] - Delete empty room', roomId)
+            this.context.logger?.log('[roomReconfigure] - Delete empty room', roomId)
             this.deleteRoomIfEmpty(roomId)
             return
         }
@@ -1145,6 +1199,8 @@ export class AudioModule {
                     const processedStream = this.activeStream
 
                     if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
+                        console.log('[roomReconfigure] - Call processVAD from roomReconfigure')
+                        this.context.logger?.log('[roomReconfigure] - Call processVAD from roomReconfigure')
                         this.processVAD(callsInRoom[0], processedStream)
                     }
 
@@ -1173,6 +1229,8 @@ export class AudioModule {
     }
 
     private async doConference (sessions: Array<ICall>) {
+        console.log('[doConference] - In doConference, sessions:', sessions)
+        this.context.logger?.log('[doConference] - In doConference, sessions:', sessions)
         if (sessions.length === 0) {
             return
         }
@@ -1187,11 +1245,42 @@ export class AudioModule {
         }
 
         // Check AudioContext state before proceeding
-        const audioContext = await this.managedAudioContext.getContext()
-
-        if (audioContext.state !== 'running') {
-            console.error(`[doConference] ERROR: AudioContext is not running! State: ${audioContext.state}`)
+        let audioContext: AudioContext
+        try {
+            audioContext = await this.managedAudioContext.getContext()
+        } catch (error) {
+            console.error('[doConference] Failed to get AudioContext:', error)
+            this.context.logger?.error('[doConference] Failed to get AudioContext:', error)
             return
+        }
+
+        const initialState = audioContext.state
+        if (initialState !== 'running') {
+            console.error(`[doConference] ERROR: AudioContext is not running! State: ${initialState}`)
+            this.context.logger?.error(`[doConference] ERROR: AudioContext is not running! State: ${initialState}`)
+            // Try to resume if suspended or interrupted
+            if (initialState === 'suspended' || initialState === 'interrupted') {
+                try {
+                    await audioContext.resume()
+                    // Re-check state after resume attempt
+                    const newState = audioContext.state
+                    if (newState !== 'running') {
+                        console.error(`[doConference] Failed to resume AudioContext, state: ${newState}`)
+                        this.context.logger?.error(`[doConference] Failed to resume AudioContext, state: ${newState}`)
+                        return
+                    }
+                } catch (error) {
+                    console.error('[doConference] Error resuming AudioContext:', error)
+                    this.context.logger?.error('[doConference] Error resuming AudioContext:', error)
+                    return
+                }
+            } else if (initialState === 'closed') {
+                console.error('[doConference] AudioContext is closed, cannot proceed')
+                this.context.logger?.error('[doConference] AudioContext is closed, cannot proceed')
+                return
+            } else {
+                return
+            }
         }
 
         // Clean up existing conference nodes for this room
@@ -1208,9 +1297,16 @@ export class AudioModule {
         // Create a map of all receiver tracks
         const receiverTracks = new Map<string, MediaStreamTrack>()
 
+        console.log('[doConference] - Before sessions forEach, sessions:', sessions)
+        this.context.logger?.log('[doConference] - Before sessions forEach, sessions:', sessions)
         sessions.forEach((session, sessionIndex) => {
+            console.log('[doConference] - In sessions forEach, iteration for', session._id)
+            this.context.logger?.log('[doConference] - In sessions forEach, iteration for', session._id)
             if (session && session.connection) {
                 const receivers = session.connection.getReceivers()
+
+                console.log('[doConference] - Receivers list length for', session._id, receivers.length)
+                this.context.logger?.log('[doConference] - Receivers list length for', session._id, receivers.length)
 
                 receivers.forEach((receiver: RTCRtpReceiver, receiverIndex) => {
                     receiver.track.enabled = !session.localMuted
@@ -1219,10 +1315,38 @@ export class AudioModule {
                     const kind = receiver.track?.kind
                     const trackKey = `${session._id}-${trackId}`
 
+                    console.log('[doConference] - Gathering receiver tracks', session._id)
+                    console.log('[doConference] - Receiver track readyState', receiver.track.readyState)
+                    this.context.logger?.log('[doConference] - Gathering receiver tracks', session._id)
+                    this.context.logger?.log('[doConference] - Receiver track readyState', receiver.track.readyState)
                     if (receiver.track && receiver.track.readyState === 'live') {
+                        console.log('[doConference] - Gathered receiver track', session._id)
+                        this.context.logger?.log('[doConference] - Gathered receiver track', session._id)
                         receiverTracks.set(trackKey, receiver.track)
                     }
+                    // TODO: Enhanced logging - uncomment if needed for debugging track issues
+                    /*const track = receiver.track
+                    if (!track) {
+                        console.warn(`[doConference] No track found for receiver ${receiverIndex} in session ${session._id}`)
+                        return
+                    }
+
+                    track.enabled = !session.localMuted
+                    const trackId = track.id
+                    const readyState = track.readyState
+                    const kind = track.kind
+                    const trackKey = `${session._id}-${trackId}`
+
+                    if (readyState === 'live') {
+                        receiverTracks.set(trackKey, track)
+                        console.log(`[doConference] Added live ${kind} track ${trackId} from session ${session._id} to conference mix`)
+                    } else {
+                        console.warn(`[doConference] Skipping ${kind} track ${trackId} from session ${session._id} - readyState: ${readyState}`)
+                    }*/
                 })
+            } else {
+                console.log('[doConference] - No session or RTC connection, session:', session)
+                this.context.logger?.log('[doConference] - No session or RTC connection, session:', session)
             }
         })
 
@@ -1231,6 +1355,8 @@ export class AudioModule {
         // For each session, create a custom mix excluding their own audio
         await forEach(sessions, async (session: ICall, sessionIndex) => {
             if (!session || !session.connection) {
+                console.log('[doConference] - Return because of no session or connection, session:', session)
+                this.context.logger?.log('[doConference] - Return because of no session or connection, session:', session)
                 return
             }
 
@@ -1240,9 +1366,61 @@ export class AudioModule {
             // Add all other participants' audio to this session's mix
             let tracksAddedToMix = 0
 
+            // Check if this session has any receiver tracks available
+            const sessionReceivers = session.connection.getReceivers()
+            const hasReceivers = sessionReceivers.length > 0
+            console.log(`[doConference] Session ${session._id} has ${sessionReceivers.length} receivers`)
+            this.context.logger?.log(`[doConference] Session ${session._id} has ${sessionReceivers.length} receivers`)
+
+            if (!hasReceivers) {
+                console.warn(`[doConference] Session ${session._id} has no receivers yet. Will re-configure when track arrives.`)
+                this.context.logger?.warn(`[doConference] Session ${session._id} has no receivers yet. Will re-configure when track arrives.`)
+                // Still create the mix destination so the session can send audio to others
+                // But don't try to add tracks from this session to others' mixes
+            }
+
             receiverTracks.forEach((track, trackKey) => {
+                console.log('[doConference] - In forEach receiverTracks for', session._id)
+                this.context.logger?.log('[doConference] - In forEach receiverTracks for', session._id)
                 // Don't include the session's own received audio
                 if (!trackKey.startsWith(session._id)) {
+                    // Double-check track is still valid before creating audio nodes
+                    if (!track || track.readyState !== 'live') {
+                        console.warn(`[doConference] Skipping invalid track ${track?.id || 'unknown'} for session ${session._id}`)
+                        this.context.logger?.warn(`[doConference] Skipping invalid track ${track?.id || 'unknown'} for session ${session._id}`)
+                        return
+                    }
+
+                    try {
+                        const source = audioContext.createMediaStreamSource(new MediaStream([ track ]))
+                        const gainNode = audioContext.createGain()
+                        const sourceKey = `${session._id}-${trackKey}`
+
+                        source.connect(gainNode)
+                        gainNode.connect(mixedOutput)
+                        console.log('[doConference] - In forEach connect track for', session._id)
+                        this.context.logger?.log('[doConference] - In forEach connect track for', session._id)
+
+                        // Store references for cleanup
+                        nodes.sources.set(sourceKey, source)
+                        nodes.gains.set(sourceKey, gainNode)
+
+                        tracksAddedToMix++
+                    } catch (error) {
+                        console.error(error)
+                    }
+                    // TODO: Enhanced track validation and logging - uncomment if needed
+                    /*// Double-check track is still live before adding to mix
+                    if (track.readyState !== 'live') {
+                        console.warn(`[doConference] Skipping track ${track.id} - readyState changed to ${track.readyState}`)
+                        return
+                    }
+
+                    // Check if track is enabled
+                    if (!track.enabled) {
+                        console.warn(`[doConference] Track ${track.id} is disabled, but adding to mix anyway`)
+                    }
+
                     try {
                         const source = audioContext.createMediaStreamSource(new MediaStream([ track ]))
                         const gainNode = audioContext.createGain()
@@ -1257,10 +1435,16 @@ export class AudioModule {
 
                         tracksAddedToMix++
                     } catch (error) {
-                        console.error(error)
-                    }
+                        console.error(`[doConference] Error adding track ${track.id} to mix for session ${session._id}:`, error)
+                    }*/
                 }
             })
+            // TODO: Enhanced logging - uncomment if needed
+            /*if (tracksAddedToMix === 0) {
+                console.warn(`[doConference] No tracks added to mix for session ${session._id} in room ${roomId}`)
+            } else {
+                console.log(`[doConference] Added ${tracksAddedToMix} tracks to mix for session ${session._id}`)
+            }*/
 
             // Only add host's microphone if this is the room where host currently is
             if (isHostRoom && this.activeStreamValue) {
@@ -1283,6 +1467,7 @@ export class AudioModule {
                 }
             } else if (isHostRoom) {
                 console.error(`Host room but no activeStreamValue - skipping host microphone for session ${session._id}`)
+                this.context.logger?.error(`Host room but no activeStreamValue - skipping host microphone for session ${session._id}`)
             } /*else {
                 session.connection.getReceivers().forEach((receiver: RTCRtpReceiver) => {
                     receiver.track.enabled = false
@@ -1295,11 +1480,15 @@ export class AudioModule {
             const mixedTracks = mixedOutput.stream.getTracks()
 
             if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
+                console.log('[doConference] - Call processVAD from doConference')
+                this.context.logger?.log('[doConference] - Call processVAD from doConference')
                 this.processVAD(session, mixedOutput.stream)
             }
 
             if (sender && mixedTracks[0]) {
                 try {
+                    console.log('[doConference] - Final replaceTrack for', session._id)
+                    this.context.logger?.log('[doConference] - Final replaceTrack for', session._id)
                     await sender.replaceTrack(mixedTracks[0])
 
                     // IMPORTANT: Only unmute if host is in this room
@@ -1324,7 +1513,76 @@ export class AudioModule {
                 })
             }*/
         })
+        // TODO: Conference health check - uncomment if needed for automatic track state monitoring
+        // this.startConferenceHealthCheck(roomId, sessions)
     }
+
+    // TODO: Conference health check - uncomment if needed for automatic track state monitoring
+    // This periodically checks track states and automatically reconfigures conference if issues are detected
+    /*private startConferenceHealthCheck (roomId: number, sessions: Array<ICall>) {
+        // Clear any existing health check for this room
+        if (this.conferenceHealthCheckIntervals[roomId]) {
+            clearInterval(this.conferenceHealthCheckIntervals[roomId])
+        }
+
+        // Check every 30 seconds for track state issues
+        this.conferenceHealthCheckIntervals[roomId] = setInterval(() => {
+            const currentSessions = Object.values(this.extendedCalls).filter(call => call.roomId === roomId)
+
+            // Only continue health check if we still have a conference (2+ participants)
+            if (currentSessions.length < 2) {
+                this.stopConferenceHealthCheck(roomId)
+                return
+            }
+
+            let needsReconfiguration = false
+            const trackIssues: string[] = []
+
+            currentSessions.forEach((session) => {
+                if (!session || !session.connection) {
+                    return
+                }
+
+                const receivers = session.connection.getReceivers()
+                receivers.forEach((receiver: RTCRtpReceiver) => {
+                    const track = receiver.track
+                    if (!track) {
+                        trackIssues.push(`Session ${session._id}: Missing track`)
+                        needsReconfiguration = true
+                        return
+                    }
+
+                    if (track.readyState !== 'live') {
+                        trackIssues.push(`Session ${session._id}, Track ${track.id}: readyState=${track.readyState}`)
+                        needsReconfiguration = true
+                    }
+
+                    // Check connection state
+                    const connectionState = session.connection.connectionState
+                    if (connectionState !== 'connected' && connectionState !== 'connecting') {
+                        trackIssues.push(`Session ${session._id}: connectionState=${connectionState}`)
+                        needsReconfiguration = true
+                    }
+                })
+            })
+
+            if (needsReconfiguration) {
+                console.warn(`[ConferenceHealthCheck] Room ${roomId} needs reconfiguration. Issues:`, trackIssues)
+                this.context.logger?.warn(`[ConferenceHealthCheck] Room ${roomId} needs reconfiguration. Issues:`, trackIssues)
+                this.roomReconfigure(roomId)
+            } else {
+                console.log(`[ConferenceHealthCheck] Room ${roomId} is healthy - ${currentSessions.length} sessions, all tracks live`)
+                this.context.logger?.log(`[ConferenceHealthCheck] Room ${roomId} is healthy - ${currentSessions.length} sessions, all tracks live`)
+            }
+        }, 30000) // Check every 30 seconds
+    }
+
+    private stopConferenceHealthCheck (roomId: number) {
+        if (this.conferenceHealthCheckIntervals[roomId]) {
+            clearInterval(this.conferenceHealthCheckIntervals[roomId])
+            delete this.conferenceHealthCheckIntervals[roomId]
+        }
+    }*/
 
     private processCallerMute (callId: string, value: boolean) {
         const call = this.extendedCalls[callId]
@@ -1569,6 +1827,18 @@ export class AudioModule {
         } else if (session.direction === 'outgoing') {
             // Start timer when call starts RINGING (183 Session Progress - actual ringing)
             const progressHandler = (event: IncomingEvent | OutgoingEvent) => {
+                const hasSDP = !!(event?.response?.body)
+                const contentType = event?.response?.getHeader?.('Content-Type')
+                const contentLength = event?.response?.getHeader?.('Content-Length')
+
+                console.log('PPP SDP Check:', {
+                    hasBody: hasSDP,
+                    contentType: contentType,
+                    contentLength: contentLength,
+                    bodyLength: event?.response?.body?.length || 0,
+                    bodyPreview: event?.response?.body?.substring(0, 100) || 'N/A'
+                })
+
                 if (event.response && event.response.status_code === SIP_STATUS_CODE.SESSION_PROGRESS) {
                     this.startCallTimer(session.id)
                     // Remove this listener after first 183 to avoid multiple starts
@@ -1806,7 +2076,50 @@ export class AudioModule {
                     session,
                     connectionState: connection.connectionState
                 })
+                // TODO: Automatic conference reconfiguration on connection state change - uncomment if needed
+                /*const connectionState = connection.connectionState
+                // Re-configure conference if connection state changes and we're in a conference
+                // This ensures tracks are re-evaluated when connection recovers
+                if (session.roomId !== undefined) {
+                    const callsInRoom = Object.values(this.extendedCalls).filter(call => call.roomId === session.roomId)
+                    if (callsInRoom.length > 1) {
+                        console.log(`[ConnectionStateChange] Re-configuring conference for room ${session.roomId} due to connection state: ${connectionState}`)
+                        // Use setTimeout to avoid re-configuring during connection setup
+                        setTimeout(() => {
+                            this.roomReconfigure(session.roomId)
+                        }, 1000)
+                    }
+                }*/
             })
+            // TODO: Track state monitoring - uncomment if needed for automatic track state monitoring
+            /*// Monitor track state changes
+            connection.addEventListener('track', (event: RTCTrackEvent) => {
+                const track = event.track
+
+                // Monitor track state changes
+                track.addEventListener('ended', () => {
+                    console.warn(`[TrackEnded] Track ${track.id} ended for session ${session.id}`)
+                    // Re-configure conference when a track ends
+                    if (session.roomId !== undefined) {
+                        const callsInRoom = Object.values(this.extendedCalls).filter(call => call.roomId === session.roomId)
+                        if (callsInRoom.length > 1) {
+                            console.log(`[TrackEnded] Re-configuring conference for room ${session.roomId}`)
+                            setTimeout(() => {
+                                this.roomReconfigure(session.roomId)
+                            }, 500)
+                        }
+                    }
+                })
+
+                // Monitor mute/unmute state changes
+                track.addEventListener('mute', () => {
+                    console.log(`[TrackMuted] Track ${track.id} muted for session ${session.id}`)
+                })
+
+                track.addEventListener('unmute', () => {
+                    console.log(`[TrackUnmuted] Track ${track.id} unmuted for session ${session.id}`)
+                })
+            })*/
         }
 
         if (session.connection) {
@@ -1954,6 +2267,8 @@ export class AudioModule {
     }
 
     private async triggerAddStream (event: RTCTrackEvent, call: ICall) {
+        console.log(`[triggerAddStream] - For ${call._id}`)
+        this.context.logger?.log(`[triggerAddStream] - For ${call._id}`)
         const muteState = this.muteWhenJoin || this.isMuted
         this.setIsMuted(muteState)
 
@@ -1996,6 +2311,18 @@ export class AudioModule {
         await this.setupVUMeter(stream, call._id)
         this.getCallQuality(call)
         this.updateCall(call)
+
+        if (call.roomId !== undefined) {
+            const callsInRoom = Object.values(this.extendedCalls).filter(c => c.roomId === call.roomId)
+            if (callsInRoom.length > 1) {
+                console.log(`[triggerAddStream] Re-configuring conference for room ${call.roomId} - track received for call ${call._id}`)
+                this.context.logger?.log(`[triggerAddStream] Re-configuring conference for room ${call.roomId} - track received for call ${call._id}`)
+                // Use setTimeout to avoid blocking the track event handler
+                setTimeout(() => {
+                    this.roomReconfigure(call.roomId)
+                }, 100)
+            }
+        }
 
         if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
             this.processVAD(call, processedStream)
