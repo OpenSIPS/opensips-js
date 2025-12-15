@@ -867,6 +867,33 @@ function onTransportData (data) {
             case JsSIP_C.INVITE:
                 transaction = this._transactions.ict[message.via_branch]
                 if (transaction) {
+                    const statusCode = message.status_code
+                    if (statusCode === 100 || statusCode === 180 || statusCode === 183) {
+                        if (this.audio && typeof this.audio.handleSipResponseForRingback === 'function') {
+                            let sessionIdentifier: string | null = null
+
+                            if (transaction._session && transaction._session.id) {
+                                sessionIdentifier = transaction._session.id
+                            } else if (message.call_id && this._sessions) {
+                                const sessionsArray = Object.values(this._sessions) as any[]
+                                const session = sessionsArray.find((s: any) => {
+                                    return (s._id && s._id.includes(message.call_id)) ||
+                                           (s.id && s.id.includes(message.call_id)) ||
+                                           (s.call_id === message.call_id)
+                                })
+                                if (session && (session.id || session._id)) {
+                                    sessionIdentifier = session.id || session._id
+                                }
+                            } else if (message.call_id) {
+                                sessionIdentifier = message.call_id
+                            }
+
+                            if (sessionIdentifier) {
+                                this.audio.handleSipResponseForRingback(sessionIdentifier, statusCode)
+                            }
+                        }
+                    }
+
                     transaction.receiveResponse(message)
                 }
                 break
