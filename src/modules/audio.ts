@@ -91,6 +91,11 @@ export class AudioModule {
     // TODO: Conference health check - uncomment if needed for automatic track state monitoring
     // private conferenceHealthCheckIntervals: Record<number, ReturnType<typeof setInterval>> = {}
 
+    // Store ringback tone timers and audio contexts per session
+    private ringbackTimers: { [sessionId: string]: ReturnType<typeof setTimeout> } = {}
+    private ringbackAudioContexts: { [sessionId: string]: { context: AudioContext, oscillator1: OscillatorNode, oscillator2: OscillatorNode, gainNode: GainNode, intervalId?: ReturnType<typeof setInterval> } } = {}
+    private ringbackSessionProgressReceived: { [sessionId: string]: boolean } = {}
+
     private VUMeter: VUMeter
     private MicVAD: any
 
@@ -1618,6 +1623,204 @@ export class AudioModule {
         }
     }
 
+    /**
+     * Handle SIP response for ringback tone logic
+     * Called from onTransportData when 100/180/183 responses are received
+     * Can be called with either session ID or call_id from SIP message
+     * @param identifier - The call/session ID or SIP call_id
+     * @param statusCode - SIP status code (100, 180, or 183)
+     */
+    public handleSipResponseForRingback (identifier: string, statusCode: number) {
+        let callId: string | null = null
+
+        if (this.extendedCalls[identifier]) {
+            callId = identifier
+        } else {
+            const matchingCall = Object.values(this.extendedCalls).find((call: ICall) => {
+                return call.id === identifier || call._id === identifier ||
+                       (call.id && call.id.includes(identifier)) ||
+                       (call._id && call._id.includes(identifier))
+            })
+            if (matchingCall) {
+                callId = matchingCall.id
+            }
+        }
+
+        if (!callId) {
+            this.context.logger?.warn(`[handleSipResponseForRingback] Could not find session for identifier ${identifier}, status ${statusCode}`)
+            return
+        }
+
+        const call = this.extendedCalls[callId]
+        if (!call) {
+            this.context.logger?.warn(`[handleSipResponseForRingback] Call not found in extendedCalls for ${callId}`)
+            return
+        }
+
+        if (call.direction !== 'outgoing') {
+            return
+        }
+
+        if (statusCode === SIP_STATUS_CODE.TRYING || statusCode === SIP_STATUS_CODE.RINGING) {
+            // If timer already exists, don't create another one
+            if (this.ringbackTimers[callId]) {
+                return
+            }
+
+            // Mark that we haven't received 183 yet
+            this.ringbackSessionProgressReceived[callId] = false
+
+            this.ringbackTimers[callId] = setTimeout(() => {
+                // Check if 183 was received during the 2 seconds
+                if (!this.ringbackSessionProgressReceived[callId]) {
+                    this.startLocalRingbackTone(callId)
+                    this.context.logger?.log(`[handleSipResponseForRingback] Started local ringback tone for call ${callId} after 2 seconds without 183`)
+                }
+
+                delete this.ringbackTimers[callId]
+            }, 2000)
+
+            this.context.logger?.log(`[handleSipResponseForRingback] Started 2-second timer for call ${callId} after receiving ${statusCode}`)
+        }
+
+        // Handle 183 Session Progress - stop timer and ringback if playing
+        if (statusCode === SIP_STATUS_CODE.SESSION_PROGRESS) {
+            this.ringbackSessionProgressReceived[callId] = true
+
+            if (this.ringbackTimers[callId]) {
+                clearTimeout(this.ringbackTimers[callId])
+                delete this.ringbackTimers[callId]
+                this.context.logger?.log(`[handleSipResponseForRingback] Cancelled ringback timer for call ${callId} - 183 received`)
+            }
+
+            this.stopLocalRingbackTone(callId)
+            this.context.logger?.log(`[handleSipResponseForRingback] Stopped local ringback tone for call ${callId} - 183 received with SDP`)
+        }
+    }
+
+    /**
+     * Start playing a local ringback tone (beep sound) for a session
+     * Standard ringback tone pattern: 440Hz + 480Hz, 1 second on, 3 seconds off
+     */
+    private async startLocalRingbackTone (sessionId: string) {
+        // Don't start if already playing
+        if (this.ringbackAudioContexts[sessionId]) {
+            return
+        }
+
+        try {
+            const audioContext = await this.managedAudioContext.getContext()
+
+            const oscillator1 = audioContext.createOscillator()
+            const oscillator2 = audioContext.createOscillator()
+            const gainNode = audioContext.createGain()
+
+            oscillator1.frequency.value = 440
+            oscillator2.frequency.value = 480
+            oscillator1.type = 'sine'
+            oscillator2.type = 'sine'
+
+            gainNode.gain.value = 0
+
+            oscillator1.connect(gainNode)
+            oscillator2.connect(gainNode)
+            gainNode.connect(audioContext.destination)
+
+            oscillator1.start()
+            oscillator2.start()
+
+            const ringbackData = {
+                context: audioContext,
+                oscillator1,
+                oscillator2,
+                gainNode,
+                intervalId: null as ReturnType<typeof setInterval> | null
+            }
+            this.ringbackAudioContexts[sessionId] = ringbackData
+
+            const playBeep = () => {
+                if (!this.ringbackAudioContexts[sessionId]) {
+                    return
+                }
+
+                const now = audioContext.currentTime
+                gainNode.gain.cancelScheduledValues(now)
+                gainNode.gain.setValueAtTime(0, now)
+                gainNode.gain.linearRampToValueAtTime(0.3, now + 0.05)
+
+                gainNode.gain.linearRampToValueAtTime(0, now + 1.0)
+            }
+
+            playBeep()
+
+            const intervalId = setInterval(() => {
+                if (!this.ringbackAudioContexts[sessionId]) {
+                    clearInterval(intervalId)
+                    return
+                }
+                playBeep()
+            }, 4000)
+
+            ringbackData.intervalId = intervalId
+            this.ringbackAudioContexts[sessionId] = ringbackData
+
+            this.context.logger?.log(`[startLocalRingbackTone] Started ringback tone for session ${sessionId}`)
+        } catch (error) {
+            this.context.logger?.error(`[startLocalRingbackTone] Error starting ringback tone for session ${sessionId}:`, error)
+            console.error(`[startLocalRingbackTone] Error starting ringback tone for session ${sessionId}:`, error)
+        }
+    }
+
+    /**
+     * Stop playing the local ringback tone for a session
+     */
+    private stopLocalRingbackTone (sessionId: string) {
+        const ringbackData = this.ringbackAudioContexts[sessionId]
+        if (!ringbackData) {
+            return
+        }
+
+        try {
+            if (ringbackData.intervalId) {
+                clearInterval(ringbackData.intervalId)
+            }
+
+            if (ringbackData.oscillator1) {
+                ringbackData.oscillator1.stop()
+            }
+            if (ringbackData.oscillator2) {
+                ringbackData.oscillator2.stop()
+            }
+
+            if (ringbackData.gainNode) {
+                ringbackData.gainNode.disconnect()
+            }
+
+            delete this.ringbackAudioContexts[sessionId]
+
+            this.context.logger?.log(`[stopLocalRingbackTone] Stopped ringback tone for session ${sessionId}`)
+        } catch (error) {
+            this.context.logger?.error(`[stopLocalRingbackTone] Error stopping ringback tone for session ${sessionId}:`, error)
+            console.error(`[stopLocalRingbackTone] Error stopping ringback tone for session ${sessionId}:`, error)
+            delete this.ringbackAudioContexts[sessionId]
+        }
+    }
+
+    /**
+     * Clean up ringback tone resources for a session
+     * Called when call ends, fails, or is confirmed
+     */
+    private cleanupRingbackTone (sessionId: string) {
+        if (this.ringbackTimers[sessionId]) {
+            clearTimeout(this.ringbackTimers[sessionId])
+            delete this.ringbackTimers[sessionId]
+        }
+
+        this.stopLocalRingbackTone(sessionId)
+
+        delete this.ringbackSessionProgressReceived[sessionId]
+    }
+
     public transferCall (callId: string, target: string) {
         if (target.toString().length === 0) {
             return new Error('Target must be passed')
@@ -1978,6 +2181,8 @@ export class AudioModule {
                 this.stopSessionVad(session._id)
             }
 
+            this.cleanupRingbackTone(session.id)
+
             const s = this.getActiveCalls[session.id]
 
             if (s) {
@@ -2030,6 +2235,8 @@ export class AudioModule {
                 this.stopSessionVad(session._id)
             }
 
+            this.cleanupRingbackTone(session.id)
+
             if (session.id === this.callAddingInProgress) {
                 this.callAddingInProgress = undefined
             }
@@ -2062,6 +2269,8 @@ export class AudioModule {
                 event
             })
             this.updateCall(session as ICall)
+
+            this.cleanupRingbackTone(session.id)
 
             if (session.id === this.callAddingInProgress) {
                 this.callAddingInProgress = undefined
