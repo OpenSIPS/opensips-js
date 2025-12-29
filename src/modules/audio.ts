@@ -96,7 +96,6 @@ export class AudioModule {
     private ringbackAudioContexts: { [sessionId: string]: { context: AudioContext, oscillator1: OscillatorNode, oscillator2: OscillatorNode, gainNode: GainNode, intervalId?: ReturnType<typeof setInterval> } } = {}
     private ringbackSessionProgressReceived: { [sessionId: string]: boolean } = {}
 
-    // Store hangup beep audio context (single instance, plays once per hangup)
     private hangupBeepContext: { context: AudioContext, oscillator: OscillatorNode, gainNode: GainNode } | null = null
 
     private VUMeter: VUMeter
@@ -2232,8 +2231,7 @@ export class AudioModule {
                 event
             })
 
-            // Play hangup beep when call ends
-            // Only play if call was confirmed (was answered) - not for unanswered calls
+            // Play only for answered calls
             if (session._is_confirmed) {
                 this.playHangupBeep()
             }
