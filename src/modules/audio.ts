@@ -96,6 +96,8 @@ export class AudioModule {
     private ringbackAudioContexts: { [sessionId: string]: { context: AudioContext, oscillator1: OscillatorNode, oscillator2: OscillatorNode, gainNode: GainNode, intervalId?: ReturnType<typeof setInterval> } } = {}
     private ringbackSessionProgressReceived: { [sessionId: string]: boolean } = {}
 
+    private hangupBeepContext: { context: AudioContext, oscillator: OscillatorNode, gainNode: GainNode } | null = null
+
     private VUMeter: VUMeter
     private MicVAD: any
 
@@ -1821,6 +1823,69 @@ export class AudioModule {
         delete this.ringbackSessionProgressReceived[sessionId]
     }
 
+    /**
+     * Play a hangup beep sound when a call is terminated
+     * Standard hangup beep: single tone, short duration (~200ms)
+     */
+    private async playHangupBeep () {
+        if (this.hangupBeepContext) {
+            return
+        }
+
+        try {
+            const audioContext = await this.managedAudioContext.getContext()
+
+            const oscillator = audioContext.createOscillator()
+            const gainNode = audioContext.createGain()
+
+            oscillator.frequency.value = 800
+            oscillator.type = 'sine'
+
+            gainNode.gain.value = 0
+
+            oscillator.connect(gainNode)
+            gainNode.connect(audioContext.destination)
+
+            this.hangupBeepContext = {
+                context: audioContext,
+                oscillator,
+                gainNode
+            }
+
+            oscillator.start()
+
+            const now = audioContext.currentTime
+            gainNode.gain.setValueAtTime(0, now)
+            gainNode.gain.linearRampToValueAtTime(0.3, now + 0.01)
+            gainNode.gain.setValueAtTime(0.3, now + 0.15)
+            gainNode.gain.linearRampToValueAtTime(0, now + 0.2)
+
+            oscillator.stop(now + 0.2)
+
+            setTimeout(() => {
+                if (this.hangupBeepContext) {
+                    try {
+                        if (this.hangupBeepContext.oscillator) {
+                            this.hangupBeepContext.oscillator.disconnect()
+                        }
+                        if (this.hangupBeepContext.gainNode) {
+                            this.hangupBeepContext.gainNode.disconnect()
+                        }
+                    } catch (error) {
+                        console.error('[playHangupBeep] Cleanup playing hangup beep error:', error)
+                    }
+                    this.hangupBeepContext = null
+                }
+            }, 250)
+
+            this.context.logger?.log('[playHangupBeep] Played hangup beep')
+        } catch (error) {
+            this.context.logger?.error('[playHangupBeep] Error playing hangup beep:', error)
+            console.error('[playHangupBeep] Error playing hangup beep:', error)
+            this.hangupBeepContext = null
+        }
+    }
+
     public transferCall (callId: string, target: string) {
         if (target.toString().length === 0) {
             return new Error('Target must be passed')
@@ -2165,6 +2230,11 @@ export class AudioModule {
                 session,
                 event
             })
+
+            // Play only for answered calls
+            if (session._is_confirmed) {
+                this.playHangupBeep()
+            }
 
             if (session.connection) {
                 const connectionState = session.connection.connectionState
