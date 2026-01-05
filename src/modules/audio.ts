@@ -1665,8 +1665,12 @@ export class AudioModule {
             return
         }
 
+        if (call._is_confirmed) {
+            this.context.logger?.log(`[handleSipResponseForRingback] Call ${callId} is already confirmed, skipping ringback tone`)
+            return
+        }
+
         if (statusCode === SIP_STATUS_CODE.TRYING || statusCode === SIP_STATUS_CODE.RINGING) {
-            // If timer already exists, don't create another one
             if (this.ringbackTimers[callId]) {
                 return
             }
@@ -1675,10 +1679,12 @@ export class AudioModule {
             this.ringbackSessionProgressReceived[callId] = false
 
             this.ringbackTimers[callId] = setTimeout(() => {
-                // Check if 183 was received during the 2 seconds
-                if (!this.ringbackSessionProgressReceived[callId]) {
+                const currentCall = this.extendedCalls[callId]
+                if (currentCall && !currentCall._is_confirmed && !this.ringbackSessionProgressReceived[callId]) {
                     this.startLocalRingbackTone(callId)
                     this.context.logger?.log(`[handleSipResponseForRingback] Started local ringback tone for call ${callId} after 2 seconds without 183`)
+                } else if (currentCall && currentCall._is_confirmed) {
+                    this.context.logger?.log(`[handleSipResponseForRingback] Call ${callId} was confirmed during 2-second wait, skipping ringback tone`)
                 }
 
                 delete this.ringbackTimers[callId]
