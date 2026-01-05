@@ -291,6 +291,48 @@ opensipsJS.audio.setVADConfiguration({
 })
 ```
 
+#### For Chrome MV3 Extensions
+
+Chrome Manifest V3 extensions block dynamic imports from external sources at the browser level. To use VAD in a Chrome MV3 extension, you must bundle the VAD assets locally.
+
+**1. Copy required files to your extension:**
+
+From `node_modules/@ricky0123/vad-web/dist/`:
+- `silero_vad_legacy.onnx`
+- `silero_vad_v5.onnx`
+- `vad.worklet.bundle.min.js`
+
+From `node_modules/onnxruntime-web/dist/`:
+- `ort-wasm-simd-threaded.mjs`
+- `ort-wasm-simd-threaded.wasm`
+
+Place them in your extension directory (e.g., `assets/vad/` and `assets/onnx/`).
+
+**Note**: The exact ONNX files needed may vary depending on browser capabilities. If you encounter loading errors, you may also need `ort-wasm-simd-threaded.jsep.wasm` or other variants from the `onnxruntime-web/dist/` folder.
+
+**2. Configure OpenSIPSJS with local paths:**
+
+```javascript
+import OpenSIPSJS from 'opensips-js'
+import * as VAD from '@ricky0123/vad-web'
+
+const opensipsJS = new OpenSIPSJS({
+  configuration: {
+    // ... other configuration
+    noiseReductionOptions: {
+      mode: 'dynamic',
+      vadModule: VAD,
+      // Point to locally bundled assets
+      baseAssetPath: browser.runtime.getURL('assets/vad/'),
+      onnxWASMBasePath: browser.runtime.getURL('assets/onnx/')
+    }
+  },
+  // ... rest of configuration
+})
+```
+
+**Note**: If your extension page is opened via `browser.windows.create()` or similar (extension's own context), you don't need `web_accessible_resources`. The extension can access its bundled files directly.
+
 #### For React Native Applications (VAD not supported)
 
 Simply omit the VAD module and disable noise reduction:
@@ -313,13 +355,15 @@ const opensipsJS = new OpenSIPSJS({
 
 #### Configuration Parameters
 
-| Parameter            | Type                             | Default    | Description                                                                                                                                                                                                                                                                                      |
-|----------------------|----------------------------------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `mode`               | `disabled \| enabled \| dynamic` | `disabled` | Noise reduction mode. **Note**: `enabled` and `dynamic` modes require `vadModule` to be provided                                                                                                                                                                                                 |
-| `vadConfig`          | `Partial<RealTimeVADOptions>`    | `{}`       | VAD configuration                                                                                                                                                                                                                                                                                |
-| `noiseThreshold`     | `number`                         | `0.004`    | Noise threshold                                                                                                                                                                                                                                                                                  |
-| `noiseCheckInterval` | `number`                         | `2000`     | The interval, used to check if we need to disable/enable outgoing audio every N-milliseconds                                                                                                                                                                                                     |
-| `checkEveryMs`       | `number`                         | `500`      | The interval, used inside noiseCheckInterval loop, checks current noise state every N-milliseconds, to define the average noise level. Then on every noiseCheckInterval iteration, the values getting on checkEveryMs will be summed, then divided by it's number and compared to noiseThreshold |
+| Parameter            | Type                             | Default                                                              | Description                                                                                                                                                                                                                                                                                      |
+|----------------------|----------------------------------|----------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `mode`               | `disabled \| enabled \| dynamic` | `disabled`                                                           | Noise reduction mode. **Note**: `enabled` and `dynamic` modes require `vadModule` to be provided                                                                                                                                                                                                 |
+| `vadConfig`          | `Partial<RealTimeVADOptions>`    | `{}`                                                                 | VAD configuration                                                                                                                                                                                                                                                                                |
+| `noiseThreshold`     | `number`                         | `0.004`                                                              | Noise threshold                                                                                                                                                                                                                                                                                  |
+| `noiseCheckInterval` | `number`                         | `2000`                                                               | The interval, used to check if we need to disable/enable outgoing audio every N-milliseconds                                                                                                                                                                                                     |
+| `checkEveryMs`       | `number`                         | `500`                                                                | The interval, used inside noiseCheckInterval loop, checks current noise state every N-milliseconds, to define the average noise level. Then on every noiseCheckInterval iteration, the values getting on checkEveryMs will be summed, then divided by it's number and compared to noiseThreshold |
+| `baseAssetPath`      | `string`                         | `https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.28/dist/`       | Base path for VAD web assets. For Chrome MV3 extensions, use local bundled path via `browser.runtime.getURL()`                                                                                                                                                                                   |
+| `onnxWASMBasePath`   | `string`                         | `https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/`          | Base path for ONNX runtime WASM files. For Chrome MV3 extensions, use local bundled path via `browser.runtime.getURL()`                                                                                                                                                                          |
 
 ## MSRP
 

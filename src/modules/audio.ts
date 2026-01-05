@@ -154,7 +154,9 @@ export class AudioModule {
             checkEveryMs: options.checkEveryMs || 500,
             noiseCheckInterval: options.noiseCheckInterval || 2000,
             noiseThreshold: options.noiseThreshold || 0.004,
-            vadConfig: options.vadConfig || {}
+            vadConfig: options.vadConfig || {},
+            baseAssetPath: options.baseAssetPath || 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.28/dist/',
+            onnxWASMBasePath: options.onnxWASMBasePath || 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/'
         }
     }
 
@@ -1023,8 +1025,8 @@ export class AudioModule {
             getStream: () => new Promise((res) => res(stream)),
             ...vadDefaultConfig,
             ...this.noiseReduction.vadConfig,
-            baseAssetPath: 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.28/dist/',
-            onnxWASMBasePath: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/',
+            baseAssetPath: this.noiseReduction.baseAssetPath,
+            onnxWASMBasePath: this.noiseReduction.onnxWASMBasePath,
             onFrameProcessed: () => {
                 if (!isFirstFrameProcessed) {
                     isFirstFrameProcessed = true

@@ -158,6 +158,18 @@ export interface NoiseReductionOptions {
     noiseThreshold?: number
     checkEveryMs?: number
     noiseCheckInterval?: number
+    /**
+     * Base path for VAD web assets (silero model, worklet processor, etc.)
+     * Default: 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.28/dist/'
+     * For Chrome MV3 extensions, bundle assets locally and provide local path (e.g., 'chrome-extension://<id>/vad/')
+     */
+    baseAssetPath?: string
+    /**
+     * Base path for ONNX runtime WASM files
+     * Default: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/'
+     * For Chrome MV3 extensions, bundle ONNX WASM files locally and provide local path
+     */
+    onnxWASMBasePath?: string
 }
 
 export type NoiseReductionOptionsWithoutVadModule = Omit<NoiseReductionOptions, 'vadModule'>
