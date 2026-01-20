@@ -39,6 +39,7 @@ const logoutButtonEl = document.getElementById('logoutButton')
 
 const makeCallFormEl = document.getElementById('makeCallForm')
 const vadModeSelectEl = document.getElementById('vadModeSelect') as HTMLSelectElement
+const vadStateEl = document.getElementById('vadState') as HTMLElement
 const videoCallFormEl = document.getElementById('videoCallForm')
 const sendMessageFormEl = document.getElementById('sendMessageForm')
 const callAddingIndicatorEl = document.getElementById('callAddingIndicator')
@@ -706,6 +707,10 @@ loginToAppFormEl?.addEventListener('submit', (event) => {
                 if (microphoneEl) {
                     microphoneEl.value = data
                 }
+            })
+            .on('changeNoiseReductionState', (state: boolean) => {
+                console.log('AAA changeNoiseReductionState', state)
+                vadStateEl.innerText = state ? 'Dynamic noise reduction: Active' : 'Dynamic noise reduction: Not active'
             })
             .on('changeActiveOutputMediaDevice', (data: string) => {
                 if (speakerEl) {

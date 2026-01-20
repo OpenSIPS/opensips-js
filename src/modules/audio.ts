@@ -40,6 +40,23 @@ const STORAGE_KEYS = {
 }
 const CALL_STATUS_UNANSWERED = 0
 
+function connectTrackToStream (stream: MediaStream, additionalTrack: MediaStreamTrack) {
+    const ctx = new AudioContext()
+
+    const source1 = ctx.createMediaStreamSource(stream)
+    const source2 = ctx.createMediaStreamSource(
+        new MediaStream([ additionalTrack ])
+    )
+
+    const destination = ctx.createMediaStreamDestination()
+
+    source1.connect(destination)
+    source2.connect(destination)
+
+    // destination.stream already contains exactly ONE mixed audio track
+    return destination.stream
+}
+
 export class AudioModule {
     private context: OpenSIPSJS
     private currentActiveRoomIdValue: number | undefined
@@ -84,10 +101,13 @@ export class AudioModule {
     private initialStreamValue: MediaStream | null = null
 
     private noiseReduction: NoiseReductionOptions
-    private vadSessions: { [key: string]: any } = {}
-    private vadSessionsState: { [key: string]: VADSessionState } = {}
-    private vadIntervals: Record<string, ReturnType<typeof setInterval>> = {}
-    private vadMrsIntervals: Record<string, ReturnType<typeof setInterval>> = {}
+    private vadSession: any = null
+    private vadSessionState: VADSessionState = {
+        currentMode: 'clean',
+        isSpeaking: false
+    }
+    private vadInterval: ReturnType<typeof setInterval> = null
+    private vadMrsInterval: ReturnType<typeof setInterval>  = null
     // TODO: Conference health check - uncomment if needed for automatic track state monitoring
     // private conferenceHealthCheckIntervals: Record<number, ReturnType<typeof setInterval>> = {}
 
@@ -557,7 +577,7 @@ export class AudioModule {
 
             try {
                 if (toHold) {
-                    this.stopSessionVad(call._id)
+                    this.stopSessionVad()
                     call.hold({}, handleComplete)
                 } else {
                     call.unhold({}, handleComplete)
@@ -900,12 +920,10 @@ export class AudioModule {
      * Calls `onNoiseDetected()` or `onNoiseStop()` when mode should switch.
      */
     private async startNoiseMonitor ({
-        sessionId,
         stream,
         onNoiseDetected,
         onNoiseStop,
     }: {
-        sessionId: string;
         stream: MediaStream;
         onNoiseDetected: () => void;
         onNoiseStop: () => void;
@@ -937,17 +955,17 @@ export class AudioModule {
 
         const rmsHistory: number[] = []
 
-        if (this.vadIntervals[sessionId]) {
-            clearInterval(this.vadIntervals[sessionId])
-            this.vadIntervals[sessionId] = null
+        if (this.vadInterval) {
+            clearInterval(this.vadInterval)
+            this.vadInterval = null
         }
 
-        if (this.vadMrsIntervals[sessionId]) {
-            clearInterval(this.vadMrsIntervals[sessionId])
-            this.vadMrsIntervals[sessionId] = null
+        if (this.vadMrsInterval) {
+            clearInterval(this.vadMrsInterval)
+            this.vadMrsInterval = null
         }
 
-        this.vadMrsIntervals[sessionId] = setInterval(() => {
+        this.vadMrsInterval = setInterval(() => {
             analyser.getFloatTimeDomainData(buf)
             const rms = computeRMS(buf)
             rmsHistory.push(rms)
@@ -958,24 +976,24 @@ export class AudioModule {
             if (rmsHistory.length > maxSamples) rmsHistory.shift()
         }, this.noiseReduction.checkEveryMs)
 
-        this.vadIntervals[sessionId] = setInterval(() => {
+        this.vadInterval = setInterval(() => {
             if (rmsHistory.length === 0) return
 
             const avgRms =
                 rmsHistory.reduce((a, b) => a + b, 0) / rmsHistory.length
 
-            const state = this.vadSessionsState[sessionId]
+            const state = this.vadSessionState
 
             if (!state) {
-                console.warn(`[startNoiseMonitor] State not found for sessionId ${sessionId}, stopping interval`)
-                this.context.logger?.warn(`[startNoiseMonitor] State not found for sessionId ${sessionId}, stopping interval`)
-                if (this.vadIntervals[sessionId]) {
-                    clearInterval(this.vadIntervals[sessionId])
-                    delete this.vadIntervals[sessionId]
+                console.warn('[startNoiseMonitor] State not found, stopping interval')
+                this.context.logger?.warn('[startNoiseMonitor] State not found, stopping interval')
+                if (this.vadInterval) {
+                    clearInterval(this.vadInterval)
+                    this.vadInterval = null
                 }
-                if (this.vadMrsIntervals[sessionId]) {
-                    clearInterval(this.vadMrsIntervals[sessionId])
-                    delete this.vadMrsIntervals[sessionId]
+                if (this.vadMrsInterval) {
+                    clearInterval(this.vadMrsInterval)
+                    this.vadMrsInterval = null
                 }
                 return
             }
@@ -986,40 +1004,34 @@ export class AudioModule {
                 if (isNoisy && state.currentMode === 'clean') {
                     state.currentMode = 'noisy'
                     console.log('Average noise high → enable VAD')
-                    this.context.emit('changeNoiseReductionState', {
-                        sessionId,
-                        enabled: true,
-                    })
+                    this.context.emit('changeNoiseReductionState',  true)
                     onNoiseDetected()
                 } else if (!isNoisy && state.currentMode === 'noisy') {
                     state.currentMode = 'clean'
                     console.log('Average noise low → disable VAD')
-                    this.context.emit('changeNoiseReductionState', {
-                        sessionId,
-                        enabled: false,
-                    })
+                    this.context.emit('changeNoiseReductionState', false)
                     onNoiseStop()
                 }
             }
         }, this.noiseReduction.noiseCheckInterval)
     }
 
-    private async processVAD (session: ICall, originalStream: MediaStream) {
-        const stream = originalStream.clone()
-        this.stopSessionVad(session._id)
+    private async processVADForActiveStream (vadTracksToPopulate = {}) {
+        const stream = this.activeStream
+        this.stopSessionVad()
 
-        this.vadSessionsState[session._id] = {
+        this.vadSessionState = {
             currentMode: 'clean',
             isSpeaking: false
         }
-
-        console.log('[processVAD] Process for', session._id)
-        this.context.logger?.log('[processVAD] Process for', session._id)
 
         const audioContext = await this.managedAudioContext.getContext()
         const vadControlled = await createVADControlledStream(stream, audioContext, 150)
 
         let isFirstFrameProcessed = false
+
+        const callsInCurrentRoom = Object.values(this.extendedCalls)
+            .filter((session) => session.roomId === this.currentActiveRoomId)
 
         const vadSession = await this.MicVAD.new({
             getStream: () => new Promise((res) => res(stream)),
@@ -1033,42 +1045,98 @@ export class AudioModule {
                     console.log('✅ VAD initialized, starting background noise monitoring')
 
                     if (this.noiseReduction.mode === 'enabled') {
-                        if (session.connection.getSenders()[0]) {
-                            session.connection.getSenders()[0].replaceTrack(vadControlled.stream.getAudioTracks()[0])
+                        if (vadTracksToPopulate && Object.keys(vadTracksToPopulate).length) {
+                            Object.keys(vadTracksToPopulate).forEach((sessionId) => {
+                                const session = this.extendedCalls[sessionId]
+                                if (!session) return
+
+                                if (session.connection.getSenders()[0]) {
+                                    const streamToSend =
+                                        connectTrackToStream(vadControlled.stream, vadTracksToPopulate[sessionId])
+                                    session.connection.getSenders()[0].replaceTrack(streamToSend.getAudioTracks()[0])
+                                }
+                            })
+                        } else {
+                            const session = callsInCurrentRoom[0]
+                            if (session.connection.getSenders()[0]) {
+                                session.connection.getSenders()[0].replaceTrack(vadControlled.stream.getAudioTracks()[0])
+                            }
                         }
 
                         return
                     }
 
-                    if (!this.vadSessionsState[session._id]) {
-                        console.error(`[processVAD] CRITICAL: State not found for session ${session._id} after being set at line 988! This should not happen.`)
-                        this.context.logger?.error(`[processVAD] CRITICAL: State not found for session ${session._id} after being set at line 988! This should not happen.`)
+                    if (!this.vadSessionState) {
+                        console.error('[processVAD] CRITICAL: State not found')
+                        this.context.logger?.error('[processVAD] CRITICAL: State not found')
                         return
                     }
 
                     // Start noise monitor asynchronously (don't await to avoid blocking callback)
                     this.startNoiseMonitor({
-                        sessionId: session._id,
                         stream,
                         onNoiseDetected: async () => {
                             console.log('[processVad] - Replace track with Vad Controlled')
                             this.context.logger?.log('[processVad] - Replace track with Vad Controlled')
-                            await session.connection.getSenders()[0]
-                                ?.replaceTrack(vadControlled.stream.getAudioTracks()[0])
+
+                            if (vadTracksToPopulate && Object.keys(vadTracksToPopulate).length) {
+                                Object.keys(vadTracksToPopulate).forEach((sessionId) => {
+                                    const session = this.extendedCalls[sessionId]
+                                    if (!session) return
+
+                                    if (session.connection.getSenders()[0]) {
+                                        const streamToSend =
+                                            connectTrackToStream(vadControlled.stream, vadTracksToPopulate[sessionId])
+                                        session.connection.getSenders()[0].replaceTrack(streamToSend.getAudioTracks()[0])
+                                    }
+                                })
+                            } else {
+                                const session = callsInCurrentRoom[0]
+                                if (session.connection.getSenders()[0]) {
+                                    session.connection.getSenders()[0].replaceTrack(vadControlled.stream.getAudioTracks()[0])
+                                }
+                            }
+
+                            /*await session.connection.getSenders()[0]
+                                ?.replaceTrack(vadControlled.stream.getAudioTracks()[0])*/
                         },
                         onNoiseStop: async () => {
-                            const sender = session.connection.getSenders()[0]
+                            console.log('Replace track with Original')
 
-                            if (
-                                sender &&
-                                sender.track &&
-                                sender.transport &&
-                                sender.transport.state !== 'closed' &&
-                                sender.transport.state !== 'failed'
-                            ) {
-                                console.log('Replace track with Original')
-                                await sender.replaceTrack(stream.getAudioTracks()[0])
+                            if (vadTracksToPopulate && Object.keys(vadTracksToPopulate).length) {
+                                Object.keys(vadTracksToPopulate).forEach((sessionId) => {
+                                    const session = this.extendedCalls[sessionId]
+                                    if (!session) return
+
+                                    const sender = session.connection.getSenders()[0]
+
+                                    if (
+                                        sender &&
+                                        sender.track &&
+                                        sender.transport &&
+                                        sender.transport.state !== 'closed' &&
+                                        sender.transport.state !== 'failed'
+                                    ) {
+                                        const streamToSend =
+                                                connectTrackToStream(stream, vadTracksToPopulate[sessionId])
+                                        sender.replaceTrack(streamToSend.getAudioTracks()[0])
+                                    }
+                                })
+                            } else {
+                                const sender = callsInCurrentRoom[0].connection.getSenders()[0]
+
+                                if (
+                                    sender &&
+                                    sender.track &&
+                                    sender.transport &&
+                                    sender.transport.state !== 'closed' &&
+                                    sender.transport.state !== 'failed'
+                                ) {
+                                    sender.replaceTrack(stream.getAudioTracks()[0])
+                                }
                             }
+
+                            //await sender.replaceTrack(stream.getAudioTracks()[0])
                         },
                     })
                 }
@@ -1077,53 +1145,56 @@ export class AudioModule {
                 console.log('🎤 Speech started')
                 vadControlled.setSpeaking(true)
 
-                if (this.noiseReduction.mode === 'enabled') {
+                /*if (this.noiseReduction.mode === 'enabled') {
                     session.connection.getSenders()[0]
                         ?.replaceTrack(vadControlled.stream.getAudioTracks()[0])
-                }
+                }*/
 
-                this.vadSessionsState[session._id].isSpeaking = true
+                this.vadSessionState.isSpeaking = true
             },
             onSpeechEnd: () => {
                 console.log('🛑 Speech end')
                 vadControlled.setSpeaking(false)
 
-                if (this.noiseReduction.mode === 'enabled') {
+                /*if (this.noiseReduction.mode === 'enabled') {
                     session.connection.getSenders()[0]
                         ?.replaceTrack(vadControlled.stream.getAudioTracks()[0])
-                }
+                }*/
 
-                this.vadSessionsState[session._id].isSpeaking = false
+                this.vadSessionState.isSpeaking = false
             }
         })
 
-        if (this.vadSessions[session._id]) {
-            this.vadSessions[session._id].pause()
-            delete this.vadSessions[session._id]
+        if (this.vadSession) {
+            this.vadSession.pause()
+            this.vadSession = null
         }
 
-        this.vadSessions[session._id] = vadSession
+        this.vadSession = vadSession
         vadSession.start()
     }
 
-    private stopSessionVad (sessionId) {
-        if (this.vadSessions[sessionId]) {
-            this.vadSessions[sessionId].pause()
-            delete this.vadSessions[sessionId]
+    private stopSessionVad () {
+        if (this.vadSession) {
+            this.vadSession.pause()
+            this.vadSession = null
         }
 
-        if (this.vadIntervals[sessionId]) {
-            clearInterval(this.vadIntervals[sessionId])
-            delete this.vadIntervals[sessionId]
+        if (this.vadInterval) {
+            clearInterval(this.vadInterval)
+            this.vadInterval = null
         }
 
-        if (this.vadMrsIntervals[sessionId]) {
-            clearInterval(this.vadMrsIntervals[sessionId])
-            delete this.vadMrsIntervals[sessionId]
+        if (this.vadMrsInterval) {
+            clearInterval(this.vadMrsInterval)
+            this.vadMrsInterval = null
         }
 
-        if (this.vadSessionsState[sessionId]) {
-            delete this.vadSessionsState[sessionId]
+        if (this.vadSessionState) {
+            this.vadSessionState = {
+                currentMode: 'clean',
+                isSpeaking: false
+            }
         }
     }
 
@@ -1210,7 +1281,7 @@ export class AudioModule {
                     if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
                         console.log('[roomReconfigure] - Call processVAD from roomReconfigure')
                         this.context.logger?.log('[roomReconfigure] - Call processVAD from roomReconfigure')
-                        this.processVAD(callsInRoom[0], processedStream)
+                        this.processVADForActiveStream()
                     }
 
                     const tracks = processedStream.getTracks()
@@ -1267,11 +1338,9 @@ export class AudioModule {
         if (initialState !== 'running') {
             console.error(`[doConference] ERROR: AudioContext is not running! State: ${initialState}`)
             this.context.logger?.error(`[doConference] ERROR: AudioContext is not running! State: ${initialState}`)
-            // Try to resume if suspended or interrupted
             if (initialState === 'suspended' || initialState === 'interrupted') {
                 try {
                     await audioContext.resume()
-                    // Re-check state after resume attempt
                     const newState = audioContext.state
                     if (newState !== 'running') {
                         console.error(`[doConference] Failed to resume AudioContext, state: ${newState}`)
@@ -1333,25 +1402,6 @@ export class AudioModule {
                         this.context.logger?.log('[doConference] - Gathered receiver track', session._id)
                         receiverTracks.set(trackKey, receiver.track)
                     }
-                    // TODO: Enhanced logging - uncomment if needed for debugging track issues
-                    /*const track = receiver.track
-                    if (!track) {
-                        console.warn(`[doConference] No track found for receiver ${receiverIndex} in session ${session._id}`)
-                        return
-                    }
-
-                    track.enabled = !session.localMuted
-                    const trackId = track.id
-                    const readyState = track.readyState
-                    const kind = track.kind
-                    const trackKey = `${session._id}-${trackId}`
-
-                    if (readyState === 'live') {
-                        receiverTracks.set(trackKey, track)
-                        console.log(`[doConference] Added live ${kind} track ${trackId} from session ${session._id} to conference mix`)
-                    } else {
-                        console.warn(`[doConference] Skipping ${kind} track ${trackId} from session ${session._id} - readyState: ${readyState}`)
-                    }*/
                 })
             } else {
                 console.log('[doConference] - No session or RTC connection, session:', session)
@@ -1361,7 +1411,8 @@ export class AudioModule {
 
         await this.setupActiveStream()
 
-        // For each session, create a custom mix excluding their own audio
+        const tracksForVadSessions = {}
+
         await forEach(sessions, async (session: ICall, sessionIndex) => {
             if (!session || !session.connection) {
                 console.log('[doConference] - Return because of no session or connection, session:', session)
@@ -1370,10 +1421,9 @@ export class AudioModule {
             }
 
             const mixedOutput = audioContext.createMediaStreamDestination()
+            const othersOnlyOutput = audioContext.createMediaStreamDestination()
             nodes.destinations.set(session._id, mixedOutput)
-
-            // Add all other participants' audio to this session's mix
-            let tracksAddedToMix = 0
+            nodes.destinations.set(`${session._id}-others`, othersOnlyOutput)
 
             // Check if this session has any receiver tracks available
             const sessionReceivers = session.connection.getReceivers()
@@ -1407,55 +1457,23 @@ export class AudioModule {
 
                         source.connect(gainNode)
                         gainNode.connect(mixedOutput)
+                        gainNode.connect(othersOnlyOutput)
                         console.log('[doConference] - In forEach connect track for', session._id)
                         this.context.logger?.log('[doConference] - In forEach connect track for', session._id)
 
                         // Store references for cleanup
                         nodes.sources.set(sourceKey, source)
                         nodes.gains.set(sourceKey, gainNode)
-
-                        tracksAddedToMix++
                     } catch (error) {
                         console.error(error)
                     }
-                    // TODO: Enhanced track validation and logging - uncomment if needed
-                    /*// Double-check track is still live before adding to mix
-                    if (track.readyState !== 'live') {
-                        console.warn(`[doConference] Skipping track ${track.id} - readyState changed to ${track.readyState}`)
-                        return
-                    }
-
-                    // Check if track is enabled
-                    if (!track.enabled) {
-                        console.warn(`[doConference] Track ${track.id} is disabled, but adding to mix anyway`)
-                    }
-
-                    try {
-                        const source = audioContext.createMediaStreamSource(new MediaStream([ track ]))
-                        const gainNode = audioContext.createGain()
-                        const sourceKey = `${session._id}-${trackKey}`
-
-                        source.connect(gainNode)
-                        gainNode.connect(mixedOutput)
-
-                        // Store references for cleanup
-                        nodes.sources.set(sourceKey, source)
-                        nodes.gains.set(sourceKey, gainNode)
-
-                        tracksAddedToMix++
-                    } catch (error) {
-                        console.error(`[doConference] Error adding track ${track.id} to mix for session ${session._id}:`, error)
-                    }*/
                 }
             })
-            // TODO: Enhanced logging - uncomment if needed
-            /*if (tracksAddedToMix === 0) {
-                console.warn(`[doConference] No tracks added to mix for session ${session._id} in room ${roomId}`)
-            } else {
-                console.log(`[doConference] Added ${tracksAddedToMix} tracks to mix for session ${session._id}`)
-            }*/
 
-            // Only add host's microphone if this is the room where host currently is
+            const othersOnlyTracks = othersOnlyOutput.stream.getTracks()
+
+            tracksForVadSessions[session._id] = othersOnlyTracks[0]
+
             if (isHostRoom && this.activeStreamValue) {
 
                 try {
@@ -1483,21 +1501,15 @@ export class AudioModule {
                 })
             }*/
 
-            // Replace the track for this session
             const senders = session.connection.getSenders()
             const sender = senders[0]
             const mixedTracks = mixedOutput.stream.getTracks()
-
-            if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
-                console.log('[doConference] - Call processVAD from doConference')
-                this.context.logger?.log('[doConference] - Call processVAD from doConference')
-                this.processVAD(session, mixedOutput.stream)
-            }
 
             if (sender && mixedTracks[0]) {
                 try {
                     console.log('[doConference] - Final replaceTrack for', session._id)
                     this.context.logger?.log('[doConference] - Final replaceTrack for', session._id)
+                    console.log('RIGHT 2 initial replace for ', session._id)
                     await sender.replaceTrack(mixedTracks[0])
 
                     // IMPORTANT: Only unmute if host is in this room
@@ -1515,83 +1527,14 @@ export class AudioModule {
                     console.error(error)
                 }
             }
-
-            /*if (!isHostRoom) {
-                session.connection.getReceivers().forEach((receiver: RTCRtpReceiver) => {
-                    receiver.track.enabled = false
-                })
-            }*/
         })
-        // TODO: Conference health check - uncomment if needed for automatic track state monitoring
-        // this.startConferenceHealthCheck(roomId, sessions)
-    }
 
-    // TODO: Conference health check - uncomment if needed for automatic track state monitoring
-    // This periodically checks track states and automatically reconfigures conference if issues are detected
-    /*private startConferenceHealthCheck (roomId: number, sessions: Array<ICall>) {
-        // Clear any existing health check for this room
-        if (this.conferenceHealthCheckIntervals[roomId]) {
-            clearInterval(this.conferenceHealthCheckIntervals[roomId])
+        if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
+            console.log('[doConference] - Call processVAD from doConference')
+            this.context.logger?.log('[doConference] - Call processVAD from doConference')
+            this.processVADForActiveStream(tracksForVadSessions)
         }
-
-        // Check every 30 seconds for track state issues
-        this.conferenceHealthCheckIntervals[roomId] = setInterval(() => {
-            const currentSessions = Object.values(this.extendedCalls).filter(call => call.roomId === roomId)
-
-            // Only continue health check if we still have a conference (2+ participants)
-            if (currentSessions.length < 2) {
-                this.stopConferenceHealthCheck(roomId)
-                return
-            }
-
-            let needsReconfiguration = false
-            const trackIssues: string[] = []
-
-            currentSessions.forEach((session) => {
-                if (!session || !session.connection) {
-                    return
-                }
-
-                const receivers = session.connection.getReceivers()
-                receivers.forEach((receiver: RTCRtpReceiver) => {
-                    const track = receiver.track
-                    if (!track) {
-                        trackIssues.push(`Session ${session._id}: Missing track`)
-                        needsReconfiguration = true
-                        return
-                    }
-
-                    if (track.readyState !== 'live') {
-                        trackIssues.push(`Session ${session._id}, Track ${track.id}: readyState=${track.readyState}`)
-                        needsReconfiguration = true
-                    }
-
-                    // Check connection state
-                    const connectionState = session.connection.connectionState
-                    if (connectionState !== 'connected' && connectionState !== 'connecting') {
-                        trackIssues.push(`Session ${session._id}: connectionState=${connectionState}`)
-                        needsReconfiguration = true
-                    }
-                })
-            })
-
-            if (needsReconfiguration) {
-                console.warn(`[ConferenceHealthCheck] Room ${roomId} needs reconfiguration. Issues:`, trackIssues)
-                this.context.logger?.warn(`[ConferenceHealthCheck] Room ${roomId} needs reconfiguration. Issues:`, trackIssues)
-                this.roomReconfigure(roomId)
-            } else {
-                console.log(`[ConferenceHealthCheck] Room ${roomId} is healthy - ${currentSessions.length} sessions, all tracks live`)
-                this.context.logger?.log(`[ConferenceHealthCheck] Room ${roomId} is healthy - ${currentSessions.length} sessions, all tracks live`)
-            }
-        }, 30000) // Check every 30 seconds
     }
-
-    private stopConferenceHealthCheck (roomId: number) {
-        if (this.conferenceHealthCheckIntervals[roomId]) {
-            clearInterval(this.conferenceHealthCheckIntervals[roomId])
-            delete this.conferenceHealthCheckIntervals[roomId]
-        }
-    }*/
 
     private processCallerMute (callId: string, value: boolean) {
         const call = this.extendedCalls[callId]
@@ -2256,7 +2199,7 @@ export class AudioModule {
             }
 
             if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
-                this.stopSessionVad(session._id)
+                this.stopSessionVad()
             }
 
             this.cleanupRingbackTone(session.id)
@@ -2310,7 +2253,7 @@ export class AudioModule {
             }
 
             if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
-                this.stopSessionVad(session._id)
+                this.stopSessionVad()
             }
 
             this.cleanupRingbackTone(session.id)
@@ -2612,7 +2555,8 @@ export class AudioModule {
         }
 
         if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
-            this.processVAD(call, processedStream)
+            //this.processVAD(call, processedStream)
+            this.processVADForActiveStream()
         }
     }
 

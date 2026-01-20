@@ -16,11 +16,6 @@ export type ChangeVolumeEventType = {
     volume: number
 }
 
-export type NoiseReductionStateEventType = {
-    sessionId: string
-    enabled: boolean
-}
-
 export type ConnectionStateChangeType = {
     session: RTCSessionExtended,
     connectionState: string
@@ -56,7 +51,7 @@ export type changeCallStatusListener = (event: { [key: string]: ICallStatus }) =
 export type changeCallTimeListener = (event: { [key: string]: ITimeData }) => void
 export type changeCallMetricsListener = (event: { [key: string]: any }) => void
 export type changeCallVolumeListener = (event: ChangeVolumeEventType) => void
-export type changeNoiseReductionStateListener = (event: NoiseReductionStateEventType) => void
+export type changeNoiseReductionStateListener = (event: boolean) => void
 export type connectionStateChangeListener = (event: ConnectionStateChangeType) => void
 export type conferenceStartListener = () => void
 export type conferenceEndListener = (sessionId) => void
