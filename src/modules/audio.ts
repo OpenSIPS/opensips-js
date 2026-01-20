@@ -1195,6 +1195,8 @@ export class AudioModule {
                 currentMode: 'clean',
                 isSpeaking: false
             }
+
+            this.context.emit('changeNoiseReductionState', false)
         }
     }
 
