@@ -2095,7 +2095,10 @@ export class AudioModule {
         this.addRoom(newRoomInfo)
 
         if (doAutoAnswer) {
-            this.answerCall(call._id)
+            // 250ms delay before answering to ensure proper timing between 180 Ringing and 200 OK
+            setTimeout(() => {
+                this.answerCall(call._id)
+            }, 250)
         }
     }
 

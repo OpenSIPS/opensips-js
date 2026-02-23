@@ -8,7 +8,9 @@ class ManagedAudioContext {
     }
 
     private setupErrorHandling () {
-        // Listen for state changes to detect errors
+        if (!this.context || typeof this.context.addEventListener !== 'function') {
+            return
+        }
         this.context.addEventListener('statechange', () => {
             if (this.context.state === 'interrupted' || this.context.state === 'closed') {
                 console.warn(`[ManagedAudioContext] AudioContext state changed to: ${this.context.state}`)
