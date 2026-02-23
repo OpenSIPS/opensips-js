@@ -60,7 +60,7 @@ function connectTrackToStream (stream: MediaStream, additionalTrack: MediaStream
 export class AudioModule {
     private context: OpenSIPSJS
     private currentActiveRoomIdValue: number | undefined
-    private isAutoAnswer = true
+    private isAutoAnswer = false
     private isCallAddingInProgress: string | undefined
     private muteWhenJoinEnabled = false
     private isDNDEnabled = false
@@ -2095,7 +2095,7 @@ export class AudioModule {
         this.addRoom(newRoomInfo)
 
         if (doAutoAnswer) {
-            // Add 250ms delay before answering to ensure proper timing between 180 Ringing and 200 OK
+            // 250ms delay before answering to ensure proper timing between 180 Ringing and 200 OK
             setTimeout(() => {
                 this.answerCall(call._id)
             }, 250)
