@@ -101,7 +101,7 @@ export type GIGAPIPE_TYPES = keyof z.infer<typeof gigapipeSchema>
 export function parseEnv (env: Record<string, string | undefined>): EnvConfig {
     try {
         // First unflatten the environment using dot notation
-        const unflattened = unflatten(env, { delimiter: '_' })
+        const unflattened = unflatten(env, { delimiter: '.' })
 
         // Then validate with our schema
         return envSchema.parse(unflattened)
