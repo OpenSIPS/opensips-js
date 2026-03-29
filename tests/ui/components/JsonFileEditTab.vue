@@ -33,7 +33,7 @@
                 </VcButton>
                 <VcButton
                     :loading="loading"
-                    icon="vc-lc-duplicate"
+                    icon="vc-icon-pages"
                     @click="onDuplicate"
                 >
                     Duplicate
