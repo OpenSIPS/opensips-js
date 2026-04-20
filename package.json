@@ -10,6 +10,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "dev": "vite",
+    "postpublish": "yarn upload-cdn",
     "upload-cdn": "yarn build && node scripts/upload-cdn.js",
     "build": "cross-env TARGET=lib vite build",
     "demo-build": "cross-env TARGET=demo vite build",
