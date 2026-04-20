@@ -1,6 +1,6 @@
 {
   "name": "opensips-js",
-  "version": "0.1.41",
+  "version": "0.1.42",
   "description": "The JS package for opensips",
   "default": "src/index.ts",
   "jsdelivr": "dist/opensips-js.iife.js",
@@ -10,7 +10,6 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "dev": "vite",
-    "postpublish": "yarn upload-cdn",
     "upload-cdn": "yarn build && node scripts/upload-cdn.js",
     "build": "cross-env TARGET=lib vite build",
     "demo-build": "cross-env TARGET=demo vite build",

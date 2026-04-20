@@ -108,6 +108,7 @@ export class AudioModule {
     }
     private vadInterval: ReturnType<typeof setInterval> = null
     private vadMrsInterval: ReturnType<typeof setInterval>  = null
+    private vadSessionGeneration = 0
     // TODO: Conference health check - uncomment if needed for automatic track state monitoring
     // private conferenceHealthCheckIntervals: Record<number, ReturnType<typeof setInterval>> = {}
 
@@ -1020,13 +1021,23 @@ export class AudioModule {
         const stream = this.activeStream
         this.stopSessionVad()
 
+        const currentGeneration = this.vadSessionGeneration
+        const isStale = () => currentGeneration !== this.vadSessionGeneration
+
         this.vadSessionState = {
             currentMode: 'clean',
             isSpeaking: false
         }
 
         const audioContext = await this.managedAudioContext.getContext()
+        if (isStale()) {
+            return
+        }
+
         const vadControlled = await createVADControlledStream(stream, audioContext, 150)
+        if (isStale()) {
+            return
+        }
 
         let isFirstFrameProcessed = false
 
@@ -1035,11 +1046,15 @@ export class AudioModule {
 
         const vadSession = await this.MicVAD.new({
             getStream: () => new Promise((res) => res(stream)),
+            pauseStream: async () => { /* no-op: prevent MicVAD from stopping our processed stream tracks */ },
+            resumeStream: async (_stream) => _stream,
             ...vadDefaultConfig,
             ...this.noiseReduction.vadConfig,
             baseAssetPath: this.noiseReduction.baseAssetPath,
             onnxWASMBasePath: this.noiseReduction.onnxWASMBasePath,
             onFrameProcessed: () => {
+                if (isStale()) return
+
                 if (!isFirstFrameProcessed) {
                     isFirstFrameProcessed = true
                     console.log('✅ VAD initialized, starting background noise monitoring')
@@ -1058,8 +1073,10 @@ export class AudioModule {
                             })
                         } else {
                             const session = callsInCurrentRoom[0]
-                            if (session.connection.getSenders()[0]) {
-                                session.connection.getSenders()[0].replaceTrack(vadControlled.stream.getAudioTracks()[0])
+                            const sender = session?.connection?.getSenders()[0]
+                            const vadTrack = vadControlled.stream.getAudioTracks()[0]
+                            if (sender) {
+                                sender.replaceTrack(vadTrack)
                             }
                         }
 
@@ -1142,6 +1159,8 @@ export class AudioModule {
                 }
             },
             onSpeechStart: () => {
+                if (isStale()) return
+
                 console.log('🎤 Speech started')
                 vadControlled.setSpeaking(true)
 
@@ -1153,6 +1172,8 @@ export class AudioModule {
                 this.vadSessionState.isSpeaking = true
             },
             onSpeechEnd: () => {
+                if (isStale()) return
+
                 console.log('🛑 Speech end')
                 vadControlled.setSpeaking(false)
 
@@ -1165,6 +1186,15 @@ export class AudioModule {
             }
         })
 
+        if (isStale()) {
+            try {
+                vadSession.pause()
+            } catch (error) {
+                this.context.logger?.error('[processVADForActiveStream] Error pausing stale vadSession:', error)
+            }
+            return
+        }
+
         if (this.vadSession) {
             this.vadSession.pause()
             this.vadSession = null
@@ -1175,6 +1205,8 @@ export class AudioModule {
     }
 
     private stopSessionVad () {
+        this.vadSessionGeneration++
+
         if (this.vadSession) {
             this.vadSession.pause()
             this.vadSession = null
