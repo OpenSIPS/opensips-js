@@ -81,6 +81,7 @@ export interface RTCSessionExtended extends RTCSession {
     _videoMuted: boolean
     _status: number
     _remote_identity: RemoteIdentityCallType
+    _remote_party_display_name: string | null
     answer(options?: AnswerOptionsExtended): void
     init_icncoming(request: IncomingRequest): void
 }

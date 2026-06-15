@@ -20,7 +20,7 @@ import {
     ProbeMetricInType,
     WebrtcMetricsConfigType
 } from '@/types/webrtcmetrics'
-import { isMobile, processAudioVolume, simplifyCallObject, syncStream } from '@/helpers/audio.helper'
+import { isMobile, parseRemotePartyIdDisplayName, processAudioVolume, simplifyCallObject, syncStream } from '@/helpers/audio.helper'
 import { RTCSessionEvent } from 'jssip/lib/UA'
 import { forEach } from 'p-iteration'
 import { CALL_EVENT_LISTENER_TYPE } from '@/enum/call.event.listener.type'
@@ -2193,6 +2193,10 @@ export class AudioModule {
 
     private async newRTCSessionCallback (event: RTCSessionEvent) {
         const session = event.session as RTCSessionExtended
+
+        session._remote_party_display_name = session.direction === 'incoming'
+            ? parseRemotePartyIdDisplayName(event.request.getHeader('Remote-Party-ID'))
+            : null
 
         if (this.shouldTerminateNewSession(event)) {
             session.terminate({

@@ -27,7 +27,8 @@ const CALL_KEYS_TO_INCLUDE: Array<ICallKey> = [
     //'originalStream',
     'localMuted',
     'autoAnswer',
-    'putOnHoldTimestamp'
+    'putOnHoldTimestamp',
+    '_remote_party_display_name'
 ]
 type IMessageKey = keyof IMessage
 const MESSAGE_KEYS_TO_INCLUDE: Array<IMessageKey> = [
@@ -106,6 +107,18 @@ export function syncStream (stream: MediaStream, call: ICall, outputDevice: stri
 
     audio.play()
     call.audioTag = audio
+}
+
+// Extracts the quoted display-name from a SIP `Remote-Party-ID` header value.
+// Example input:  "Test Extension" <sip:11@host>;party=calling;privacy=off
+// Returns:        "Test Extension"
+export function parseRemotePartyIdDisplayName (headerValue: string | null | undefined): string | null {
+    if (!headerValue) return null
+
+    const match = headerValue.match(/^\s*"((?:[^"\\]|\\.)*)"/)
+    if (!match) return null
+
+    return match[1].replace(/\\(.)/g, '$1')
 }
 
 export function isLoggerCompatible (logger: CustomLoggerType) {
