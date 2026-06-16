@@ -2356,10 +2356,6 @@ export class AudioModule {
             }
         })
 
-        // Some PBXes (e.g. Asterisk pickup flows) carry the connected-line
-        // identity in a Remote-Party-ID header that arrives later via an
-        // in-dialog re-INVITE or UPDATE rather than on the initial INVITE.
-        // Re-parse on those events so the field reflects the latest identity.
         const handleRemotePartyIdRefresh = (event: ReInviteEvent) => {
             if (this.refreshRemotePartyDisplayName(session, event.request)) {
                 this.updateCall(session as ICall)
