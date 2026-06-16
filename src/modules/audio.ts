@@ -25,7 +25,7 @@ import { RTCSessionEvent } from 'jssip/lib/UA'
 import { forEach } from 'p-iteration'
 import { CALL_EVENT_LISTENER_TYPE } from '@/enum/call.event.listener.type'
 import { SIP_STATUS_CODE } from '@/enum/sip.status.code'
-import { IncomingAckEvent, IncomingEvent, OutgoingAckEvent, OutgoingEvent } from 'jssip/lib/RTCSession'
+import { IncomingAckEvent, IncomingEvent, OutgoingAckEvent, OutgoingEvent, ReInviteEvent } from 'jssip/lib/RTCSession'
 import WebRTCMetrics from '@/helpers/webrtcmetrics/metrics'
 import { filterObjectKeys } from '@/helpers/filter.helper'
 import { METRIC_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
@@ -705,6 +705,23 @@ export class AudioModule {
         const callInfoHeader = request.getHeader('Call-Info')
 
         return callInfoHeader && regex.test(callInfoHeader)
+    }
+
+    // Re-parses Remote-Party-ID header from re-INVITE / UPDATE request
+    private refreshRemotePartyDisplayName (
+        session: RTCSessionExtended,
+        request: { getHeader: (name: string) => string }
+    ): boolean {
+        const headerValue = request.getHeader('Remote-Party-ID')
+        if (!headerValue) return false
+
+        const newName = parseRemotePartyIdDisplayName(headerValue)
+        if (newName === null) return false
+
+        if (session._remote_party_display_name === newName) return false
+
+        session._remote_party_display_name = newName
+        return true
     }
 
     private addCall (value: ICall, emitEvent = true) {
@@ -2338,6 +2355,18 @@ export class AudioModule {
                 this.callAddingInProgress = undefined
             }
         })
+
+        // Some PBXes (e.g. Asterisk pickup flows) carry the connected-line
+        // identity in a Remote-Party-ID header that arrives later via an
+        // in-dialog re-INVITE or UPDATE rather than on the initial INVITE.
+        // Re-parse on those events so the field reflects the latest identity.
+        const handleRemotePartyIdRefresh = (event: ReInviteEvent) => {
+            if (this.refreshRemotePartyDisplayName(session, event.request)) {
+                this.updateCall(session as ICall)
+            }
+        }
+        session.on('reinvite', handleRemotePartyIdRefresh)
+        session.on('update', handleRemotePartyIdRefresh)
 
         const setupConnectionListeners = (connection: RTCPeerConnection) => {
             if (!connection) return
