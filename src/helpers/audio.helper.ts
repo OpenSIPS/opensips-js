@@ -28,7 +28,8 @@ const CALL_KEYS_TO_INCLUDE: Array<ICallKey> = [
     'localMuted',
     'autoAnswer',
     'putOnHoldTimestamp',
-    '_remote_party_display_name'
+    '_remote_party_display_name',
+    '_remote_party_uri_user'
 ]
 type IMessageKey = keyof IMessage
 const MESSAGE_KEYS_TO_INCLUDE: Array<IMessageKey> = [
@@ -119,6 +120,18 @@ export function parseRemotePartyIdDisplayName (headerValue: string | null | unde
     if (!match) return null
 
     return match[1].replace(/\\(.)/g, '$1')
+}
+
+// Extracts the user-part of the SIP URI from a `Remote-Party-ID` header value.
+// Example input:  "Test Extension" <sip:11@host>;party=called;privacy=off
+// Returns:        "11"
+export function parseRemotePartyIdUriUser (headerValue: string | null | undefined): string | null {
+    if (!headerValue) return null
+
+    const match = headerValue.match(/<?sips?:([^@>\s;]+)@/i)
+    if (!match) return null
+
+    return match[1]
 }
 
 export function isLoggerCompatible (logger: CustomLoggerType) {

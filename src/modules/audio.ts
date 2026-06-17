@@ -20,7 +20,7 @@ import {
     ProbeMetricInType,
     WebrtcMetricsConfigType
 } from '@/types/webrtcmetrics'
-import { isMobile, parseRemotePartyIdDisplayName, processAudioVolume, simplifyCallObject, syncStream } from '@/helpers/audio.helper'
+import { isMobile, parseRemotePartyIdDisplayName, parseRemotePartyIdUriUser, processAudioVolume, simplifyCallObject, syncStream } from '@/helpers/audio.helper'
 import { RTCSessionEvent } from 'jssip/lib/UA'
 import { forEach } from 'p-iteration'
 import { CALL_EVENT_LISTENER_TYPE } from '@/enum/call.event.listener.type'
@@ -708,20 +708,28 @@ export class AudioModule {
     }
 
     // Re-parses Remote-Party-ID header from re-INVITE / UPDATE request
-    private refreshRemotePartyDisplayName (
+    private refreshRemotePartyId (
         session: RTCSessionExtended,
         request: { getHeader: (name: string) => string }
     ): boolean {
         const headerValue = request.getHeader('Remote-Party-ID')
         if (!headerValue) return false
 
+        let changed = false
+
         const newName = parseRemotePartyIdDisplayName(headerValue)
-        if (newName === null) return false
+        if (newName !== null && session._remote_party_display_name !== newName) {
+            session._remote_party_display_name = newName
+            changed = true
+        }
 
-        if (session._remote_party_display_name === newName) return false
+        const newUriUser = parseRemotePartyIdUriUser(headerValue)
+        if (newUriUser !== null && session._remote_party_uri_user !== newUriUser) {
+            session._remote_party_uri_user = newUriUser
+            changed = true
+        }
 
-        session._remote_party_display_name = newName
-        return true
+        return changed
     }
 
     private addCall (value: ICall, emitEvent = true) {
@@ -2211,9 +2219,11 @@ export class AudioModule {
     private async newRTCSessionCallback (event: RTCSessionEvent) {
         const session = event.session as RTCSessionExtended
 
-        session._remote_party_display_name = session.direction === 'incoming'
-            ? parseRemotePartyIdDisplayName(event.request.getHeader('Remote-Party-ID'))
+        const initialRemotePartyIdHeader = session.direction === 'incoming'
+            ? event.request.getHeader('Remote-Party-ID')
             : null
+        session._remote_party_display_name = parseRemotePartyIdDisplayName(initialRemotePartyIdHeader)
+        session._remote_party_uri_user = parseRemotePartyIdUriUser(initialRemotePartyIdHeader)
 
         if (this.shouldTerminateNewSession(event)) {
             session.terminate({
@@ -2357,7 +2367,7 @@ export class AudioModule {
         })
 
         const handleRemotePartyIdRefresh = (event: ReInviteEvent) => {
-            if (this.refreshRemotePartyDisplayName(session, event.request)) {
+            if (this.refreshRemotePartyId(session, event.request)) {
                 this.updateCall(session as ICall)
             }
         }
