@@ -82,6 +82,7 @@ export interface RTCSessionExtended extends RTCSession {
     _status: number
     _remote_identity: RemoteIdentityCallType
     _remote_party_display_name: string | null
+    _remote_party_uri_user: string | null
     answer(options?: AnswerOptionsExtended): void
     init_icncoming(request: IncomingRequest): void
 }
