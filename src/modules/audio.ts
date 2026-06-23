@@ -1672,6 +1672,11 @@ export class AudioModule {
             return
         }
 
+        // Start the call duration timer on the first provisional response we see from the wire (100/180/183).
+        if (!this.timeIntervals[callId]) {
+            this.startCallTimer(callId)
+        }
+
         if (statusCode === SIP_STATUS_CODE.TRYING || statusCode === SIP_STATUS_CODE.RINGING) {
             if (this.ringbackTimers[callId]) {
                 return
@@ -2103,29 +2108,7 @@ export class AudioModule {
                 }
             })
         } else if (session.direction === 'outgoing') {
-            // Start timer when call starts RINGING (183 Session Progress - actual ringing)
-            const progressHandler = (event: IncomingEvent | OutgoingEvent) => {
-                const hasSDP = !!(event?.response?.body)
-                const contentType = event?.response?.getHeader?.('Content-Type')
-                const contentLength = event?.response?.getHeader?.('Content-Length')
-
-                console.log('PPP SDP Check:', {
-                    hasBody: hasSDP,
-                    contentType: contentType,
-                    contentLength: contentLength,
-                    bodyLength: event?.response?.body?.length || 0,
-                    bodyPreview: event?.response?.body?.substring(0, 100) || 'N/A'
-                })
-
-                if (event.response && event.response.status_code === SIP_STATUS_CODE.SESSION_PROGRESS) {
-                    this.startCallTimer(session.id)
-                    // Remove this listener after first 183 to avoid multiple starts
-                    session.off('progress', progressHandler)
-                }
-            }
-            session.on('progress', progressHandler)
-
-            // Reset timer when call is ANSWERED
+            // Reset times when call is ANSWERED
             session.once('confirmed', () => {
                 this.startCallTimer(session.id)
             })
