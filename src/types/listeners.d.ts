@@ -5,6 +5,7 @@ import { ICall, RoomChangeEmitType, ICallStatus, RTCSessionExtended } from '@/ty
 import MSRPMessage from '@/lib/msrp/message'
 import { ITimeData } from '@/types/timer'
 import { IncomingMSRPSessionEvent, OutgoingMSRPSessionEvent } from '@/helpers/UA'
+import { MSRPConversationState, MSRPMessageStatus } from '@/modules/msrp'
 
 export type MSRPMessageEventType = {
     message: MSRPMessage,
@@ -65,6 +66,45 @@ export type memberHangupListener = (event: object) => void
 export type changeAudioStateListener = (state: boolean) => void
 export type changeVideoStateListener = (state: boolean) => void
 
+// ---------- MSRP granular event listeners ----------
+export type changeMsrpSessionListener = (session: IMessage | null) => void
+export type msrpSyncCompletedListener = (payload: {
+    conversations: { [key: string]: MSRPConversationState }
+    messagesByConversation: { [key: string]: any[] }
+}) => void
+export type msrpConversationCreatedListener = (payload: {
+    conversationKey: string
+    conversation: MSRPConversationState
+}) => void
+export type msrpConversationRemovedListener = (payload: { conversationKey: string }) => void
+export type msrpConversationUpdatedListener = (payload: {
+    conversationKey: string
+    patch: Partial<MSRPConversationState>
+}) => void
+export type msrpMessageAddedListener = (payload: {
+    conversationKey: string
+    message: any
+}) => void
+export type msrpReceiptChangedListener = (payload: {
+    conversationKey: string
+    eventId: string
+    status: MSRPMessageStatus
+    updatedAt: number
+}) => void
+export type msrpReactionChangedListener = (payload: {
+    conversationKey: string
+    eventId: string
+    emoji: string
+    action: 'add' | 'remove'
+    sender: string
+    updatedAt: number
+}) => void
+export type msrpTypingListener = (payload: {
+    conversationKey: string
+    sender: string
+    isTyping: boolean
+}) => void
+
 export interface OpenSIPSEventMap extends UAEventMap {
     ready: readyListener
     connection: connectionListener
@@ -97,6 +137,16 @@ export interface OpenSIPSEventMap extends UAEventMap {
     connectionStateChange: connectionStateChangeListener
     newMSRPMessage: MSRPMessageListener
     newMSRPSession: MSRPSessionListener
+    // MSRP - granular conversation events
+    changeMsrpSession: changeMsrpSessionListener
+    msrpSyncCompleted: msrpSyncCompletedListener
+    msrpConversationCreated: msrpConversationCreatedListener
+    msrpConversationRemoved: msrpConversationRemovedListener
+    msrpConversationUpdated: msrpConversationUpdatedListener
+    msrpMessageAdded: msrpMessageAddedListener
+    msrpReceiptChanged: msrpReceiptChangedListener
+    msrpReactionChanged: msrpReactionChangedListener
+    msrpTyping: msrpTypingListener
     // JANUS
     conferenceStart: conferenceStartListener
     conferenceEnd: conferenceEndListener

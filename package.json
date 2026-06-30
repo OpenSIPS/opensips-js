@@ -1,6 +1,6 @@
 {
   "name": "opensips-js",
-  "version": "0.1.46",
+  "version": "0.1.47",
   "description": "The JS package for opensips",
   "default": "src/index.ts",
   "jsdelivr": "dist/opensips-js.iife.js",
