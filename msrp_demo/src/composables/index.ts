@@ -24,26 +24,17 @@ import type {
 
 let openSIPSJS: OpenSIPSJS | undefined = undefined
 
-// ---------- Shared connection state ----------
 const isInitialized = ref<boolean>(false)
 const isOpenSIPSReady = ref<boolean>(false)
 const isOpenSIPSReconnecting = ref<boolean>(false)
 
-// ---------- MSRP session state ----------
 const currentMsrpSession = ref<IMessage | null>(null)
 const isMSRPInitializing = ref<boolean>(false)
 
-// ---------- MSRP conversation state ----------
-// Conversation metadata and chat history are two separate stores. The
-// metadata map is small and changes rarely (members, role, state
-// events). The messages map is fat and churns on every new event, so
-// keeping them apart prevents message activity from invalidating
-// metadata-only views.
 const conversations = ref<{ [key: string]: MSRPConversationState }>({})
 const messagesByConversation = ref<{ [conversationKey: string]: any[] }>({})
 const typingByConversation = ref<{ [conversationKey: string]: MSRPTypingState }>({})
 
-// ---------- UI-only state ----------
 const currentConversationKey = ref<string | null>(null)
 const unreadByConversation = ref<UnreadCounts>({})
 

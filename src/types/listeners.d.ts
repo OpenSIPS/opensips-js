@@ -66,7 +66,7 @@ export type memberHangupListener = (event: object) => void
 export type changeAudioStateListener = (state: boolean) => void
 export type changeVideoStateListener = (state: boolean) => void
 
-// ---------- MSRP granular event listeners ----------
+/* MSRP event listeners */
 export type changeMsrpSessionListener = (session: IMessage | null) => void
 export type msrpSyncCompletedListener = (payload: {
     conversations: { [key: string]: MSRPConversationState }
@@ -137,7 +137,7 @@ export interface OpenSIPSEventMap extends UAEventMap {
     connectionStateChange: connectionStateChangeListener
     newMSRPMessage: MSRPMessageListener
     newMSRPSession: MSRPSessionListener
-    // MSRP - granular conversation events
+    // MSRP events listeners
     changeMsrpSession: changeMsrpSessionListener
     msrpSyncCompleted: msrpSyncCompletedListener
     msrpConversationCreated: msrpConversationCreatedListener

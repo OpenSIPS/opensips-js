@@ -1,10 +1,3 @@
-// Local type contracts for the msrp_demo composable.
-//
-// In the main project these live at `@/types`; here we mirror the shape so
-// the slice can later be lifted straight into that file. Keep field names
-// identical to the main composable's VsipAPI - only the MSRP + shared
-// connection surface is included (audio/video deliberately omitted).
-
 import type { ComputedRef, Ref } from 'vue'
 import type {
     CustomLoggerType,
@@ -42,38 +35,23 @@ export interface MSRPTypingState {
 }
 
 export interface VsipAPIState {
-    // ---------- Shared connection lifecycle ----------
     isInitialized: Ref<boolean>
     isOpenSIPSReady: Ref<boolean>
     isOpenSIPSReconnecting: Ref<boolean>
-
-    // ---------- MSRP session ----------
     isMSRPInitializing: Ref<boolean>
     currentMsrpSession: Ref<IMessage | null>
     hasActiveMsrpSession: ComputedRef<boolean>
-
-    // ---------- MSRP conversations / messages ----------
-    // Conversation metadata only - chat history lives in its own store
-    // (`messagesByConversation`) to keep slow-moving protocol data
-    // decoupled from fast-moving message updates.
     conversations: Ref<{ [key: string]: MSRPConversationState }>
     messagesByConversation: Ref<{ [conversationKey: string]: any[] }>
-    // The "currently focused" conversation is a UI concern (the protocol
-    // module exposes the full conversations map and lets the consumer
-    // decide which one is active). We track it here so the demo's UI can
-    // reactively highlight it.
     currentConversationKey: Ref<string | null>
     currentConversation: ComputedRef<MSRPConversationState | null>
     currentMessages: ComputedRef<any[]>
     sortedConversations: ComputedRef<MSRPConversationState[]>
     typingByConversation: Ref<{ [conversationKey: string]: MSRPTypingState }>
-    // Same UI-concern story as currentConversationKey: unread tallying is
-    // not part of the MSRP protocol so it lives here.
     unreadByConversation: Ref<UnreadCounts>
 }
 
 export interface VsipAPIActions {
-    // ---------- Shared connection lifecycle ----------
     init (
         connectOptions: ConnectOptions,
         pnExtraHeaders?: PnExtraHeaders,
@@ -83,16 +61,12 @@ export interface VsipAPIActions {
     register (): void
     unregister (): void
     disconnect (): void
-
-    // ---------- MSRP session ----------
     initMSRP (options?: object): void
     initMSRPAndSendMessage (target: string, body: string, options?: object): void
     msrpAnswer (callId: string): void
     messageTerminate (callId: string): void
     sendMSRP (msrpSessionId: string, body: string): void
     safeSendMSRP (body: string): boolean
-
-    // ---------- MSRP - one method per UI action ----------
     sendCreateConversationMessage (targetSip: string | string[]): boolean
     sendTextMessage (conversationKey: string, text: string): boolean
     sendMediaMessage (
