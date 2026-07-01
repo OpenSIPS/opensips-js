@@ -63,18 +63,6 @@ function findMessage (messages: any[], eventId: string) {
     return messages.find((msg: any) => msg.event_id === eventId)
 }
 
-/**
- * Apply a live `m.reaction` event to a target message's
- * `reactions_summary` array, mirroring the exact shape the backend
- * returns on sync:
- *     { emoji, count, user_ids, viewer_reacted }
- *
- * Invariant enforced: `count === user_ids.length`. A repeated "add"
- * from the same sender is a no-op; a "remove" from a sender who isn't
- * in `user_ids` is a no-op. `viewer_reacted` is recomputed from
- * `user_ids` so we never depend on a server-supplied value that may be
- * wrong (the backend has been observed to mis-attribute it).
- */
 function applyReaction (
     target: any,
     emoji: string,

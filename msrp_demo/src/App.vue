@@ -2,7 +2,8 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { vsipAPI } from './composables'
 import { MODULES } from '../../src/enum/modules'
-import { MSRP_QUICK_REACTION_EMOJIS } from '../../src/modules/msrp'
+
+const QUICK_REACTION_EMOJIS = [ '👍', '❤️', '😂', '😮', '😢', '🙏' ] as const
 
 // =====================================================================
 // LOCAL STORAGE KEYS - mirrors demo_example/main.js naming
@@ -260,7 +261,7 @@ function statusIcon (status: string | undefined): string {
 }
 
 function quickReactions () {
-    return MSRP_QUICK_REACTION_EMOJIS
+    return QUICK_REACTION_EMOJIS
 }
 
 // =====================================================================

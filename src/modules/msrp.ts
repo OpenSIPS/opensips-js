@@ -29,8 +29,6 @@ export const MSRP_STATE_MEMBER = 'm.conversation.member'
 export const MSRP_STATE_CREATE = 'm.conversation.create'
 export const MSRP_STATE_CLOSED = 'm.conversation.closed'
 
-export const MSRP_QUICK_REACTION_EMOJIS = [ '👍', '❤️', '😂', '😮', '😢', '🙏' ] as const
-
 export type MSRPMemberRole = 'in_charge' | 'manager' | 'assigned'
 export type MSRPMembership = 'join' | 'leave' | 'invite' | 'ban'
 export type MSRPMessageStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
