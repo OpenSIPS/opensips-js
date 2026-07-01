@@ -1,11 +1,31 @@
 import { simplifyMessageObject } from '@/helpers/audio.helper'
 import { CALL_EVENT_LISTENER_TYPE } from '@/enum/call.event.listener.type'
 import { EndEvent, IncomingAckEvent, OutgoingAckEvent } from 'jssip/lib/RTCSession'
-import { IMessage, MSRPSessionExtended, TriggerMSRPListenerOptions } from '@/types/msrp'
+import {
+    IMessage,
+    MSRPSessionExtended,
+    TriggerMSRPListenerOptions,
+    MSRPMemberRole,
+    MSRPMembership,
+    MSRPMessageStatus,
+    MSRPConversationState,
+    MSRPUploadResult
+} from '@/types/msrp'
 import MSRPMessage from '@/lib/msrp/message'
 import { MSRPSessionEvent } from '@/helpers/UA'
 
-// ---------- CONVERSATION EVENT TYPES (backend v3 — June 2026) ----------
+// Re-export so existing consumers that imported these from
+// `@/modules/msrp` (or the module's compiled entry) keep working
+// during the transition. New code should import from `@/types/msrp`.
+export type {
+    MSRPMemberRole,
+    MSRPMembership,
+    MSRPMessageStatus,
+    MSRPConversationState,
+    MSRPUploadResult
+}
+
+// ---------- CONVERSATION EVENT TYPES (backend v3 - June 2026) ----------
 export const MSRP_EVT = {
     CREATE: 'm.conversation.create',
     MESSAGE: 'm.conversation.message',
@@ -28,35 +48,6 @@ export const MSRP_EVT = {
 export const MSRP_STATE_MEMBER = 'm.conversation.member'
 export const MSRP_STATE_CREATE = 'm.conversation.create'
 export const MSRP_STATE_CLOSED = 'm.conversation.closed'
-
-export type MSRPMemberRole = 'in_charge' | 'manager' | 'assigned'
-export type MSRPMembership = 'join' | 'leave' | 'invite' | 'ban'
-export type MSRPMessageStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
-
-export interface MSRPConversationState {
-    conversationKey: string
-    creator: string | null
-    members: Set<string>
-    memberRoles: Map<string, MSRPMemberRole>
-    currentUserRole: MSRPMemberRole
-    currentUserStatus: MSRPMembership | null
-    state_events: { [key: string]: { [stateKey: string]: any } }
-    created_at: number
-    updated_at: number
-    status?: string
-}
-
-export interface MSRPUploadResult {
-    upload_url: string
-    expires_in?: number
-    mime_type: string
-    request_id: string
-    filename?: string
-    preview_url?: string
-    icon_url?: string
-    transcription?: string
-    media_type?: string
-}
 
 interface PendingPromise<T> {
     resolve: (value: T) => void

@@ -1559,3 +1559,62 @@ export {
     BaseProcessStreamPlugin,
     BaseNewStreamPlugin
 }
+
+/* ---------- Public API surface (types + runtime constants) ----------
+ * Anything a consumer needs to reference from the outside should be
+ * re-exported here so it lands in `dist/index.d.ts` with an actual
+ * `export` keyword (not a module-internal `declare`). Consumers can
+ * then `import { ... } from 'opensips-js'` without touching internal
+ * subpaths.
+ */
+
+// MSRP conversation types
+export type {
+    IMessage,
+    MSRPSessionExtended,
+    TriggerMSRPListenerOptions,
+    ListenerEventType,
+    MSRPMemberRole,
+    MSRPMembership,
+    MSRPMessageStatus,
+    MSRPConversationState,
+    MSRPUploadResult
+} from '@/types/msrp'
+
+// MSRP runtime constants
+export { MSRP_EVT } from '@/modules/msrp'
+
+// Event map + the small set of listener helpers/payload shapes that a
+// consumer might reference by name. The individual `*Listener` type
+// aliases inside `@/types/listeners` are intentionally NOT re-exported:
+// each is just `(arg) => void` and is reconstructible on demand as
+// `OpenSIPSEventMap['<eventName>']` (or `ListenerCallbackFnType<'<eventName>'>`).
+// Keeping the surface small avoids locking us into ~40 alias names as
+// public contracts.
+export type {
+    OpenSIPSEventMap,
+    ListenerCallbackFnType,
+    MSRPMessageEventType,
+    ChangeVolumeEventType,
+    ConnectionStateChangeType
+} from '@/types/listeners'
+
+// Call / RTC surface (shapes consumers pass in via options or receive
+// back via events / accessors).
+export type {
+    ICall,
+    IRoom,
+    ICallStatus,
+    IOpenSIPSConfiguration,
+    IOpenSIPSJSOptions,
+    NoiseReductionOptions,
+    NoiseReductionOptionsWithoutVadModule,
+    NoiseReductionMode,
+    CustomLoggerType
+} from '@/types/rtc'
+
+// Call-timer payload
+export type { ITimeData } from '@/types/timer'
+
+// WebRTC metrics config (accepted by OpenSIPSJS options)
+export type { WebrtcMetricsConfigType } from '@/types/webrtcmetrics'

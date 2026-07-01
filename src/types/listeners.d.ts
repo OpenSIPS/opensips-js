@@ -1,11 +1,15 @@
 import { UAEventMap } from 'jssip/lib/UA'
 
-import { IMessage, MSRPSessionExtended } from '@/types/msrp'
+import {
+    IMessage,
+    MSRPSessionExtended,
+    MSRPConversationState,
+    MSRPMessageStatus
+} from '@/types/msrp'
 import { ICall, RoomChangeEmitType, ICallStatus, RTCSessionExtended } from '@/types/rtc'
 import MSRPMessage from '@/lib/msrp/message'
 import { ITimeData } from '@/types/timer'
 import { IncomingMSRPSessionEvent, OutgoingMSRPSessionEvent } from '@/helpers/UA'
-import { MSRPConversationState, MSRPMessageStatus } from '@/modules/msrp'
 
 export type MSRPMessageEventType = {
     message: MSRPMessage,

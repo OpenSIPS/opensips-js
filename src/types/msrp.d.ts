@@ -53,3 +53,39 @@ export interface TriggerMSRPListenerOptions {
     session: MSRPSessionExtended
     event?:  ListenerEventType
 }
+
+/* ---------- MSRP conversation shape types (backend v3 - June 2026) ----------
+ * These are the public data structures produced by MSRPModule at runtime and
+ * consumed by external subscribers (Vue wrappers, tests, etc.). Kept in this
+ * shipped `src/types/` file so they resolve cleanly for consumers without
+ * needing internal module paths.
+ */
+
+export type MSRPMemberRole = 'in_charge' | 'manager' | 'assigned'
+export type MSRPMembership = 'join' | 'leave' | 'invite' | 'ban'
+export type MSRPMessageStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
+
+export interface MSRPConversationState {
+    conversationKey: string
+    creator: string | null
+    members: Set<string>
+    memberRoles: Map<string, MSRPMemberRole>
+    currentUserRole: MSRPMemberRole
+    currentUserStatus: MSRPMembership | null
+    state_events: { [key: string]: { [stateKey: string]: any } }
+    created_at: number
+    updated_at: number
+    status?: string
+}
+
+export interface MSRPUploadResult {
+    upload_url: string
+    expires_in?: number
+    mime_type: string
+    request_id: string
+    filename?: string
+    preview_url?: string
+    icon_url?: string
+    transcription?: string
+    media_type?: string
+}
