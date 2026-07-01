@@ -33,17 +33,6 @@ export type MSRPMemberRole = 'in_charge' | 'manager' | 'assigned'
 export type MSRPMembership = 'join' | 'leave' | 'invite' | 'ban'
 export type MSRPMessageStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
 
-/**
- * Protocol-level conversation state owned by MSRPModule.
- *
- * Intentionally does NOT carry a `messages` array - the module is a pure
- * pipe for chat history. Live messages are emitted via `msrpMessageAdded`
- * and historical messages from `m.sync` come through the
- * `messagesByConversation` field of the `msrpSyncCompleted` payload.
- * The consumer (e.g. a Vue composable) is responsible for collecting them
- * into whatever data structure it needs and for downstream concerns like
- * deduplication, reaction aggregation and receipt application.
- */
 export interface MSRPConversationState {
     conversationKey: string
     creator: string | null
@@ -308,14 +297,6 @@ export class MSRPModule {
             : this.context.configuration.uri.toString()
     }
 
-    /**
-     * Open an MSRP session for the currently logged-in user. The SIP
-     * identity is resolved automatically from the OpenSIPSJS
-     * configuration, so the caller never has to pass it. Use this when
-     * the session is intended to act as a long-lived transport pipe and
-     * the first payload will be sent later through one of the higher-level
-     * actions (e.g. `sendCreateConversationMessage`).
-     */
     public initMSRP (options: any = {}) {
         const identity = this.extractSipUser(this.getUserUri())
         if (!identity) {
@@ -325,11 +306,6 @@ export class MSRPModule {
         const session = this.context.startMSRP(identity, options) as MSRPSessionExtended
         session.on('active', () => {
             this.addMessageSession(session)
-            // Push an empty MSRP SEND the moment the session goes
-            // active. The conversation server relies on this initial
-            // frame to bind the freshly-opened pipe to our user in its
-            // routing table - without it the SIP/MSRP layer is alive
-            // but no invites or messages are ever delivered to us.
             session.sendMSRP('')
             this.setIsMSRPInitializing(false)
         })
@@ -337,12 +313,6 @@ export class MSRPModule {
         this.setIsMSRPInitializing(true)
     }
 
-    /**
-     * Open an MSRP session and push `body` as the first MSRP frame the
-     * moment the session goes active. Use this for the legacy
-     * "compose-and-send" flow where the first message is known at the
-     * time the session is opened.
-     */
     public initMSRPAndSendMessage (target: string, body: string, options: any = {}) {
         if (target.length === 0) {
             return console.error('Target must be a valid string')
@@ -358,10 +328,6 @@ export class MSRPModule {
         this.setIsMSRPInitializing(true)
     }
 
-    /**
-     * Public raw send - kept for backward-compat with the old multi-session API.
-     * Ignores the passed callId/sessionId because we only ever hold one session.
-     */
     public sendMSRP (_msrpSessionId: string, body: string) {
         if (!this.extendedSession) {
             throw new Error('No active MSRP session')
@@ -373,8 +339,7 @@ export class MSRPModule {
     /**
      * Safe wrapper around session.sendMSRP. Returns true when the message was
      * handed off to the session; false when there is no active session or the
-     * underlying send threw. On failure the stored session is cleared so the
-     * next send attempt does not silently drop traffic on a half-dead session.
+     * underlying send threw.
      */
     public safeSendMSRP (body: string): boolean {
         if (!this.msrpSession || !this.extendedSession) {
@@ -515,11 +480,6 @@ export class MSRPModule {
     }
 
     // PUBLIC ACTIONS — outgoing requests
-    /**
-     * Create a new conversation by inviting one or more SIP URIs.
-     * Accepts plain numbers/usernames and rewrites them into full SIP URIs
-     * against the domain OpenSIPSJS was initialized with.
-     */
     public sendCreateConversationMessage (targetSip: string | string[]): boolean {
         if (!this.extendedSession) {
             console.warn('No MSRP session available for creating conversation')
@@ -565,13 +525,6 @@ export class MSRPModule {
         return this.safeSendMSRP(JSON.stringify(this.buildTypingEvent(conversationKey, isTyping)))
     }
 
-    /**
-     * Start an automatic typing keep-alive loop for `conversationKey`. While
-     * active, a typing=true event is re-sent every `typingKeepAliveIntervalMs`
-     * so the remote side does not time out the indicator. Calling this with a
-     * different conversationKey or calling `stopTypingKeepAlive()` cancels
-     * any in-flight loop.
-     */
     public startTypingKeepAlive (conversationKey: string): void {
         if (!conversationKey) return
         this.stopTypingKeepAlive(false)
@@ -598,11 +551,6 @@ export class MSRPModule {
         }
     }
 
-    /**
-     * Send a read receipt for `lastEventId` in `conversationKey`. The
-     * caller is responsible for resolving which event_id represents the
-     * "last seen" message because the module no longer stores chat history.
-     */
     public sendReadReceipt (conversationKey: string, lastEventId: string): boolean {
         if (!conversationKey || !lastEventId || !this.hasActiveSession) return false
         return this.safeSendMSRP(JSON.stringify(this.buildReadReceiptEvent(conversationKey, lastEventId)))
@@ -793,11 +741,6 @@ export class MSRPModule {
     }
 
     // INCOMING EVENT PROCESSING
-    /**
-     * Parse a raw MSRP `newMessage` payload and dispatch it to the right
-     * conversation-state mutator. Outgoing messages and non-JSON payloads
-     * are ignored so the rest of the pipeline stays pure.
-     */
     private processIncomingMSRPMessage (msg: any) {
         if (!msg || msg.direction === 'outgoing') return
 
@@ -1191,15 +1134,6 @@ export class MSRPModule {
         this.conversationsMap.set(key, { ...data, conversationKey: key })
     }
 
-    /**
-     * Make a shallow snapshot of a conversation that is safe to hand off
-     * to an external consumer (e.g. a Vue composable).
-     *
-     * The mutable top-level collections (members, memberRoles,
-     * state_events) are cloned so subsequent internal mutations by the
-     * module cannot leak into the consumer's state. There is no
-     * `messages` field - chat history is owned by the consumer.
-     */
     private snapshotConversation (c: MSRPConversationState): MSRPConversationState {
         return {
             ...c,
@@ -1209,10 +1143,6 @@ export class MSRPModule {
         }
     }
 
-    /**
-     * Snapshot the whole conversations map - used only for the bulk
-     * `msrpSyncCompleted` emit.
-     */
     private snapshotConversationsMap (): { [key: string]: MSRPConversationState } {
         const out: { [key: string]: MSRPConversationState } = {}
         this.conversationsMap.forEach((conv, key) => {
@@ -1225,18 +1155,12 @@ export class MSRPModule {
         return !!conversation?.state_events?.[MSRP_STATE_CLOSED]?.['']
     }
 
-    /**
-     * Extract the conversationKey from either a string or an event/conversation object.
-     */
     private conversationKeyOf (source: any): string | null {
         if (!source) return null
         if (typeof source === 'string') return source
         return source.conversationKey ?? null
     }
 
-    /**
-     * Extract the user-part of a SIP URI, e.g. sip:103@example.com -> 103.
-     */
     public extractSipUser (sipUri: string | null | undefined): string | null {
         if (!sipUri) return null
         const uriString = typeof sipUri === 'string' ? sipUri : String(sipUri)
@@ -1244,10 +1168,6 @@ export class MSRPModule {
         return match ? match[1] : null
     }
 
-    /**
-     * Best-effort human-readable name for any URI we may encounter
-     * (SIP / WhatsApp / SMS / GreenAPI).
-     */
     public extractDisplayName (uri: string | null | undefined): string {
         if (!uri) return 'Unknown'
         const uriString = typeof uri === 'string' ? uri : String(uri)
