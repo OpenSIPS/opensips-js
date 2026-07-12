@@ -35,7 +35,7 @@ export type changeActiveMessagesListener = (event: { [key: string]: IMessage }) 
 export type TestEventListener = (event: { test: string }) => void
 export type ActiveRoomListener = (event: number | undefined) => void
 export type CallAddingProgressListener = (callId: string | undefined) => void
-export type MSRPInitializingListener = (sessionId: string | undefined) => void
+export type MSRPInitializingListener = (value: boolean) => void
 export type RoomDeletedListener = (roomId: number) => void
 export type changeActiveInputMediaDeviceListener = (event: string) => void
 export type changeActiveOutputMediaDeviceListener = (event: string) => void
@@ -77,26 +77,27 @@ export type msrpSyncCompletedListener = (payload: {
     messagesByConversation: { [key: string]: any[] }
 }) => void
 export type msrpConversationCreatedListener = (payload: {
-    conversationKey: string
     conversation: MSRPConversationState
 }) => void
-export type msrpConversationRemovedListener = (payload: { conversationKey: string }) => void
+export type msrpConversationRemovedListener = (payload: {
+    conversation_id?: number
+}) => void
 export type msrpConversationUpdatedListener = (payload: {
-    conversationKey: string
+    conversation_id?: number
     patch: Partial<MSRPConversationState>
 }) => void
 export type msrpMessageAddedListener = (payload: {
-    conversationKey: string
+    conversation_id?: number
     message: any
 }) => void
 export type msrpReceiptChangedListener = (payload: {
-    conversationKey: string
+    conversation_id?: number
     eventId: string
     status: MSRPMessageStatus
     updatedAt: number
 }) => void
 export type msrpReactionChangedListener = (payload: {
-    conversationKey: string
+    conversation_id?: number
     eventId: string
     emoji: string
     action: 'add' | 'remove'
@@ -104,9 +105,29 @@ export type msrpReactionChangedListener = (payload: {
     updatedAt: number
 }) => void
 export type msrpTypingListener = (payload: {
-    conversationKey: string
+    conversation_id?: number
     sender: string
     isTyping: boolean
+}) => void
+export type msrpMessageEditedListener = (payload: {
+    conversation_id?: number
+    eventId: string
+    newContent: any
+    editEvent: any
+    updatedAt: number
+}) => void
+export type msrpMessageDeletedListener = (payload: {
+    conversation_id?: number
+    eventId: string
+    deletedBy: string
+    updatedAt: number
+}) => void
+export type msrpPresenceListener = (payload: {
+    conversation_id?: number
+    sender: string
+    presence: string | null
+    lastActiveAt: number | null
+    updatedAt: number
 }) => void
 
 export interface OpenSIPSEventMap extends UAEventMap {
@@ -151,6 +172,9 @@ export interface OpenSIPSEventMap extends UAEventMap {
     msrpReceiptChanged: msrpReceiptChangedListener
     msrpReactionChanged: msrpReactionChangedListener
     msrpTyping: msrpTypingListener
+    msrpMessageEdited: msrpMessageEditedListener
+    msrpMessageDeleted: msrpMessageDeletedListener
+    msrpPresence: msrpPresenceListener
     // JANUS
     conferenceStart: conferenceStartListener
     conferenceEnd: conferenceEndListener

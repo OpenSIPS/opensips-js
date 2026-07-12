@@ -31,6 +31,8 @@ export const MSRP_EVT = {
     MESSAGE: 'm.conversation.message',
     MEMBER: 'm.conversation.member',
     CLOSED: 'm.conversation.closed',
+    REOPEN: 'm.conversation.reopen',
+    DELETE: 'm.conversation.delete',
     SYNC: 'm.sync',
     UPLOAD_REQUEST: 'm.upload.request',
     UPLOAD_RESPONSE: 'm.upload.response',
@@ -38,12 +40,46 @@ export const MSRP_EVT = {
     FILE_ACCESS_RESPONSE: 'm.file.access.response',
     REACTION: 'm.reaction',
     TYPING: 'm.typing',
+    PRESENCE: 'm.presence',
     SENT: 'm.sent',
     DELIVERED: 'm.delivered',
     READ: 'm.read',
     FAILED: 'm.failed',
     SENDING: 'm.sending'
 } as const
+
+// Matrix-style relation keys — mirror the backend contract
+// (opensips-chat-manager `MatrixContentKey` / `RelationType`). Edits are a
+// regular `m.conversation.message` carrying an `m.relates_to` replace pointer
+// plus the replacement body under `m.new_content`.
+export const MSRP_RELATION = {
+    RELATES_TO: 'm.relates_to',
+    NEW_CONTENT: 'm.new_content',
+    RELATIONS: 'm.relations',
+    REPLACE: 'm.replace'
+} as const
+
+// Well-known message_type values understood by the backend fan-out layer.
+export const MSRP_MESSAGE_TYPE = {
+    TEXT: 'text',
+    INTERNAL_NOTE: 'internal_note'
+} as const
+
+export type MSRPReactionAction = 'add' | 'remove'
+
+/**
+ * A conversation is addressed exclusively by its public numeric
+ * `conversation_id`. A stringified id is also accepted for convenience.
+ */
+export type MSRPConversationRef = number | string
+
+/** Optional modifiers for an outgoing text/note message. */
+export interface MSRPSendMessageOptions {
+    /** event_id of the message being replied to — becomes `content.in_reply_to`. */
+    replyToEventId?: string
+    /** Overrides `content.message_type` (defaults to 'text'). */
+    messageType?: string
+}
 
 export const MSRP_STATE_MEMBER = 'm.conversation.member'
 export const MSRP_STATE_CREATE = 'm.conversation.create'
@@ -112,6 +148,9 @@ export class MSRPModule {
     private isMSRPInitializingValue: boolean | undefined
 
     // ---------- CONVERSATION STATE ----------
+    // Keyed by the backend's public numeric conversation_id (as a string). This
+    // is the only identifier the SDK uses — conversationKey is backend-internal
+    // and never crosses into client code.
     private conversationsMap: Map<string, MSRPConversationState> = new Map()
 
     // ---------- IN-FLIGHT REQUEST/RESPONSE TRACKING ----------
@@ -122,7 +161,7 @@ export class MSRPModule {
 
     // ---------- TYPING KEEPALIVE ----------
     private typingKeepAliveInterval: ReturnType<typeof setInterval> | null = null
-    private typingKeepAliveConversationKey: string | null = null
+    private typingKeepAliveConversationId: number | null = null
     private typingKeepAliveIntervalMs = 2000
 
     constructor (context: any) {
@@ -360,21 +399,64 @@ export class MSRPModule {
         }
     }
 
-    private buildTextMessageEvent (conversationKey: string, text: string) {
+    private buildTextMessageEvent (
+        conversationId: number,
+        text: string,
+        options: MSRPSendMessageOptions = {}
+    ) {
+        const content: Record<string, any> = {
+            message_type: options.messageType || MSRP_MESSAGE_TYPE.TEXT,
+            content: text,
+            txn_id: generateUuid()
+        }
+        if (options.replyToEventId) {
+            content.in_reply_to = { event_id: options.replyToEventId }
+        }
         return {
             type: MSRP_EVT.MESSAGE,
-            conversationKey,
+            conversation_id: conversationId,
+            sender: this.getUserUri(),
+            origin_server_ts: Date.now(),
+            content
+        }
+    }
+
+    private buildEditMessageEvent (conversationId: number, targetEventId: string, newText: string) {
+        return {
+            type: MSRP_EVT.MESSAGE,
+            conversation_id: conversationId,
             sender: this.getUserUri(),
             origin_server_ts: Date.now(),
             content: {
-                message_type: 'text',
-                content: text,
+                // Matrix replace relation — the backend detects this via
+                // content['m.relates_to'].rel_type === 'm.replace'.
+                [MSRP_RELATION.RELATES_TO]: {
+                    rel_type: MSRP_RELATION.REPLACE,
+                    event_id: targetEventId
+                },
+                [MSRP_RELATION.NEW_CONTENT]: {
+                    message_type: MSRP_MESSAGE_TYPE.TEXT,
+                    content: newText
+                },
+                // Fallback body so non-relation-aware consumers still see text.
+                message_type: MSRP_MESSAGE_TYPE.TEXT,
+                content: newText,
                 txn_id: generateUuid()
             }
         }
     }
 
-    private buildMediaMessageEvent (conversationKey: string, uploadResult: MSRPUploadResult, caption = '') {
+    private buildDeleteMessageEvent (conversationId: number, targetEventId: string) {
+        return {
+            type: MSRP_EVT.DELETE,
+            conversation_id: conversationId,
+            sender: this.getUserUri(),
+            origin_server_ts: Date.now(),
+            content: { target_event_id: targetEventId }
+        }
+    }
+
+    private buildMediaMessageEvent (conversationId: number, uploadResult: MSRPUploadResult, caption = '') {
         const messageType = uploadResult.media_type || getMessageTypeFromMime(uploadResult.mime_type)
         const attachment: Record<string, any> = {
             kind: messageType,
@@ -387,7 +469,7 @@ export class MSRPModule {
 
         return {
             type: MSRP_EVT.MESSAGE,
-            conversationKey,
+            conversation_id: conversationId,
             sender: this.getUserUri(),
             origin_server_ts: Date.now(),
             content: {
@@ -400,14 +482,14 @@ export class MSRPModule {
     }
 
     private buildMemberEvent (
-        conversationKey: string,
+        conversationId: number,
         stateKey: string,
         membership: MSRPMembership,
         role?: MSRPMemberRole
     ) {
         const evt: Record<string, any> = {
             type: MSRP_EVT.MEMBER,
-            conversationKey,
+            conversation_id: conversationId,
             sender: this.getUserUri(),
             state_key: stateKey,
             origin_server_ts: Date.now(),
@@ -418,14 +500,14 @@ export class MSRPModule {
     }
 
     private buildCloseConversationEvent (
-        conversationKey: string,
+        conversationId: number,
         reason = 'Conversation resolved',
         cause = 'resolved'
     ) {
         const now = Date.now()
         return {
             type: MSRP_EVT.CLOSED,
-            conversationKey,
+            conversation_id: conversationId,
             sender: this.getUserUri(),
             origin_server_ts: now,
             content: {
@@ -437,33 +519,41 @@ export class MSRPModule {
         }
     }
 
-    private buildReactionEvent (conversationKey: string, targetEventId: string, emoji: string) {
+    private buildReactionEvent (
+        conversationId: number,
+        targetEventId: string,
+        emoji: string,
+        action: MSRPReactionAction = 'add'
+    ) {
         return {
             type: MSRP_EVT.REACTION,
-            conversationKey,
+            conversation_id: conversationId,
             sender: this.getUserUri(),
             origin_server_ts: Date.now(),
             content: {
+                // The backend toggles server-side by membership, but we send an
+                // explicit hint so the intent is unambiguous and forward-compatible.
+                action,
                 relates_to: { event_id: targetEventId, key: emoji }
             }
         }
     }
 
-    private buildTypingEvent (conversationKey: string, isTyping: boolean) {
+    private buildTypingEvent (conversationId: number, isTyping: boolean) {
         return {
             type: MSRP_EVT.TYPING,
-            conversationKey,
+            conversation_id: conversationId,
             sender: this.getUserUri(),
             origin_server_ts: Date.now(),
             content: { typing: isTyping }
         }
     }
 
-    private buildReadReceiptEvent (conversationKey: string, lastEventId: string) {
+    private buildReadReceiptEvent (conversationId: number, lastEventId: string) {
         return {
             type: MSRP_EVT.READ,
             event_id: lastEventId,
-            conversationKey,
+            conversation_id: conversationId,
             sender: this.getUserUri(),
             origin_server_ts: Date.now(),
             content: { ts: Date.now(), up_to: true }
@@ -491,39 +581,101 @@ export class MSRPModule {
         return this.safeSendMSRP(JSON.stringify(this.buildCreateConversationEvent(sipUris)))
     }
 
-    public sendTextMessage (conversationKey: string, text: string): boolean {
+    public sendTextMessage (
+        conversationRef: MSRPConversationRef,
+        text: string,
+        options: MSRPSendMessageOptions = {}
+    ): boolean {
+        const conversationId = this.toConversationId(conversationRef)
         const trimmed = (text ?? '').trim()
-        if (!conversationKey || !trimmed) return false
-        return this.safeSendMSRP(JSON.stringify(this.buildTextMessageEvent(conversationKey, trimmed)))
+        if (conversationId === null || !trimmed) return false
+        return this.sendEvent(this.buildTextMessageEvent(conversationId, trimmed, options))
+    }
+
+    /**
+     * Send an internal note — a message only visible to operators. The backend
+     * fan-out layer skips WhatsApp/SMS members when
+     * `content.message_type === 'internal_note'`, so it is never delivered to
+     * the customer channel.
+     */
+    public sendInternalNote (
+        conversationRef: MSRPConversationRef,
+        text: string,
+        options: Omit<MSRPSendMessageOptions, 'messageType'> = {}
+    ): boolean {
+        const conversationId = this.toConversationId(conversationRef)
+        const trimmed = (text ?? '').trim()
+        if (conversationId === null || !trimmed) return false
+        return this.sendEvent(
+            this.buildTextMessageEvent(conversationId, trimmed, {
+                ...options,
+                messageType: MSRP_MESSAGE_TYPE.INTERNAL_NOTE
+            })
+        )
+    }
+
+    /**
+     * Edit a previously sent message. Only the original author may edit, and
+     * only within the per-channel edit window enforced by the backend.
+     */
+    public editMessage (conversationRef: MSRPConversationRef, targetEventId: string, newText: string): boolean {
+        const conversationId = this.toConversationId(conversationRef)
+        const trimmed = (newText ?? '').trim()
+        if (conversationId === null || !targetEventId || !trimmed) return false
+        return this.sendEvent(this.buildEditMessageEvent(conversationId, targetEventId, trimmed))
+    }
+
+    /**
+     * Soft-delete a message ("delete for everyone"). Only the original author
+     * may delete; the backend marks it `is_deleted` and fans out the deletion.
+     */
+    public deleteMessage (conversationRef: MSRPConversationRef, targetEventId: string): boolean {
+        const conversationId = this.toConversationId(conversationRef)
+        if (conversationId === null || !targetEventId) return false
+        return this.sendEvent(this.buildDeleteMessageEvent(conversationId, targetEventId))
     }
 
     public sendMediaMessage (
-        conversationKey: string,
+        conversationRef: MSRPConversationRef,
         uploadResult: MSRPUploadResult,
         caption = ''
     ): boolean {
-        if (!conversationKey || !uploadResult) return false
-        return this.safeSendMSRP(JSON.stringify(this.buildMediaMessageEvent(conversationKey, uploadResult, caption)))
+        const conversationId = this.toConversationId(conversationRef)
+        if (conversationId === null || !uploadResult) return false
+        return this.sendEvent(this.buildMediaMessageEvent(conversationId, uploadResult, caption))
     }
 
-    public sendReaction (conversationKey: string, targetEventId: string, emoji: string): boolean {
-        if (!conversationKey || !targetEventId || !emoji) return false
-        return this.safeSendMSRP(JSON.stringify(this.buildReactionEvent(conversationKey, targetEventId, emoji)))
+    public sendReaction (
+        conversationRef: MSRPConversationRef,
+        targetEventId: string,
+        emoji: string,
+        action: MSRPReactionAction = 'add'
+    ): boolean {
+        const conversationId = this.toConversationId(conversationRef)
+        if (conversationId === null || !targetEventId || !emoji) return false
+        return this.sendEvent(this.buildReactionEvent(conversationId, targetEventId, emoji, action))
     }
 
-    public sendTypingIndicator (conversationKey: string, isTyping: boolean): boolean {
-        if (!conversationKey) return false
-        return this.safeSendMSRP(JSON.stringify(this.buildTypingEvent(conversationKey, isTyping)))
+    /** Convenience wrapper to remove a previously added reaction. */
+    public removeReaction (conversationRef: MSRPConversationRef, targetEventId: string, emoji: string): boolean {
+        return this.sendReaction(conversationRef, targetEventId, emoji, 'remove')
     }
 
-    public startTypingKeepAlive (conversationKey: string): void {
-        if (!conversationKey) return
+    public sendTypingIndicator (conversationRef: MSRPConversationRef, isTyping: boolean): boolean {
+        const conversationId = this.toConversationId(conversationRef)
+        if (conversationId === null) return false
+        return this.sendEvent(this.buildTypingEvent(conversationId, isTyping))
+    }
+
+    public startTypingKeepAlive (conversationRef: MSRPConversationRef): void {
+        const conversationId = this.toConversationId(conversationRef)
+        if (conversationId === null) return
         this.stopTypingKeepAlive(false)
-        this.typingKeepAliveConversationKey = conversationKey
-        this.sendTypingIndicator(conversationKey, true)
+        this.typingKeepAliveConversationId = conversationId
+        this.sendTypingIndicator(conversationId, true)
         this.typingKeepAliveInterval = setInterval(() => {
-            if (this.typingKeepAliveConversationKey && this.hasActiveSession) {
-                this.sendTypingIndicator(this.typingKeepAliveConversationKey, true)
+            if (this.typingKeepAliveConversationId !== null && this.hasActiveSession) {
+                this.sendTypingIndicator(this.typingKeepAliveConversationId, true)
             } else {
                 this.stopTypingKeepAlive(true)
             }
@@ -535,16 +687,17 @@ export class MSRPModule {
             clearInterval(this.typingKeepAliveInterval)
             this.typingKeepAliveInterval = null
         }
-        const stoppedKey = this.typingKeepAliveConversationKey
-        this.typingKeepAliveConversationKey = null
-        if (sendStop && stoppedKey) {
-            this.sendTypingIndicator(stoppedKey, false)
+        const stoppedId = this.typingKeepAliveConversationId
+        this.typingKeepAliveConversationId = null
+        if (sendStop && stoppedId !== null) {
+            this.sendTypingIndicator(stoppedId, false)
         }
     }
 
-    public sendReadReceipt (conversationKey: string, lastEventId: string): boolean {
-        if (!conversationKey || !lastEventId || !this.hasActiveSession) return false
-        return this.safeSendMSRP(JSON.stringify(this.buildReadReceiptEvent(conversationKey, lastEventId)))
+    public sendReadReceipt (conversationRef: MSRPConversationRef, lastEventId: string): boolean {
+        const conversationId = this.toConversationId(conversationRef)
+        if (conversationId === null || !lastEventId || !this.hasActiveSession) return false
+        return this.sendEvent(this.buildReadReceiptEvent(conversationId, lastEventId))
     }
 
     /**
@@ -552,17 +705,19 @@ export class MSRPModule {
      * are allowed by the backend.
      */
     public closeConversation (
-        conversationKey: string,
+        conversationRef: MSRPConversationRef,
         reason = 'Conversation resolved',
         cause = 'resolved'
     ): boolean {
-        const conversation = this.conversationsMap.get(conversationKey)
+        const conversationId = this.toConversationId(conversationRef)
+        if (conversationId === null) return false
+        const conversation = this.conversationsMap.get(String(conversationId))
         if (!conversation || this.isConversationClosed(conversation)) return false
 
         const myRole = conversation.currentUserRole || 'assigned'
         if (myRole !== 'in_charge' && myRole !== 'manager') return false
 
-        return this.safeSendMSRP(JSON.stringify(this.buildCloseConversationEvent(conversationKey, reason, cause)))
+        return this.sendEvent(this.buildCloseConversationEvent(conversationId, reason, cause))
     }
 
     /**
@@ -570,43 +725,43 @@ export class MSRPModule {
      * must be 'in_charge' or 'manager'.
      */
     public changeMemberRole (
-        conversationKey: string,
+        conversationRef: MSRPConversationRef,
         targetUri: string,
         newRole: MSRPMemberRole
     ): boolean {
-        const conversation = this.conversationsMap.get(conversationKey)
+        const conversationId = this.toConversationId(conversationRef)
+        if (conversationId === null) return false
+        const conversation = this.conversationsMap.get(String(conversationId))
         const myRole = conversation?.currentUserRole || 'assigned'
         if (myRole !== 'in_charge' && myRole !== 'manager') {
             console.warn('Not authorized to change roles (role:', myRole, ')')
             return false
         }
-        return this.safeSendMSRP(
-            JSON.stringify(this.buildMemberEvent(conversationKey, targetUri, 'join', newRole))
-        )
+        return this.sendEvent(this.buildMemberEvent(conversationId, targetUri, 'join', newRole))
     }
 
-    public acceptInvite (conversationKey: string): boolean {
-        return this.safeSendMSRP(
-            JSON.stringify(this.buildMemberEvent(conversationKey, this.getUserUri(), 'join'))
-        )
+    public acceptInvite (conversationRef: MSRPConversationRef): boolean {
+        const conversationId = this.toConversationId(conversationRef)
+        if (conversationId === null) return false
+        return this.sendEvent(this.buildMemberEvent(conversationId, this.getUserUri(), 'join'))
     }
 
-    public rejectInvite (conversationKey: string): boolean {
-        const sent = this.safeSendMSRP(
-            JSON.stringify(this.buildMemberEvent(conversationKey, this.getUserUri(), 'leave'))
-        )
-        if (sent && this.conversationsMap.delete(conversationKey)) {
-            this.context.emit('msrpConversationRemoved', { conversationKey })
+    public rejectInvite (conversationRef: MSRPConversationRef): boolean {
+        const conversationId = this.toConversationId(conversationRef)
+        if (conversationId === null) return false
+        const sent = this.sendEvent(this.buildMemberEvent(conversationId, this.getUserUri(), 'leave'))
+        if (sent && this.conversationsMap.delete(String(conversationId))) {
+            this.context.emit('msrpConversationRemoved', { conversation_id: conversationId })
         }
         return sent
     }
 
-    public leaveConversation (conversationKey: string): boolean {
-        const sent = this.safeSendMSRP(
-            JSON.stringify(this.buildMemberEvent(conversationKey, this.getUserUri(), 'leave'))
-        )
-        if (sent && this.conversationsMap.delete(conversationKey)) {
-            this.context.emit('msrpConversationRemoved', { conversationKey })
+    public leaveConversation (conversationRef: MSRPConversationRef): boolean {
+        const conversationId = this.toConversationId(conversationRef)
+        if (conversationId === null) return false
+        const sent = this.sendEvent(this.buildMemberEvent(conversationId, this.getUserUri(), 'leave'))
+        if (sent && this.conversationsMap.delete(String(conversationId))) {
+            this.context.emit('msrpConversationRemoved', { conversation_id: conversationId })
         }
         return sent
     }
@@ -617,7 +772,7 @@ export class MSRPModule {
      * rejects after `uploadRequestTimeoutMs` if no response is received.
      */
     public requestUploadUrl (
-        conversationKey: string,
+        conversationRef: MSRPConversationRef,
         filename: string,
         mimeType: string,
         fileSize: number
@@ -628,10 +783,16 @@ export class MSRPModule {
                 return
             }
 
+            const conversationId = this.toConversationId(conversationRef)
+            if (conversationId === null) {
+                reject(new Error('Unknown conversation'))
+                return
+            }
+
             const requestId = generateRequestId('upload')
             const uploadRequest = {
                 type: MSRP_EVT.UPLOAD_REQUEST,
-                conversationKey,
+                conversation_id: conversationId,
                 sender: this.getUserUri(),
                 origin_server_ts: Date.now(),
                 content: {
@@ -651,7 +812,7 @@ export class MSRPModule {
                 }
             }, this.uploadRequestTimeoutMs)
 
-            if (!this.safeSendMSRP(JSON.stringify(uploadRequest))) {
+            if (!this.sendEvent(uploadRequest)) {
                 this.pendingUploads.delete(requestId)
                 reject(new Error('Failed to send upload request'))
             }
@@ -663,10 +824,16 @@ export class MSRPModule {
      * file. Resolves with the download URL, rejects on timeout or explicit
      * server error.
      */
-    public requestFileAccess (conversationKey: string, eventId: string): Promise<string> {
+    public requestFileAccess (conversationRef: MSRPConversationRef, eventId: string): Promise<string> {
         return new Promise<string>((resolve, reject) => {
             if (!this.hasActiveSession) {
                 reject(new Error('No MSRP session available'))
+                return
+            }
+
+            const conversationId = this.toConversationId(conversationRef)
+            if (conversationId === null) {
+                reject(new Error('Unknown conversation'))
                 return
             }
 
@@ -674,7 +841,7 @@ export class MSRPModule {
             const accessRequest = {
                 type: MSRP_EVT.FILE_ACCESS_REQUEST,
                 event_id: requestId,
-                conversationKey,
+                conversation_id: conversationId,
                 sender: this.getUserUri(),
                 content: {
                     request_id: requestId,
@@ -691,7 +858,7 @@ export class MSRPModule {
                 }
             }, this.fileAccessTimeoutMs)
 
-            if (!this.safeSendMSRP(JSON.stringify(accessRequest))) {
+            if (!this.sendEvent(accessRequest)) {
                 this.pendingFileAccessRequests.delete(requestId)
                 reject(new Error('Failed to send file access request'))
             }
@@ -703,15 +870,16 @@ export class MSRPModule {
      * send the resulting media message into the conversation in one go.
      */
     public async uploadFile (
-        conversationKey: string,
+        conversationRef: MSRPConversationRef,
         file: File,
         caption = ''
     ): Promise<MSRPUploadResult> {
-        if (!conversationKey) throw new Error('conversationKey is required')
+        const conversationId = this.toConversationId(conversationRef)
+        if (conversationId === null) throw new Error('conversation_id is required')
         if (!file) throw new Error('file is required')
 
         const uploadMeta = await this.requestUploadUrl(
-            conversationKey,
+            conversationId,
             file.name,
             file.type || 'application/octet-stream',
             file.size
@@ -727,7 +895,7 @@ export class MSRPModule {
         }
 
         const result = (await response.json()) as MSRPUploadResult
-        this.sendMediaMessage(conversationKey, result, caption)
+        this.sendMediaMessage(conversationId, result, caption)
         return result
     }
 
@@ -766,11 +934,20 @@ export class MSRPModule {
             case MSRP_EVT.CLOSED:
                 this.handleIncomingConversationClosed(event)
                 break
+            case MSRP_EVT.REOPEN:
+                this.handleIncomingConversationReopen(event)
+                break
+            case MSRP_EVT.DELETE:
+                this.handleIncomingMessageDelete(event)
+                break
             case MSRP_EVT.REACTION:
                 this.handleIncomingReaction(event)
                 break
             case MSRP_EVT.TYPING:
                 this.handleIncomingTyping(event)
+                break
+            case MSRP_EVT.PRESENCE:
+                this.handleIncomingPresence(event)
                 break
             case MSRP_EVT.SENT:
             case MSRP_EVT.SENDING:
@@ -799,7 +976,7 @@ export class MSRPModule {
         const messagesByConversation: { [key: string]: any[] } = {}
 
         conversations.forEach((conv: any) => {
-            const key = this.conversationKeyOf(conv)
+            const key = this.conversationIdOf(conv)
             if (!key) return
             const { creator, timeline, created_at, updated_at } = conv
             const stateEvents = normalizeStateEvents(conv.state_events)
@@ -832,12 +1009,12 @@ export class MSRPModule {
             const historicalMessages = (timeline || [])
                 .filter((e: any) => e.type === MSRP_EVT.MESSAGE)
                 .map((e: any) => normalizeIncomingEvent({ ...e }))
-            if (historicalMessages.length > 0) {
-                messagesByConversation[key] = historicalMessages
+            if (historicalMessages.length > 0 && conv.conversation_id !== undefined && conv.conversation_id !== null) {
+                messagesByConversation[String(conv.conversation_id)] = historicalMessages
             }
 
             this.upsertConversationState(key, {
-                conversationKey: key,
+                conversation_id: conv.conversation_id,
                 creator: creator ?? null,
                 members,
                 memberRoles,
@@ -862,16 +1039,16 @@ export class MSRPModule {
     }
 
     private handleIncomingConversationCreate (event: any) {
-        const conversationKey = this.conversationKeyOf(event)
-        if (!conversationKey) return
+        const conversationId = this.conversationIdOf(event)
+        if (!conversationId) return
 
         // Duplicate create event for an already-known conversation - nothing
         // changed, no event to emit.
-        if (this.conversationsMap.has(conversationKey)) return
+        if (this.conversationsMap.has(conversationId)) return
 
         const userUri = this.getUserUri()
-        this.upsertConversationState(conversationKey, {
-            conversationKey,
+        this.upsertConversationState(conversationId, {
+            conversation_id: event.conversation_id,
             creator: event.content?.creator || event.sender || null,
             members: new Set([ userUri ]),
             memberRoles: new Map([ [ userUri, 'in_charge' ] ]),
@@ -882,17 +1059,35 @@ export class MSRPModule {
             currentUserStatus: 'join'
         })
         this.context.emit('msrpConversationCreated', {
-            conversationKey,
-            conversation: this.snapshotConversation(this.conversationsMap.get(conversationKey)!)
+            conversation: this.snapshotConversation(this.conversationsMap.get(conversationId)!)
         })
     }
 
     private handleIncomingConversationMessage (event: any) {
-        const conversationKey = this.conversationKeyOf(event)
-        if (!conversationKey || !messageHasContent(event.content)) return
+        const conversationId = this.conversationIdOf(event)
+        if (!conversationId) return
 
-        const conversation = this.conversationsMap.get(conversationKey)
+        const conversation = this.conversationsMap.get(conversationId)
         if (!conversation) return
+
+        // Edit relation — a replace points at the original message. Surface it as
+        // a dedicated `edited` signal instead of a brand-new message so the
+        // consumer can patch the original in place.
+        const relatesTo = event.content?.[MSRP_RELATION.RELATES_TO]
+        if (relatesTo?.rel_type === MSRP_RELATION.REPLACE && relatesTo.event_id) {
+            const newContent = event.content?.[MSRP_RELATION.NEW_CONTENT] ?? { content: event.content?.content }
+            conversation.updated_at = event.origin_server_ts || Date.now()
+            this.context.emit('msrpMessageEdited', {
+                conversation_id: conversation.conversation_id,
+                eventId: relatesTo.event_id,
+                newContent,
+                editEvent: event,
+                updatedAt: conversation.updated_at
+            })
+            return
+        }
+
+        if (!messageHasContent(event.content)) return
 
         // Update protocol-level metadata (updated_at) but do NOT retain the
         // message itself - chat history is owned by the consumer.
@@ -900,14 +1095,74 @@ export class MSRPModule {
         // knows what it has already rendered.
         conversation.updated_at = event.origin_server_ts || Date.now()
 
-        this.context.emit('msrpMessageAdded', { conversationKey, message: event })
+        this.context.emit('msrpMessageAdded', {
+            conversation_id: conversation.conversation_id,
+            message: event
+        })
+    }
+
+    private handleIncomingMessageDelete (event: any) {
+        const conversationId = this.conversationIdOf(event)
+        if (!conversationId) return
+        const targetEventId =
+            event.content?.target_event_id ?? event.content?.[MSRP_RELATION.RELATES_TO]?.event_id
+        if (!targetEventId) return
+
+        const updatedAt = event.origin_server_ts || Date.now()
+        const conversation = this.conversationsMap.get(conversationId)
+        if (conversation) conversation.updated_at = updatedAt
+
+        // The consumer owns the message history and applies the tombstone
+        // (is_deleted flag) to the target message.
+        this.context.emit('msrpMessageDeleted', {
+            conversation_id: conversation?.conversation_id ?? Number(conversationId),
+            eventId: targetEventId,
+            deletedBy: event.sender,
+            updatedAt
+        })
+    }
+
+    private handleIncomingConversationReopen (event: any) {
+        const conversationId = this.conversationIdOf(event)
+        if (!conversationId) return
+
+        const conversation = this.conversationsMap.get(conversationId)
+        if (!conversation) return
+
+        // Clear the closed tombstone so the conversation is writable again.
+        if (conversation.state_events?.[MSRP_STATE_CLOSED]) {
+            delete conversation.state_events[MSRP_STATE_CLOSED]
+        }
+        conversation.status = 'active'
+        conversation.updated_at = event.origin_server_ts || Date.now()
+
+        this.context.emit('msrpConversationUpdated', {
+            conversation_id: conversation.conversation_id,
+            patch: {
+                status: conversation.status,
+                state_events: { ...conversation.state_events },
+                updated_at: conversation.updated_at
+            }
+        })
+    }
+
+    private handleIncomingPresence (event: any) {
+        const conversationId = this.conversationIdOf(event)
+        // Presence may be conversation-scoped or global — pass whatever we have.
+        this.context.emit('msrpPresence', {
+            conversation_id: conversationId ? Number(conversationId) : undefined,
+            sender: event.sender,
+            presence: event.content?.presence ?? null,
+            lastActiveAt: event.content?.last_active_ts ?? event.content?.last_active_at ?? null,
+            updatedAt: event.origin_server_ts || Date.now()
+        })
     }
 
     private handleIncomingConversationClosed (event: any) {
-        const conversationKey = this.conversationKeyOf(event)
-        if (!conversationKey) return
+        const conversationId = this.conversationIdOf(event)
+        if (!conversationId) return
 
-        const conversation = this.conversationsMap.get(conversationKey)
+        const conversation = this.conversationsMap.get(conversationId)
         if (!conversation) return
 
         if (!conversation.state_events) conversation.state_events = {}
@@ -917,7 +1172,7 @@ export class MSRPModule {
         conversation.updated_at = event.origin_server_ts || Date.now()
 
         this.context.emit('msrpConversationUpdated', {
-            conversationKey,
+            conversation_id: conversation.conversation_id,
             patch: {
                 status: conversation.status,
                 state_events: { ...conversation.state_events },
@@ -927,9 +1182,9 @@ export class MSRPModule {
     }
 
     private handleIncomingReceipt (event: any) {
-        const conversationKey = this.conversationKeyOf(event)
+        const conversationId = this.conversationIdOf(event)
         const targetEventId = event.event_id
-        if (!conversationKey || !targetEventId) return
+        if (!conversationId || !targetEventId) return
 
         const statusMap: Record<string, MSRPMessageStatus> = {
             [MSRP_EVT.SENDING]: 'pending',
@@ -942,13 +1197,13 @@ export class MSRPModule {
         if (!status) return
 
         const updatedAt = event.origin_server_ts || Date.now()
-        const conversation = this.conversationsMap.get(conversationKey)
+        const conversation = this.conversationsMap.get(conversationId)
         if (conversation) conversation.updated_at = updatedAt
 
         // We do not look up the target message - the consumer holds the
         // message history and is responsible for applying the new status.
         this.context.emit('msrpReceiptChanged', {
-            conversationKey,
+            conversation_id: conversation?.conversation_id ?? Number(conversationId),
             eventId: targetEventId,
             status,
             updatedAt
@@ -956,34 +1211,34 @@ export class MSRPModule {
     }
 
     private handleIncomingTyping (event: any) {
-        const conversationKey = this.conversationKeyOf(event)
-        if (!conversationKey) return
+        const conversationId = this.conversationIdOf(event)
+        if (!conversationId) return
         if (event.sender === this.getUserUri()) return
 
         this.context.emit('msrpTyping', {
-            conversationKey,
+            conversation_id: Number(conversationId),
             sender: event.sender,
             isTyping: !!event.content?.typing
         })
     }
 
     private handleIncomingReaction (event: any) {
-        const conversationKey = this.conversationKeyOf(event)
+        const conversationId = this.conversationIdOf(event)
         const relatesTo = event.content?.relates_to
         const emoji = relatesTo?.key || relatesTo?.emoji
-        if (!conversationKey || !relatesTo?.event_id || !emoji) return
+        if (!conversationId || !relatesTo?.event_id || !emoji) return
 
         const action: 'add' | 'remove' = event.content?.action === 'remove' ? 'remove' : 'add'
         const updatedAt = event.origin_server_ts || Date.now()
 
-        const conversation = this.conversationsMap.get(conversationKey)
+        const conversation = this.conversationsMap.get(conversationId)
         if (conversation) conversation.updated_at = updatedAt
 
         // Emit the raw reaction event. The consumer holds the message
         // history and is the only place that can (and should) aggregate
         // these into a reactions_summary array on the target message.
         this.context.emit('msrpReactionChanged', {
-            conversationKey,
+            conversation_id: conversation?.conversation_id ?? Number(conversationId),
             eventId: relatesTo.event_id,
             emoji,
             action,
@@ -993,17 +1248,17 @@ export class MSRPModule {
     }
 
     private handleIncomingConversationMember (event: any) {
-        const conversationKey = this.conversationKeyOf(event)
-        if (!conversationKey) return
+        const conversationId = this.conversationIdOf(event)
+        if (!conversationId) return
         const { state_key, content } = event
         const membership = content?.membership as MSRPMembership | undefined
         const role = (content?.role || 'assigned') as MSRPMemberRole
 
-        const conversationExisted = this.conversationsMap.has(conversationKey)
-        let conversation = this.conversationsMap.get(conversationKey)
+        const conversationExisted = this.conversationsMap.has(conversationId)
+        let conversation = this.conversationsMap.get(conversationId)
         if (!conversation) {
             conversation = {
-                conversationKey,
+                conversation_id: event.conversation_id,
                 creator: null,
                 members: new Set<string>(),
                 memberRoles: new Map<string, MSRPMemberRole>(),
@@ -1013,7 +1268,7 @@ export class MSRPModule {
                 updated_at: event.origin_server_ts || Date.now(),
                 currentUserStatus: null
             }
-            this.conversationsMap.set(conversationKey, conversation)
+            this.conversationsMap.set(conversationId, conversation)
         }
 
         const userUri = this.getUserUri()
@@ -1037,7 +1292,7 @@ export class MSRPModule {
             conversation.memberRoles.delete(state_key)
             if (isCurrentUser) {
                 conversation.currentUserStatus = 'leave'
-                this.conversationsMap.delete(conversationKey)
+                this.conversationsMap.delete(conversationId)
                 removedSelf = true
             }
         } else if (membership === 'invite') {
@@ -1049,7 +1304,9 @@ export class MSRPModule {
         conversation.updated_at = event.origin_server_ts || Date.now()
 
         if (removedSelf) {
-            this.context.emit('msrpConversationRemoved', { conversationKey })
+            this.context.emit('msrpConversationRemoved', {
+                conversation_id: conversation.conversation_id
+            })
             return
         }
 
@@ -1058,7 +1315,6 @@ export class MSRPModule {
         // `created` + `updated` back-to-back.
         if (!conversationExisted) {
             this.context.emit('msrpConversationCreated', {
-                conversationKey,
                 conversation: this.snapshotConversation(conversation)
             })
             return
@@ -1068,7 +1324,7 @@ export class MSRPModule {
         // otherwise the next in-place mutation on conversation.members
         // would bypass the consumer's reactivity layer.
         this.context.emit('msrpConversationUpdated', {
-            conversationKey,
+            conversation_id: conversation.conversation_id,
             patch: {
                 members: new Set(conversation.members),
                 memberRoles: new Map(conversation.memberRoles),
@@ -1122,7 +1378,27 @@ export class MSRPModule {
     // CONVERSATION STATE HELPERS
 
     private upsertConversationState (key: string, data: MSRPConversationState) {
-        this.conversationsMap.set(key, { ...data, conversationKey: key })
+        this.conversationsMap.set(key, { ...data })
+    }
+
+    // ---------- conversation_id resolution ----------
+
+    /**
+     * Normalize a caller-supplied conversation reference to the numeric
+     * conversation_id used to address conversations end-to-end. Accepts a number
+     * or an all-digit string; anything else resolves to null.
+     */
+    private toConversationId (ref: MSRPConversationRef | null | undefined): number | null {
+        if (ref === null || ref === undefined) return null
+        if (typeof ref === 'number') return Number.isFinite(ref) ? ref : null
+        const value = String(ref).trim()
+        if (!/^\d+$/.test(value)) return null
+        return Number(value)
+    }
+
+    /** Serialize + send an outbound conversation event. */
+    private sendEvent (evt: object): boolean {
+        return this.safeSendMSRP(JSON.stringify(evt))
     }
 
     private snapshotConversation (c: MSRPConversationState): MSRPConversationState {
@@ -1134,10 +1410,11 @@ export class MSRPModule {
         }
     }
 
-    private snapshotConversationsMap (): { [key: string]: MSRPConversationState } {
-        const out: { [key: string]: MSRPConversationState } = {}
-        this.conversationsMap.forEach((conv, key) => {
-            out[key] = this.snapshotConversation(conv)
+    private snapshotConversationsMap (): { [conversationId: string]: MSRPConversationState } {
+        const out: { [conversationId: string]: MSRPConversationState } = {}
+        this.conversationsMap.forEach((conv) => {
+            if (conv.conversation_id === undefined || conv.conversation_id === null) return
+            out[String(conv.conversation_id)] = this.snapshotConversation(conv)
         })
         return out
     }
@@ -1146,10 +1423,17 @@ export class MSRPModule {
         return !!conversation?.state_events?.[MSRP_STATE_CLOSED]?.['']
     }
 
-    private conversationKeyOf (source: any): string | null {
-        if (!source) return null
-        if (typeof source === 'string') return source
-        return source.conversationKey ?? null
+    /**
+     * Extract the conversation_id (as a string map key) from an inbound event or
+     * conversation object. The backend addresses all client-facing events by
+     * conversation_id — conversationKey is backend-internal and never used here.
+     */
+    private conversationIdOf (source: any): string | null {
+        if (source === null || source === undefined) return null
+        if (typeof source === 'number') return String(source)
+        if (typeof source === 'string') return /^\d+$/.test(source) ? source : null
+        const id = source.conversation_id
+        return id === undefined || id === null ? null : String(id)
     }
 
     public extractSipUser (sipUri: string | null | undefined): string | null {

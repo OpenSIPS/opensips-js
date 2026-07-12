@@ -8,14 +8,18 @@ import type {
 } from '../../../src/types/rtc'
 import type { IMessage } from '../../../src/types/msrp'
 import type {
+    MSRPConversationRef,
     MSRPConversationState,
     MSRPMemberRole,
+    MSRPReactionAction,
+    MSRPSendMessageOptions,
     MSRPUploadResult
 } from '../../../src/modules/msrp'
 import { MSRP_EVT } from '../../../src/modules/msrp'
 
 import type {
     ConnectOptions,
+    MSRPPresenceState,
     MSRPTypingState,
     PnExtraHeaders,
     UnreadCounts,
@@ -23,6 +27,9 @@ import type {
 } from '../types'
 
 let openSIPSJS: OpenSIPSJS | undefined = undefined
+// Current user's SIP URI, captured at connect time. Used to detect the viewer's
+// own messages/reactions without reaching into jssip UA internals.
+let currentUserUri = ''
 
 const isInitialized = ref<boolean>(false)
 const isOpenSIPSReady = ref<boolean>(false)
@@ -31,25 +38,26 @@ const isOpenSIPSReconnecting = ref<boolean>(false)
 const currentMsrpSession = ref<IMessage | null>(null)
 const isMSRPInitializing = ref<boolean>(false)
 
-const conversations = ref<{ [key: string]: MSRPConversationState }>({})
-const messagesByConversation = ref<{ [conversationKey: string]: any[] }>({})
-const typingByConversation = ref<{ [conversationKey: string]: MSRPTypingState }>({})
+const conversations = ref<{ [conversationId: string]: MSRPConversationState }>({})
+const messagesByConversation = ref<{ [conversationId: string]: any[] }>({})
+const typingByConversation = ref<{ [conversationId: string]: MSRPTypingState }>({})
+const presenceBySender = ref<{ [sender: string]: MSRPPresenceState }>({})
 
-const currentConversationKey = ref<string | null>(null)
+const currentConversationId = ref<string | null>(null)
 const unreadByConversation = ref<UnreadCounts>({})
 
 const hasActiveMsrpSession = computed(() => currentMsrpSession.value !== null)
 
 const currentConversation = computed<MSRPConversationState | null>(() => {
-    const key = currentConversationKey.value
-    if (!key) return null
-    return conversations.value[key] ?? null
+    const id = currentConversationId.value
+    if (!id) return null
+    return conversations.value[id] ?? null
 })
 
 const currentMessages = computed<any[]>(() => {
-    const key = currentConversationKey.value
-    if (!key) return []
-    return messagesByConversation.value[key] ?? []
+    const id = currentConversationId.value
+    if (!id) return []
+    return messagesByConversation.value[id] ?? []
 })
 
 const sortedConversations = computed<MSRPConversationState[]>(() => {
@@ -112,8 +120,12 @@ function applyReaction (
     })
 }
 
-function resolveLastEventId (conversationKey: string): string | null {
-    const messages = messagesByConversation.value[conversationKey]
+function idKey (id: number | null | undefined): string | null {
+    return id === undefined || id === null ? null : String(id)
+}
+
+function resolveLastEventId (conversationId: string): string | null {
+    const messages = messagesByConversation.value[conversationId]
     if (!messages?.length) return null
     const lastMsg = [ ...messages ]
         .filter((m: any) => m.type === MSRP_EVT.MESSAGE && m.event_id)
@@ -132,11 +144,12 @@ export const vsipAPI: VsipAPI = {
         hasActiveMsrpSession,
         conversations,
         messagesByConversation,
-        currentConversationKey,
+        currentConversationId,
         currentConversation,
         currentMessages,
         sortedConversations,
         typingByConversation,
+        presenceBySender,
         unreadByConversation
     },
     actions: {
@@ -154,6 +167,8 @@ export const vsipAPI: VsipAPI = {
                         uri: `sip:${connectOptions.username}@${connectOptions.domain}`,
                         password: connectOptions.password
                     }
+
+                    currentUserUri = `sip:${connectOptions.username}@${connectOptions.domain}`
 
                     if (connectOptions.authorization_jwt) {
                         configuration.authorization_jwt = connectOptions.authorization_jwt
@@ -210,84 +225,137 @@ export const vsipAPI: VsipAPI = {
                             unreadByConversation.value = nextUnread
                         })
                         .on('msrpConversationCreated', (payload) => {
+                            const cid = idKey(payload.conversation.conversation_id)
+                            if (!cid) return
                             conversations.value = {
                                 ...conversations.value,
-                                [payload.conversationKey]: payload.conversation
+                                [cid]: payload.conversation
                             }
-                            if (!messagesByConversation.value[payload.conversationKey]) {
+                            if (!messagesByConversation.value[cid]) {
                                 messagesByConversation.value = {
                                     ...messagesByConversation.value,
-                                    [payload.conversationKey]: []
+                                    [cid]: []
                                 }
                             }
                         })
                         .on('msrpConversationRemoved', (payload) => {
-                            if (payload.conversationKey in conversations.value) {
+                            const cid = idKey(payload.conversation_id)
+                            if (!cid) return
+                            if (cid in conversations.value) {
                                 const next = { ...conversations.value }
-                                delete next[payload.conversationKey]
+                                delete next[cid]
                                 conversations.value = next
                             }
-                            if (payload.conversationKey in messagesByConversation.value) {
+                            if (cid in messagesByConversation.value) {
                                 const nextMsgs = { ...messagesByConversation.value }
-                                delete nextMsgs[payload.conversationKey]
+                                delete nextMsgs[cid]
                                 messagesByConversation.value = nextMsgs
                             }
-                            if (unreadByConversation.value[payload.conversationKey]) {
+                            if (unreadByConversation.value[cid]) {
                                 const u = { ...unreadByConversation.value }
-                                delete u[payload.conversationKey]
+                                delete u[cid]
                                 unreadByConversation.value = u
                             }
                         })
                         .on('msrpConversationUpdated', (payload) => {
-                            const c = conversations.value[payload.conversationKey]
+                            const cid = idKey(payload.conversation_id)
+                            if (!cid) return
+                            const c = conversations.value[cid]
                             if (!c) return
                             Object.assign(c, payload.patch)
                         })
                         .on('msrpMessageAdded', (payload) => {
-                            const c = conversations.value[payload.conversationKey]
+                            const cid = idKey(payload.conversation_id)
+                            if (!cid) return
+                            const c = conversations.value[cid]
                             if (!c) return
                             // Ensure the message bucket exists - it may not
                             // if the message arrives before a sync.
-                            if (!messagesByConversation.value[payload.conversationKey]) {
-                                messagesByConversation.value[payload.conversationKey] = []
+                            if (!messagesByConversation.value[cid]) {
+                                messagesByConversation.value[cid] = []
                             }
-                            messagesByConversation.value[payload.conversationKey].push(payload.message)
+                            messagesByConversation.value[cid].push(payload.message)
                             c.updated_at = payload.message.origin_server_ts || Date.now()
 
-                            if (payload.conversationKey === currentConversationKey.value) return
-                            const myUri = openSIPSJS?.configuration?.uri?.toString?.() ?? ''
-                            if (payload.message?.sender && payload.message.sender === myUri) return
+                            if (cid === currentConversationId.value) return
+                            if (payload.message?.sender && payload.message.sender === currentUserUri) return
                             unreadByConversation.value = {
                                 ...unreadByConversation.value,
-                                [payload.conversationKey]:
-                                    (unreadByConversation.value[payload.conversationKey] || 0) + 1
+                                [cid]:
+                                    (unreadByConversation.value[cid] || 0) + 1
                             }
                         })
                         .on('msrpReceiptChanged', (payload) => {
-                            const messages = messagesByConversation.value[payload.conversationKey]
+                            const cid = idKey(payload.conversation_id)
+                            if (!cid) return
+                            const messages = messagesByConversation.value[cid]
                             if (messages) {
                                 const m = findMessage(messages, payload.eventId)
                                 if (m?.content) m.content.status = payload.status
                             }
-                            const c = conversations.value[payload.conversationKey]
+                            const c = conversations.value[cid]
                             if (c) c.updated_at = payload.updatedAt
                         })
                         .on('msrpReactionChanged', (payload) => {
-                            const messages = messagesByConversation.value[payload.conversationKey]
+                            const cid = idKey(payload.conversation_id)
+                            if (!cid) return
+                            const messages = messagesByConversation.value[cid]
                             if (messages) {
                                 const m = findMessage(messages, payload.eventId)
-                                const viewerUri = openSIPSJS?.configuration?.uri?.toString?.() ?? ''
-                                applyReaction(m, payload.emoji, payload.action, payload.sender, viewerUri)
+                                applyReaction(m, payload.emoji, payload.action, payload.sender, currentUserUri)
                                 if (m?.content) m.content.updated_at = payload.updatedAt
                             }
-                            const c = conversations.value[payload.conversationKey]
+                            const c = conversations.value[cid]
                             if (c) c.updated_at = payload.updatedAt
                         })
-                        .on('msrpTyping', (payload: { conversationKey: string, sender: string, isTyping: boolean }) => {
+                        .on('msrpMessageEdited', (payload) => {
+                            const cid = idKey(payload.conversation_id)
+                            if (!cid) return
+                            const messages = messagesByConversation.value[cid]
+                            if (messages) {
+                                const m = findMessage(messages, payload.eventId)
+                                if (m?.content) {
+                                    const newText = payload.newContent?.content
+                                    if (typeof newText === 'string') m.content.content = newText
+                                    m.content.edited_at = payload.updatedAt
+                                    // Mirror the backend aggregation so relation-aware
+                                    // consumers can read the latest replacement.
+                                    m.unsigned = m.unsigned || {}
+                                    m.unsigned['m.relations'] = {
+                                        'm.replace': {
+                                            event_id: payload.editEvent?.event_id,
+                                            sender: payload.editEvent?.sender,
+                                            origin_server_ts: payload.updatedAt,
+                                            content: payload.newContent
+                                        }
+                                    }
+                                }
+                            }
+                            const c = conversations.value[cid]
+                            if (c) c.updated_at = payload.updatedAt
+                        })
+                        .on('msrpMessageDeleted', (payload) => {
+                            const cid = idKey(payload.conversation_id)
+                            if (!cid) return
+                            const messages = messagesByConversation.value[cid]
+                            if (messages) {
+                                const m = findMessage(messages, payload.eventId)
+                                if (m?.content) {
+                                    m.content.is_deleted = true
+                                    m.content.deleted_at = payload.updatedAt
+                                    m.content.deleted_by = payload.deletedBy
+                                }
+                            }
+                            const c = conversations.value[cid]
+                            if (c) c.updated_at = payload.updatedAt
+                        })
+                        .on('msrpTyping', (payload: { conversation_id?: number, sender: string, isTyping: boolean }) => {
+                            const cid = idKey(payload.conversation_id)
+                            if (!cid) return
                             if (payload.isTyping) {
                                 typingByConversation.value = {
                                     ...typingByConversation.value,
-                                    [payload.conversationKey]: {
+                                    [cid]: {
                                         sender: payload.sender,
                                         isTyping: true,
                                         updatedAt: Date.now()
@@ -295,8 +363,19 @@ export const vsipAPI: VsipAPI = {
                                 }
                             } else {
                                 const next = { ...typingByConversation.value }
-                                delete next[payload.conversationKey]
+                                delete next[cid]
                                 typingByConversation.value = next
+                            }
+                        })
+                        .on('msrpPresence', (payload) => {
+                            if (!payload?.sender) return
+                            presenceBySender.value = {
+                                ...presenceBySender.value,
+                                [payload.sender]: {
+                                    presence: payload.presence,
+                                    lastActiveAt: payload.lastActiveAt,
+                                    updatedAt: payload.updatedAt
+                                }
                             }
                         })
                         .begin()
@@ -339,70 +418,84 @@ export const vsipAPI: VsipAPI = {
         sendCreateConversationMessage (targetSip: string | string[]) {
             return openSIPSJS?.msrp.sendCreateConversationMessage(targetSip) ?? false
         },
-        sendTextMessage (conversationKey: string, text: string) {
-            return openSIPSJS?.msrp.sendTextMessage(conversationKey, text) ?? false
+        sendTextMessage (conversationRef: MSRPConversationRef, text: string, options: MSRPSendMessageOptions = {}) {
+            return openSIPSJS?.msrp.sendTextMessage(conversationRef, text, options) ?? false
         },
-        sendMediaMessage (conversationKey: string, uploadResult: MSRPUploadResult, caption = '') {
-            return openSIPSJS?.msrp.sendMediaMessage(conversationKey, uploadResult, caption) ?? false
+        sendInternalNote (conversationRef: MSRPConversationRef, text: string, options: Omit<MSRPSendMessageOptions, 'messageType'> = {}) {
+            return openSIPSJS?.msrp.sendInternalNote(conversationRef, text, options) ?? false
         },
-        sendReaction (conversationKey: string, targetEventId: string, emoji: string) {
-            return openSIPSJS?.msrp.sendReaction(conversationKey, targetEventId, emoji) ?? false
+        editMessage (conversationRef: MSRPConversationRef, targetEventId: string, newText: string) {
+            return openSIPSJS?.msrp.editMessage(conversationRef, targetEventId, newText) ?? false
         },
-        sendTypingIndicator (conversationKey: string, isTyping: boolean) {
-            return openSIPSJS?.msrp.sendTypingIndicator(conversationKey, isTyping) ?? false
+        deleteMessage (conversationRef: MSRPConversationRef, targetEventId: string) {
+            return openSIPSJS?.msrp.deleteMessage(conversationRef, targetEventId) ?? false
         },
-        startTypingKeepAlive (conversationKey: string) {
-            openSIPSJS?.msrp.startTypingKeepAlive(conversationKey)
+        sendMediaMessage (conversationRef: MSRPConversationRef, uploadResult: MSRPUploadResult, caption = '') {
+            return openSIPSJS?.msrp.sendMediaMessage(conversationRef, uploadResult, caption) ?? false
+        },
+        sendReaction (conversationRef: MSRPConversationRef, targetEventId: string, emoji: string, action: MSRPReactionAction = 'add') {
+            return openSIPSJS?.msrp.sendReaction(conversationRef, targetEventId, emoji, action) ?? false
+        },
+        removeReaction (conversationRef: MSRPConversationRef, targetEventId: string, emoji: string) {
+            return openSIPSJS?.msrp.removeReaction(conversationRef, targetEventId, emoji) ?? false
+        },
+        sendTypingIndicator (conversationRef: MSRPConversationRef, isTyping: boolean) {
+            return openSIPSJS?.msrp.sendTypingIndicator(conversationRef, isTyping) ?? false
+        },
+        startTypingKeepAlive (conversationRef: MSRPConversationRef) {
+            openSIPSJS?.msrp.startTypingKeepAlive(conversationRef)
         },
         stopTypingKeepAlive (sendStop = true) {
             openSIPSJS?.msrp.stopTypingKeepAlive(sendStop)
         },
-        sendReadReceipt (conversationKey: string) {
-            const lastEventId = resolveLastEventId(conversationKey)
+        sendReadReceipt (conversationRef: MSRPConversationRef) {
+            const conversationId = idKey(Number(conversationRef))
+            if (!conversationId) return false
+            const lastEventId = resolveLastEventId(conversationId)
             if (!lastEventId) return false
-            return openSIPSJS?.msrp.sendReadReceipt(conversationKey, lastEventId) ?? false
+            return openSIPSJS?.msrp.sendReadReceipt(conversationRef, lastEventId) ?? false
         },
-        closeConversation (conversationKey: string, reason?: string, cause?: string) {
-            return openSIPSJS?.msrp.closeConversation(conversationKey, reason, cause) ?? false
+        closeConversation (conversationRef: MSRPConversationRef, reason?: string, cause?: string) {
+            return openSIPSJS?.msrp.closeConversation(conversationRef, reason, cause) ?? false
         },
-        changeMemberRole (conversationKey: string, targetUri: string, newRole: MSRPMemberRole) {
-            return openSIPSJS?.msrp.changeMemberRole(conversationKey, targetUri, newRole) ?? false
+        changeMemberRole (conversationRef: MSRPConversationRef, targetUri: string, newRole: MSRPMemberRole) {
+            return openSIPSJS?.msrp.changeMemberRole(conversationRef, targetUri, newRole) ?? false
         },
-        acceptInvite (conversationKey: string) {
-            return openSIPSJS?.msrp.acceptInvite(conversationKey) ?? false
+        acceptInvite (conversationRef: MSRPConversationRef) {
+            return openSIPSJS?.msrp.acceptInvite(conversationRef) ?? false
         },
-        rejectInvite (conversationKey: string) {
-            return openSIPSJS?.msrp.rejectInvite(conversationKey) ?? false
+        rejectInvite (conversationRef: MSRPConversationRef) {
+            return openSIPSJS?.msrp.rejectInvite(conversationRef) ?? false
         },
-        leaveConversation (conversationKey: string) {
-            return openSIPSJS?.msrp.leaveConversation(conversationKey) ?? false
+        leaveConversation (conversationRef: MSRPConversationRef) {
+            return openSIPSJS?.msrp.leaveConversation(conversationRef) ?? false
         },
-        setActiveConversation (conversationKey: string | null) {
-            if (currentConversationKey.value === conversationKey) return
-            currentConversationKey.value = conversationKey
-            if (conversationKey) {
-                const lastEventId = resolveLastEventId(conversationKey)
+        setActiveConversation (conversationId: string | null) {
+            if (currentConversationId.value === conversationId) return
+            currentConversationId.value = conversationId
+            if (conversationId) {
+                const lastEventId = resolveLastEventId(conversationId)
                 if (lastEventId) {
-                    openSIPSJS?.msrp.sendReadReceipt(conversationKey, lastEventId)
+                    openSIPSJS?.msrp.sendReadReceipt(conversationId, lastEventId)
                 }
-                if (unreadByConversation.value[conversationKey]) {
+                if (unreadByConversation.value[conversationId]) {
                     const next = { ...unreadByConversation.value }
-                    delete next[conversationKey]
+                    delete next[conversationId]
                     unreadByConversation.value = next
                 }
             }
         },
-        requestUploadUrl (conversationKey: string, filename: string, mimeType: string, fileSize: number) {
+        requestUploadUrl (conversationRef: MSRPConversationRef, filename: string, mimeType: string, fileSize: number) {
             if (!openSIPSJS) return Promise.reject(new Error('OpenSIPSJS not initialized'))
-            return openSIPSJS.msrp.requestUploadUrl(conversationKey, filename, mimeType, fileSize)
+            return openSIPSJS.msrp.requestUploadUrl(conversationRef, filename, mimeType, fileSize)
         },
-        requestFileAccess (conversationKey: string, eventId: string) {
+        requestFileAccess (conversationRef: MSRPConversationRef, eventId: string) {
             if (!openSIPSJS) return Promise.reject(new Error('OpenSIPSJS not initialized'))
-            return openSIPSJS.msrp.requestFileAccess(conversationKey, eventId)
+            return openSIPSJS.msrp.requestFileAccess(conversationRef, eventId)
         },
-        uploadFile (conversationKey: string, file: File, caption = '') {
+        uploadFile (conversationRef: MSRPConversationRef, file: File, caption = '') {
             if (!openSIPSJS) return Promise.reject(new Error('OpenSIPSJS not initialized'))
-            return openSIPSJS.msrp.uploadFile(conversationKey, file, caption)
+            return openSIPSJS.msrp.uploadFile(conversationRef, file, caption)
         }
     }
 }
