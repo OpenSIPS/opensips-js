@@ -5,8 +5,11 @@ import type {
 } from '../../../src/types/rtc'
 import type { IMessage } from '../../../src/types/msrp'
 import type {
+    MSRPConversationRef,
     MSRPConversationState,
     MSRPMemberRole,
+    MSRPReactionAction,
+    MSRPSendMessageOptions,
     MSRPUploadResult
 } from '../../../src/modules/msrp'
 
@@ -34,6 +37,12 @@ export interface MSRPTypingState {
     updatedAt: number
 }
 
+export interface MSRPPresenceState {
+    presence: string | null
+    lastActiveAt: number | null
+    updatedAt: number
+}
+
 export interface VsipAPIState {
     isInitialized: Ref<boolean>
     isOpenSIPSReady: Ref<boolean>
@@ -41,13 +50,14 @@ export interface VsipAPIState {
     isMSRPInitializing: Ref<boolean>
     currentMsrpSession: Ref<IMessage | null>
     hasActiveMsrpSession: ComputedRef<boolean>
-    conversations: Ref<{ [key: string]: MSRPConversationState }>
-    messagesByConversation: Ref<{ [conversationKey: string]: any[] }>
-    currentConversationKey: Ref<string | null>
+    conversations: Ref<{ [conversationId: string]: MSRPConversationState }>
+    messagesByConversation: Ref<{ [conversationId: string]: any[] }>
+    currentConversationId: Ref<string | null>
     currentConversation: ComputedRef<MSRPConversationState | null>
     currentMessages: ComputedRef<any[]>
     sortedConversations: ComputedRef<MSRPConversationState[]>
-    typingByConversation: Ref<{ [conversationKey: string]: MSRPTypingState }>
+    typingByConversation: Ref<{ [conversationId: string]: MSRPTypingState }>
+    presenceBySender: Ref<{ [sender: string]: MSRPPresenceState }>
     unreadByConversation: Ref<UnreadCounts>
 }
 
@@ -68,31 +78,44 @@ export interface VsipAPIActions {
     sendMSRP (msrpSessionId: string, body: string): void
     safeSendMSRP (body: string): boolean
     sendCreateConversationMessage (targetSip: string | string[]): boolean
-    sendTextMessage (conversationKey: string, text: string): boolean
+    sendTextMessage (conversationRef: MSRPConversationRef, text: string, options?: MSRPSendMessageOptions): boolean
+    sendInternalNote (
+        conversationRef: MSRPConversationRef,
+        text: string,
+        options?: Omit<MSRPSendMessageOptions, 'messageType'>
+    ): boolean
+    editMessage (conversationRef: MSRPConversationRef, targetEventId: string, newText: string): boolean
+    deleteMessage (conversationRef: MSRPConversationRef, targetEventId: string): boolean
     sendMediaMessage (
-        conversationKey: string,
+        conversationRef: MSRPConversationRef,
         uploadResult: MSRPUploadResult,
         caption?: string
     ): boolean
-    sendReaction (conversationKey: string, targetEventId: string, emoji: string): boolean
-    sendTypingIndicator (conversationKey: string, isTyping: boolean): boolean
-    startTypingKeepAlive (conversationKey: string): void
+    sendReaction (
+        conversationRef: MSRPConversationRef,
+        targetEventId: string,
+        emoji: string,
+        action?: MSRPReactionAction
+    ): boolean
+    removeReaction (conversationRef: MSRPConversationRef, targetEventId: string, emoji: string): boolean
+    sendTypingIndicator (conversationRef: MSRPConversationRef, isTyping: boolean): boolean
+    startTypingKeepAlive (conversationRef: MSRPConversationRef): void
     stopTypingKeepAlive (sendStop?: boolean): void
-    sendReadReceipt (conversationKey: string): boolean
-    closeConversation (conversationKey: string, reason?: string, cause?: string): boolean
-    changeMemberRole (conversationKey: string, targetUri: string, newRole: MSRPMemberRole): boolean
-    acceptInvite (conversationKey: string): boolean
-    rejectInvite (conversationKey: string): boolean
-    leaveConversation (conversationKey: string): boolean
-    setActiveConversation (conversationKey: string | null): void
+    sendReadReceipt (conversationRef: MSRPConversationRef): boolean
+    closeConversation (conversationRef: MSRPConversationRef, reason?: string, cause?: string): boolean
+    changeMemberRole (conversationRef: MSRPConversationRef, targetUri: string, newRole: MSRPMemberRole): boolean
+    acceptInvite (conversationRef: MSRPConversationRef): boolean
+    rejectInvite (conversationRef: MSRPConversationRef): boolean
+    leaveConversation (conversationRef: MSRPConversationRef): boolean
+    setActiveConversation (conversationId: string | null): void
     requestUploadUrl (
-        conversationKey: string,
+        conversationRef: MSRPConversationRef,
         filename: string,
         mimeType: string,
         fileSize: number
     ): Promise<MSRPUploadResult>
-    requestFileAccess (conversationKey: string, eventId: string): Promise<string>
-    uploadFile (conversationKey: string, file: File, caption?: string): Promise<MSRPUploadResult>
+    requestFileAccess (conversationRef: MSRPConversationRef, eventId: string): Promise<string>
+    uploadFile (conversationRef: MSRPConversationRef, file: File, caption?: string): Promise<MSRPUploadResult>
 }
 
 export interface VsipAPI {

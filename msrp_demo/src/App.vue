@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { vsipAPI } from './composables'
 import { MODULES } from '../../src/enum/modules'
+import { exportConversation, hasApiToken, setApiToken } from './api'
 
 const QUICK_REACTION_EMOJIS = [ '👍', '❤️', '😂', '😮', '😢', '🙏' ] as const
 
@@ -12,6 +13,7 @@ const LS_DOMAIN = 'sipDomain'
 const LS_USERNAME = 'sipUsername'
 const LS_PASSWORD = 'sipPassword'
 const LS_MSRP_DOMAIN = 'msrpDomain'
+const LS_API_TOKEN = 'voicenterApiToken'
 
 // =====================================================================
 // LOGIN FORM (localStorage-backed, just like demo_example/main.js)
@@ -20,6 +22,15 @@ const domain = ref<string>(localStorage.getItem(LS_DOMAIN) ?? '')
 const username = ref<string>(localStorage.getItem(LS_USERNAME) ?? '')
 const password = ref<string>(localStorage.getItem(LS_PASSWORD) ?? '')
 const msrpDomain = ref<string>(localStorage.getItem(LS_MSRP_DOMAIN) ?? '')
+const apiToken = ref<string>(localStorage.getItem(LS_API_TOKEN) ?? '')
+
+// Push any persisted token into the shared api client immediately, so
+// REST calls from other parts of the demo (later: sidebar lazy-load,
+// search, export, channel management) already work before the user
+// touches the login form.
+if (apiToken.value.trim()) {
+    setApiToken(apiToken.value.trim())
+}
 
 const connectError = ref<string>('')
 const isConnecting = ref<boolean>(false)
@@ -41,6 +52,15 @@ async function handleConnect () {
     localStorage.setItem(LS_PASSWORD, p)
     if (msrpDomain.value.trim()) {
         localStorage.setItem(LS_MSRP_DOMAIN, msrpDomain.value.trim())
+    }
+
+    const trimmedToken = apiToken.value.trim()
+    if (trimmedToken) {
+        localStorage.setItem(LS_API_TOKEN, trimmedToken)
+        setApiToken(trimmedToken)
+    } else {
+        localStorage.removeItem(LS_API_TOKEN)
+        setApiToken(null)
     }
 
     isConnecting.value = true
@@ -76,10 +96,13 @@ function handleForget () {
     localStorage.removeItem(LS_USERNAME)
     localStorage.removeItem(LS_PASSWORD)
     localStorage.removeItem(LS_MSRP_DOMAIN)
+    localStorage.removeItem(LS_API_TOKEN)
     domain.value = ''
     username.value = ''
     password.value = ''
     msrpDomain.value = ''
+    apiToken.value = ''
+    setApiToken(null)
 }
 
 // =====================================================================
@@ -101,25 +124,60 @@ function handleCreateConversation () {
     if (ok) newConversationTarget.value = ''
 }
 
-function handleSelectConversation (key: string) {
-    actions.setActiveConversation(key)
+function handleSelectConversation (id: number | string) {
+    actions.setActiveConversation(String(id))
 }
 
-function handleLeaveConversation (key: string) {
-    actions.leaveConversation(key)
+function handleLeaveConversation (id: number | string) {
+    actions.leaveConversation(id)
 }
 
-function handleCloseConversation (key: string) {
-    actions.closeConversation(key)
+function handleCloseConversation (id: number | string) {
+    actions.closeConversation(id)
 }
 
-function handleAcceptInvite (key: string) {
-    actions.acceptInvite(key)
-    actions.setActiveConversation(key)
+// =====================================================================
+// EXPORT CONVERSATION (PDF §7.3)
+// Fetches the transcript from the REST API and triggers a browser
+// download. Uses the JWT set on the shared api client (Token field on
+// the login form).
+// =====================================================================
+const isExporting = ref<boolean>(false)
+const exportError = ref<string>('')
+
+async function handleExportConversation (id: number | string) {
+    if (!hasApiToken()) {
+        exportError.value = 'API token missing - fill the "Token" field on the login form and reconnect.'
+        return
+    }
+
+    exportError.value = ''
+    isExporting.value = true
+    try {
+        const blob = await exportConversation(id, 'json')
+        const filename = `conversation-${id}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`
+        const url = URL.createObjectURL(blob)
+        const anchor = document.createElement('a')
+        anchor.href = url
+        anchor.download = filename
+        document.body.appendChild(anchor)
+        anchor.click()
+        anchor.remove()
+        URL.revokeObjectURL(url)
+    } catch (e) {
+        exportError.value = e instanceof Error ? e.message : String(e)
+    } finally {
+        isExporting.value = false
+    }
 }
 
-function handleRejectInvite (key: string) {
-    actions.rejectInvite(key)
+function handleAcceptInvite (id: number | string) {
+    actions.acceptInvite(id)
+    actions.setActiveConversation(String(id))
+}
+
+function handleRejectInvite (id: number | string) {
+    actions.rejectInvite(id)
 }
 
 const isCurrentConversationClosed = computed<boolean>(() => {
@@ -146,30 +204,155 @@ const canSend = computed<boolean>(() => {
 })
 
 // =====================================================================
-// COMPOSE BAR
+// COMPOSE BAR + EDIT / REPLY / INTERNAL NOTE
 // =====================================================================
 const draft = ref<string>('')
 const chatMessagesEl = ref<HTMLDivElement | null>(null)
+const draftEl = ref<HTMLTextAreaElement | null>(null)
+
+// Draft textarea starts single-line and grows up to DRAFT_MAX_LINES,
+// then scrolls internally. Measured via computed line-height so it
+// respects font-size / zoom without hard-coded pixel constants.
+const DRAFT_MAX_LINES = 3
+
+function autoResizeDraft () {
+    const el = draftEl.value
+    if (!el) return
+    // Reset height so scrollHeight reflects actual content, not the
+    // previous (possibly larger) box.
+    el.style.height = 'auto'
+    const style = window.getComputedStyle(el)
+    const lineHeight = parseFloat(style.lineHeight) || 20
+    const paddingY = (parseFloat(style.paddingTop) || 0)
+        + (parseFloat(style.paddingBottom) || 0)
+    const borderY = (parseFloat(style.borderTopWidth) || 0)
+        + (parseFloat(style.borderBottomWidth) || 0)
+    const maxHeight = lineHeight * DRAFT_MAX_LINES + paddingY + borderY
+    const nextHeight = Math.min(el.scrollHeight + borderY, maxHeight)
+    el.style.height = `${nextHeight}px`
+    el.style.overflowY = el.scrollHeight + borderY > maxHeight ? 'auto' : 'hidden'
+}
+
+// Reply target — set via the per-message "Reply" action. The event_id
+// is sent in `content.in_reply_to.event_id` by the module.
+const replyingToMessage = ref<any | null>(null)
+
+// Edit mode — set via the per-message "Edit" action on our own messages.
+// Sending in edit mode routes to actions.editMessage() instead of
+// sendTextMessage()/sendInternalNote().
+const editingMessageId = ref<string | null>(null)
+
+// When true, the compose bar routes to sendInternalNote (operator-only
+// message, not fanned out to external channels).
+const sendAsInternalNote = ref<boolean>(false)
+
+function isMyMessage (msg: any): boolean {
+    return !!msg?.sender && extractSipUser(msg.sender) === username.value
+}
+
+function messageBodyText (msg: any): string {
+    return String(msg?.content?.content ?? '')
+}
+
+function beginReply (msg: any) {
+    if (!msg?.event_id) return
+    // Cannot reply and edit at the same time - reply wins.
+    editingMessageId.value = null
+    replyingToMessage.value = msg
+}
+
+function cancelReply () {
+    replyingToMessage.value = null
+}
+
+function beginEdit (msg: any) {
+    if (!msg?.event_id || !isMyMessage(msg)) return
+    replyingToMessage.value = null
+    editingMessageId.value = msg.event_id
+    draft.value = messageBodyText(msg)
+    nextTick(() => {
+        autoResizeDraft()
+        draftEl.value?.focus()
+    })
+}
+
+function cancelEdit () {
+    editingMessageId.value = null
+    draft.value = ''
+    nextTick(() => autoResizeDraft())
+}
+
+function handleDelete (msg: any) {
+    if (!msg?.event_id || !isMyMessage(msg)) return
+    const key = state.currentConversationId.value
+    if (!key) return
+    // eslint-disable-next-line no-alert
+    if (!window.confirm('Delete this message for everyone?')) return
+    actions.deleteMessage(key, msg.event_id)
+}
+
+// Surfaces the SDK boolean return value so a silent "false" doesn't
+// leave the user wondering why their message didn't go anywhere.
+const sendError = ref<string>('')
 
 function handleSend () {
-    const key = state.currentConversationKey.value
+    sendError.value = ''
+    const key = state.currentConversationId.value
     const text = draft.value.trim()
     if (!key || !text) return
-    const ok = actions.sendTextMessage(key, text)
+
+    let ok = false
+    let mode: 'edit' | 'note' | 'reply' | 'text' = 'text'
+    if (editingMessageId.value) {
+        mode = 'edit'
+        ok = actions.editMessage(key, editingMessageId.value, text)
+        if (ok) editingMessageId.value = null
+    } else if (sendAsInternalNote.value) {
+        mode = 'note'
+        ok = actions.sendInternalNote(key, text, {
+            replyToEventId: replyingToMessage.value?.event_id
+        })
+    } else {
+        mode = replyingToMessage.value?.event_id ? 'reply' : 'text'
+        ok = actions.sendTextMessage(key, text, {
+            replyToEventId: replyingToMessage.value?.event_id
+        })
+    }
+
+    // eslint-disable-next-line no-console
+    console.debug('[compose] send', { mode, conversation_id: key, ok, text })
+
     if (ok) {
         draft.value = ''
+        replyingToMessage.value = null
         actions.stopTypingKeepAlive(true)
+        nextTick(() => autoResizeDraft())
+    } else {
+        sendError.value = `Send failed (mode: ${mode}). SDK returned false — the MSRP session may be down, or the module rejected the payload. Check console.`
     }
 }
 
 function handleDraftInput () {
-    const key = state.currentConversationKey.value
+    autoResizeDraft()
+    const key = state.currentConversationId.value
     if (!key) return
     if (draft.value.trim()) {
         actions.startTypingKeepAlive(key)
     } else {
         actions.stopTypingKeepAlive(true)
     }
+}
+
+/**
+ * Enter → send; Shift+Enter → newline (default textarea behavior).
+ * Ignored during IME composition so pressing Enter to confirm a Chinese/
+ * Japanese/Korean composition doesn't accidentally submit the draft.
+ */
+function handleDraftKeydown (e: KeyboardEvent) {
+    if (e.key !== 'Enter') return
+    if (e.isComposing || e.shiftKey) return
+    e.preventDefault()
+    handleSend()
 }
 
 // =====================================================================
@@ -183,7 +366,7 @@ async function handleFileSelected (event: Event) {
     const target = event.target as HTMLInputElement
     const file = target.files?.[0]
     if (!file) return
-    const key = state.currentConversationKey.value
+    const key = state.currentConversationId.value
     if (!key) {
         uploadError.value = 'Select a conversation first.'
         return
@@ -205,16 +388,29 @@ async function handleFileSelected (event: Event) {
 // REACTIONS
 // =====================================================================
 function handleAddReaction (eventId: string, emoji: string) {
-    const key = state.currentConversationKey.value
+    const key = state.currentConversationId.value
     if (!key || !eventId) return
     actions.sendReaction(key, eventId, emoji)
+}
+
+/** Toggle an existing reaction: click own reaction (viewer_reacted) to remove. */
+function handleToggleReaction (msg: any, emoji: string) {
+    const key = state.currentConversationId.value
+    if (!key || !msg?.event_id) return
+    const summary = (msg.content?.reactions_summary || []) as any[]
+    const existing = summary.find((r) => (r?.emoji || r?.key) === emoji)
+    if (existing?.viewer_reacted) {
+        actions.removeReaction(key, msg.event_id, emoji)
+    } else {
+        actions.sendReaction(key, msg.event_id, emoji, 'add')
+    }
 }
 
 // =====================================================================
 // ROLE MANAGEMENT
 // =====================================================================
 function handleChangeRole (targetUri: string, newRole: string) {
-    const key = state.currentConversationKey.value
+    const key = state.currentConversationId.value
     if (!key) return
     actions.changeMemberRole(key, targetUri, newRole as 'in_charge' | 'manager' | 'assigned')
 }
@@ -264,6 +460,44 @@ function quickReactions () {
     return QUICK_REACTION_EMOJIS
 }
 
+function isEdited (msg: any): boolean {
+    if (msg?.content?.edited_at) return true
+    return !!msg?.unsigned?.['m.relations']?.['m.replace']
+}
+
+function isDeleted (msg: any): boolean {
+    return !!msg?.content?.is_deleted
+}
+
+function isInternalNote (msg: any): boolean {
+    return msg?.content?.message_type === 'internal_note'
+}
+
+function replyPreviewFor (msg: any): { sender: string, text: string } | null {
+    const parentId = msg?.content?.in_reply_to?.event_id
+    if (!parentId) return null
+    const parent = state.currentMessages.value.find((m: any) => m.event_id === parentId)
+    if (!parent) {
+        return { sender: 'unknown', text: '(message not loaded)' }
+    }
+    return {
+        sender: extractSipUser(parent.sender),
+        text: isDeleted(parent) ? '(deleted)' : messageBodyText(parent).slice(0, 120)
+    }
+}
+
+// Presence: the module emits a state string and last-seen ts. Map it to
+// a small dot color for the members panel.
+function presenceClass (uri: string): string {
+    const p = state.presenceBySender.value[uri]?.presence
+    switch (p) {
+        case 'online': return 'presence online'
+        case 'away': return 'presence away'
+        case 'offline': return 'presence offline'
+        default: return 'presence unknown'
+    }
+}
+
 // =====================================================================
 // DEBUG PANEL - live JSON view of reactive state.
 // Map/Set values are not JSON-serialisable by default, so we coerce
@@ -278,8 +512,8 @@ function debugReplacer (_key: string, value: unknown): unknown {
 const debugConversations = computed(() =>
     JSON.stringify(state.conversations.value, debugReplacer, 2)
 )
-const debugCurrentConversationKey = computed(() =>
-    JSON.stringify(state.currentConversationKey.value, debugReplacer, 2)
+const debugCurrentConversationId = computed(() =>
+    JSON.stringify(state.currentConversationId.value, debugReplacer, 2)
 )
 const debugCurrentConversation = computed(() =>
     JSON.stringify(state.currentConversation.value, debugReplacer, 2)
@@ -291,10 +525,14 @@ const debugMessagesByConversation = computed(() =>
     JSON.stringify(state.messagesByConversation.value, debugReplacer, 2)
 )
 
-// Reset draft + typing when active conversation changes
-watch(() => state.currentConversationKey.value, (next, prev) => {
+// Reset draft + typing + edit/reply/note toggle when active conversation changes
+watch(() => state.currentConversationId.value, (next, prev) => {
     if (prev) actions.stopTypingKeepAlive(false)
     draft.value = ''
+    editingMessageId.value = null
+    replyingToMessage.value = null
+    sendAsInternalNote.value = false
+    nextTick(() => autoResizeDraft())
 })
 
 onBeforeUnmount(() => {
@@ -345,6 +583,17 @@ onBeforeUnmount(() => {
                 <span>MSRP Domain (optional)</span>
                 <input v-model="msrpDomain" placeholder="185.138.169.99:2856" autocomplete="off" />
             </label>
+            <label>
+                <span>Token</span>
+                <input
+                    v-model="apiToken"
+                    type="password"
+                    placeholder="Voicenter Login JWT (Bearer)"
+                    autocomplete="off"
+                />
+                <small class="hint">Used as <code>Authorization: Bearer &lt;token&gt;</code> for requests to
+                    <code>wbi.voicenter.co/api/v1</code>.</small>
+            </label>
 
             <div class="row">
                 <button class="primary" :disabled="isConnecting" @click="handleConnect">
@@ -388,22 +637,22 @@ onBeforeUnmount(() => {
                 <ul v-if="state.sortedConversations.value.length" class="conversation-list">
                     <li
                         v-for="conv in state.sortedConversations.value"
-                        :key="conv.conversationKey"
+                        :key="conv.conversation_id"
                         :class="{
-                            active: conv.conversationKey === state.currentConversationKey.value,
+                            active: String(conv.conversation_id) === state.currentConversationId.value,
                             invite: conv.currentUserStatus === 'invite'
                         }"
                     >
                         <div v-if="conv.currentUserStatus === 'invite'" class="invite-card">
-                            <div class="invite-title">📨 {{ conv.conversationKey }}</div>
+                            <div class="invite-title">📨 {{ conv.conversation_id }}</div>
                             <div v-if="conv.creator" class="invite-from">
                                 From: {{ extractSipUser(conv.creator) }}
                             </div>
                             <div class="invite-actions">
-                                <button class="primary small" @click="handleAcceptInvite(conv.conversationKey)">
+                                <button class="primary small" @click="handleAcceptInvite(conv.conversation_id)">
                                     Accept
                                 </button>
-                                <button class="ghost small" @click="handleRejectInvite(conv.conversationKey)">
+                                <button class="ghost small" @click="handleRejectInvite(conv.conversation_id)">
                                     Reject
                                 </button>
                             </div>
@@ -411,14 +660,14 @@ onBeforeUnmount(() => {
                         <button
                             v-else
                             class="conversation-btn"
-                            @click="handleSelectConversation(conv.conversationKey)"
+                            @click="handleSelectConversation(conv.conversation_id)"
                         >
-                            <span class="name">{{ conv.conversationKey }}</span>
+                            <span class="name">{{ conv.conversation_id }}</span>
                             <span
-                                v-if="state.unreadByConversation.value[conv.conversationKey]"
+                                v-if="state.unreadByConversation.value[String(conv.conversation_id)]"
                                 class="unread"
                             >
-                                {{ state.unreadByConversation.value[conv.conversationKey] }}
+                                {{ state.unreadByConversation.value[String(conv.conversation_id)] }}
                             </span>
                         </button>
                     </li>
@@ -435,8 +684,8 @@ onBeforeUnmount(() => {
                 <details class="debug-panel" open>
                     <summary>Debug · reactive state</summary>
                     <div class="debug-block">
-                        <div class="debug-label">currentConversationKey</div>
-                        <pre class="debug-json">{{ debugCurrentConversationKey }}</pre>
+                        <div class="debug-label">currentConversationId</div>
+                        <pre class="debug-json">{{ debugCurrentConversationId }}</pre>
                     </div>
                     <div class="debug-block">
                         <div class="debug-label">currentConversation</div>
@@ -466,7 +715,7 @@ onBeforeUnmount(() => {
                 <template v-else>
                     <header class="chat-header">
                         <div>
-                            <h2>{{ state.currentConversation.value.conversationKey }}</h2>
+                            <h2>{{ state.currentConversation.value.conversation_id }}</h2>
                             <p class="subtitle">
                                 {{ state.currentConversation.value.members.size }}
                                 member{{ state.currentConversation.value.members.size === 1 ? '' : 's' }}
@@ -476,17 +725,25 @@ onBeforeUnmount(() => {
                         </div>
                         <div class="header-actions">
                             <button
+                                class="ghost small"
+                                :disabled="isExporting"
+                                :title="isExporting ? 'Preparing…' : 'Download transcript (.json)'"
+                                @click="handleExportConversation(state.currentConversation.value.conversation_id)"
+                            >
+                                {{ isExporting ? 'Preparing…' : 'Export' }}
+                            </button>
+                            <button
                                 v-if="!isCurrentConversationClosed
                                     && (state.currentConversation.value.currentUserRole === 'in_charge'
                                         || state.currentConversation.value.currentUserRole === 'manager')"
                                 class="ghost small"
-                                @click="handleCloseConversation(state.currentConversation.value.conversationKey)"
+                                @click="handleCloseConversation(state.currentConversation.value.conversation_id)"
                             >
                                 Close
                             </button>
                             <button
                                 class="ghost small"
-                                @click="handleLeaveConversation(state.currentConversation.value.conversationKey)"
+                                @click="handleLeaveConversation(state.currentConversation.value.conversation_id)"
                             >
                                 Leave
                             </button>
@@ -500,6 +757,10 @@ onBeforeUnmount(() => {
                             :key="uri"
                             class="member-row"
                         >
+                            <span
+                                :class="presenceClass(uri)"
+                                :title="state.presenceBySender.value[uri]?.presence || 'unknown presence'"
+                            />
                             <span class="name">{{ extractSipUser(uri) }}</span>
                             <span class="role-tag" :class="role">{{ role }}</span>
                             <select
@@ -520,16 +781,38 @@ onBeforeUnmount(() => {
                             v-for="msg in sortedMessages"
                             :key="msg.event_id ?? `${msg.origin_server_ts}-${msg.sender}`"
                             class="message"
-                            :class="{ mine: extractSipUser(msg.sender) === username }"
+                            :class="{
+                                mine: isMyMessage(msg),
+                                'internal-note': isInternalNote(msg),
+                                'is-deleted': isDeleted(msg),
+                                editing: editingMessageId === msg.event_id
+                            }"
                         >
                             <div class="message-meta">
                                 <span class="sender">{{ extractSipUser(msg.sender) }}</span>
+                                <span v-if="isInternalNote(msg)" class="tag note-tag">note</span>
                                 <span class="time">{{ formatTime(msg.origin_server_ts) }}</span>
+                                <span v-if="isEdited(msg) && !isDeleted(msg)" class="tag edited-tag" title="Edited">edited</span>
                                 <span class="status">{{ statusIcon(msg.content?.status) }}</span>
                             </div>
-                            <div class="message-body">{{ msg.content?.content }}</div>
+
+                            <!-- reply-to quote (rendered when this message replied to another) -->
+                            <div v-if="replyPreviewFor(msg)" class="reply-quote">
+                                <span class="reply-quote-sender">
+                                    ↩ {{ replyPreviewFor(msg)?.sender }}
+                                </span>
+                                <span class="reply-quote-body">
+                                    {{ replyPreviewFor(msg)?.text }}
+                                </span>
+                            </div>
+
+                            <div v-if="isDeleted(msg)" class="message-body deleted-body">
+                                🗑 This message was deleted
+                            </div>
+                            <div v-else class="message-body">{{ msg.content?.content }}</div>
+
                             <div
-                                v-if="msg.content?.attachments?.length"
+                                v-if="!isDeleted(msg) && msg.content?.attachments?.length"
                                 class="attachments"
                             >
                                 <span
@@ -540,27 +823,57 @@ onBeforeUnmount(() => {
                                     📎 {{ att.filename ?? att.kind }}
                                 </span>
                             </div>
+
                             <div
-                                v-if="msg.content?.reactions_summary?.length"
+                                v-if="!isDeleted(msg) && msg.content?.reactions_summary?.length"
                                 class="reactions"
                             >
-                                <span
+                                <button
                                     v-for="r in msg.content.reactions_summary"
                                     :key="r.emoji ?? r.key"
                                     class="reaction"
+                                    :class="{ 'viewer-reacted': r.viewer_reacted }"
+                                    :title="r.viewer_reacted ? 'Remove your reaction' : 'React with ' + (r.emoji ?? r.key)"
+                                    @click="handleToggleReaction(msg, r.emoji ?? r.key)"
                                 >
                                     {{ r.emoji ?? r.key }} {{ r.count }}
-                                </span>
+                                </button>
                             </div>
-                            <div v-if="msg.event_id" class="reaction-picker">
+
+                            <!-- action row: shows on hover, contains reply / edit / delete / react picker -->
+                            <div v-if="msg.event_id && !isDeleted(msg)" class="msg-actions">
                                 <button
                                     v-for="emoji in quickReactions()"
                                     :key="emoji"
                                     class="emoji-btn"
+                                    :title="'React ' + emoji"
                                     @click="handleAddReaction(msg.event_id, emoji)"
                                 >
                                     {{ emoji }}
                                 </button>
+                                <button
+                                    class="action-btn"
+                                    title="Reply"
+                                    @click="beginReply(msg)"
+                                >
+                                    ↩
+                                </button>
+                                <template v-if="isMyMessage(msg)">
+                                    <button
+                                        class="action-btn"
+                                        title="Edit"
+                                        @click="beginEdit(msg)"
+                                    >
+                                        ✎
+                                    </button>
+                                    <button
+                                        class="action-btn danger"
+                                        title="Delete"
+                                        @click="handleDelete(msg)"
+                                    >
+                                        🗑
+                                    </button>
+                                </template>
                             </div>
                         </div>
                         <p v-if="!sortedMessages.length" class="hint center">
@@ -569,36 +882,73 @@ onBeforeUnmount(() => {
                     </div>
 
                     <div
-                        v-if="state.typingByConversation.value[state.currentConversation.value.conversationKey]"
+                        v-if="state.typingByConversation.value[String(state.currentConversation.value.conversation_id)]"
                         class="typing-indicator"
                     >
                         {{ extractSipUser(
-                            state.typingByConversation.value[state.currentConversation.value.conversationKey].sender
+                            state.typingByConversation.value[String(state.currentConversation.value.conversation_id)].sender
                         ) }} is typing…
                     </div>
 
-                    <footer v-if="canSend" class="compose-bar">
-                        <label class="upload-btn" :class="{ disabled: isUploading }">
-                            📎
-                            <input
-                                ref="uploadInputRef"
-                                type="file"
-                                hidden
-                                :disabled="isUploading"
-                                @change="handleFileSelected"
+                    <div v-if="canSend" class="compose-wrap">
+                        <!-- Edit-mode banner -->
+                        <div v-if="editingMessageId" class="compose-banner edit">
+                            <span class="banner-label">✎ Editing message</span>
+                            <button class="ghost small" @click="cancelEdit">Cancel</button>
+                        </div>
+                        <!-- Reply banner -->
+                        <div v-else-if="replyingToMessage" class="compose-banner reply">
+                            <span class="banner-label">
+                                ↩ Replying to <b>{{ extractSipUser(replyingToMessage.sender) }}</b>:
+                                <span class="banner-preview">
+                                    {{ messageBodyText(replyingToMessage).slice(0, 80) }}
+                                </span>
+                            </span>
+                            <button class="ghost small" @click="cancelReply">Cancel</button>
+                        </div>
+
+                        <footer class="compose-bar" :class="{ note: sendAsInternalNote }">
+                            <label class="upload-btn" :class="{ disabled: isUploading || !!editingMessageId }">
+                                📎
+                                <input
+                                    ref="uploadInputRef"
+                                    type="file"
+                                    hidden
+                                    :disabled="isUploading || !!editingMessageId"
+                                    @change="handleFileSelected"
+                                />
+                            </label>
+                            <label
+                                v-if="!editingMessageId"
+                                class="note-toggle"
+                                :class="{ on: sendAsInternalNote }"
+                                title="Internal note - operators only, never fanned out to external channels"
+                            >
+                                <input
+                                    v-model="sendAsInternalNote"
+                                    type="checkbox"
+                                    hidden
+                                />
+                                📝 Note
+                            </label>
+                            <textarea
+                                ref="draftEl"
+                                v-model="draft"
+                                class="draft"
+                                rows="1"
+                                :placeholder="editingMessageId
+                                    ? 'Edit your message…'
+                                    : sendAsInternalNote
+                                        ? 'Internal note (not sent to customer)…'
+                                        : 'Type a message…  (Shift+Enter = new line)'"
+                                @input="handleDraftInput"
+                                @keydown="handleDraftKeydown"
                             />
-                        </label>
-                        <input
-                            v-model="draft"
-                            class="draft"
-                            placeholder="Type a message…"
-                            @input="handleDraftInput"
-                            @keypress.enter="handleSend"
-                        />
-                        <button class="primary" :disabled="!draft.trim()" @click="handleSend">
-                            ➤
-                        </button>
-                    </footer>
+                            <button class="primary" :disabled="!draft.trim()" @click="handleSend">
+                                {{ editingMessageId ? 'Save' : '➤' }}
+                            </button>
+                        </footer>
+                    </div>
                     <footer v-else class="compose-bar disabled">
                         <span class="hint">
                             {{
@@ -609,7 +959,9 @@ onBeforeUnmount(() => {
                         </span>
                     </footer>
 
+                    <p v-if="sendError" class="error small">{{ sendError }}</p>
                     <p v-if="uploadError" class="error small">{{ uploadError }}</p>
+                    <p v-if="exportError" class="error small">{{ exportError }}</p>
                     <p v-if="isUploading" class="hint small">Uploading…</p>
                 </template>
             </section>
@@ -691,6 +1043,18 @@ onBeforeUnmount(() => {
     border: 1px solid #d1d5db;
     border-radius: 0.5rem;
     font-size: 0.95rem;
+}
+.login-card small {
+    color: #6b7280;
+    font-size: 0.7rem;
+    line-height: 1.35;
+}
+.login-card code {
+    background: #f3f4f6;
+    padding: 0 3px;
+    border-radius: 3px;
+    font-size: 0.68rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .row { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
 
@@ -814,6 +1178,19 @@ onBeforeUnmount(() => {
 .role-tag.in_charge { background: #fef3c7; }
 .role-tag.manager { background: #dbeafe; }
 
+/* ---------- presence dot ---------- */
+.presence {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    background: #9ca3af;
+    flex-shrink: 0;
+}
+.presence.online { background: #10b981; }
+.presence.away { background: #f59e0b; }
+.presence.offline { background: #6b7280; }
+.presence.unknown { background: #d1d5db; }
+
 .chat-messages {
     flex: 1;
     overflow-y: auto;
@@ -835,6 +1212,43 @@ onBeforeUnmount(() => {
     border-color: #c7d2fe;
     align-self: flex-end;
 }
+.message.internal-note {
+    background: #fef9c3;
+    border-color: #fde68a;
+}
+.message.internal-note.mine {
+    background: #fde68a;
+    border-color: #f59e0b;
+}
+.message.editing {
+    outline: 2px dashed #6366f1;
+    outline-offset: 1px;
+}
+.message.is-deleted { opacity: 0.7; }
+.deleted-body { font-style: italic; color: #6b7280; }
+.tag {
+    font-size: 0.65rem;
+    padding: 1px 6px;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.note-tag { background: #f59e0b; color: white; }
+.edited-tag { background: #e5e7eb; color: #4b5563; }
+.reply-quote {
+    border-left: 3px solid #6366f1;
+    padding: 0.15rem 0.4rem;
+    margin: 0.15rem 0 0.25rem;
+    background: rgba(99, 102, 241, 0.06);
+    border-radius: 0.25rem;
+    font-size: 0.78rem;
+    color: #4b5563;
+    display: flex;
+    flex-direction: column;
+    gap: 0.05rem;
+}
+.reply-quote-sender { font-weight: 600; color: #4338ca; }
+.reply-quote-body { white-space: pre-wrap; word-break: break-word; }
 .message-meta {
     display: flex;
     gap: 0.5rem;
@@ -852,31 +1266,45 @@ onBeforeUnmount(() => {
     border-radius: 0.3rem;
     border: 1px solid #e5e7eb;
 }
-.reactions { display: flex; gap: 0.25rem; margin-top: 0.3rem; }
+.reactions { display: flex; gap: 0.25rem; margin-top: 0.3rem; flex-wrap: wrap; }
 .reaction {
     font-size: 0.8rem;
     padding: 1px 6px;
     background: #ffffff;
     border-radius: 999px;
     border: 1px solid #e5e7eb;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
 }
-.reaction-picker {
+.reaction:hover { background: #f3f4f6; }
+.reaction.viewer-reacted {
+    background: #eef2ff;
+    border-color: #6366f1;
+    font-weight: 600;
+}
+.msg-actions {
     display: flex;
     gap: 0.15rem;
     margin-top: 0.3rem;
     opacity: 0;
     transition: opacity 0.15s;
+    align-items: center;
+    flex-wrap: wrap;
 }
-.message:hover .reaction-picker { opacity: 1; }
-.emoji-btn {
+.message:hover .msg-actions { opacity: 1; }
+.message.editing .msg-actions { opacity: 1; }
+.emoji-btn,
+.action-btn {
     background: transparent;
     border: 1px solid transparent;
-    padding: 1px 4px;
+    padding: 1px 5px;
     font-size: 0.95rem;
     cursor: pointer;
     border-radius: 0.3rem;
 }
-.emoji-btn:hover { background: #f3f4f6; border-color: #e5e7eb; }
+.emoji-btn:hover,
+.action-btn:hover { background: #f3f4f6; border-color: #e5e7eb; }
+.action-btn.danger:hover { background: #fee2e2; border-color: #fca5a5; color: #b91c1c; }
 
 .typing-indicator {
     padding: 0.25rem 1rem;
@@ -885,20 +1313,57 @@ onBeforeUnmount(() => {
     font-style: italic;
 }
 
+.compose-wrap {
+    border-top: 1px solid #e5e7eb;
+    display: flex;
+    flex-direction: column;
+}
+.compose-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.78rem;
+    background: #f3f4f6;
+    border-bottom: 1px solid #e5e7eb;
+    gap: 0.5rem;
+}
+.compose-banner.reply { background: #eef2ff; color: #4338ca; }
+.compose-banner.edit { background: #fef3c7; color: #92400e; }
+.banner-label { display: inline-flex; gap: 0.35rem; align-items: center; flex: 1; overflow: hidden; }
+.banner-preview {
+    color: #4b5563;
+    font-style: italic;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 240px;
+}
 .compose-bar {
     display: flex;
     gap: 0.4rem;
     padding: 0.6rem 0.75rem;
+    align-items: flex-end;
     border-top: 1px solid #e5e7eb;
-    align-items: center;
 }
-.compose-bar.disabled { color: #6b7280; }
+.compose-wrap .compose-bar { border-top: none; }
+.compose-bar.disabled { color: #6b7280; align-items: center; }
+.compose-bar.note { background: #fef9c3; }
 .compose-bar .draft {
     flex: 1;
     padding: 0.5rem 0.7rem;
     border: 1px solid #d1d5db;
     border-radius: 0.5rem;
     font-size: 0.95rem;
+    font-family: inherit;
+    line-height: 1.35;
+    resize: none;
+    overflow-y: hidden;
+    min-height: calc(1.35em + 1rem + 2px);
+    /* Safety net if JS auto-resize hasn't run yet - matches DRAFT_MAX_LINES */
+    max-height: calc(1.35em * 3 + 1rem + 2px);
+    display: block;
+    box-sizing: border-box;
 }
 .upload-btn {
     display: inline-flex;
@@ -911,6 +1376,26 @@ onBeforeUnmount(() => {
     cursor: pointer;
 }
 .upload-btn.disabled { opacity: 0.6; cursor: not-allowed; }
+.note-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0.4rem 0.55rem;
+    background: #f9fafb;
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    font-size: 0.82rem;
+    color: #4b5563;
+    user-select: none;
+}
+.note-toggle:hover { background: #f3f4f6; }
+.note-toggle.on {
+    background: #fef3c7;
+    border-color: #f59e0b;
+    color: #92400e;
+    font-weight: 600;
+}
 
 .empty-state {
     flex: 1;

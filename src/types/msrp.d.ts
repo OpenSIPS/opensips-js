@@ -66,7 +66,12 @@ export type MSRPMembership = 'join' | 'leave' | 'invite' | 'ban'
 export type MSRPMessageStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
 
 export interface MSRPConversationState {
-    conversationKey: string
+    /**
+     * Public, stable numeric conversation identifier assigned by the backend.
+     * This is the only identifier exposed to application code — conversations
+     * are addressed exclusively by `conversation_id`.
+     */
+    conversation_id?: number
     creator: string | null
     members: Set<string>
     memberRoles: Map<string, MSRPMemberRole>
