@@ -77,6 +77,13 @@ export interface MSRPConversationState {
     memberRoles: Map<string, MSRPMemberRole>
     currentUserRole: MSRPMemberRole
     currentUserStatus: MSRPMembership | null
+    /**
+     * Per-user read pointer (backend `last_read_message_id` in the current
+     * user's member state). `null` means the whole conversation is unread;
+     * an event_id means everything after that event is unread. Consumers
+     * derive the unread count from this pointer + the local timeline.
+     */
+    currentUserLastReadMessageId?: string | null
     state_events: { [key: string]: { [stateKey: string]: any } }
     created_at: number
     updated_at: number

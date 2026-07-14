@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import OpenSIPSJS from '../../../src/index'
 import type {
@@ -27,8 +27,6 @@ import type {
 } from '../types'
 
 let openSIPSJS: OpenSIPSJS | undefined = undefined
-// Current user's SIP URI, captured at connect time. Used to detect the viewer's
-// own messages/reactions without reaching into jssip UA internals.
 let currentUserUri = ''
 
 const isInitialized = ref<boolean>(false)
@@ -44,9 +42,88 @@ const typingByConversation = ref<{ [conversationId: string]: MSRPTypingState }>(
 const presenceBySender = ref<{ [sender: string]: MSRPPresenceState }>({})
 
 const currentConversationId = ref<string | null>(null)
-const unreadByConversation = ref<UnreadCounts>({})
 
 const hasActiveMsrpSession = computed(() => currentMsrpSession.value !== null)
+
+function onlyRealMessages (list: any[] | undefined) {
+    if (!list?.length) return [] as any[]
+    return list.filter((e: any) => e?.type === MSRP_EVT.MESSAGE)
+}
+
+function findLastIndexByEventId (list: any[], eventId: string): number {
+    for (let i = list.length - 1; i >= 0; i--) {
+        if (list[i]?.event_id === eventId) return i
+    }
+    return -1
+}
+
+function mergeMessagesByEventId (existing: any[], incoming: any[]): any[] {
+    const byId = new Map<string, any>()
+    const orphans: any[] = []
+    const consume = (msg: any) => {
+        const id = msg?.event_id
+        if (typeof id === 'string' && id) {
+            byId.set(id, msg)
+        } else {
+            orphans.push(msg)
+        }
+    }
+    for (const msg of existing) consume(msg)
+    for (const msg of incoming) consume(msg)
+    return [ ...byId.values(), ...orphans ].sort(
+        (a, b) => (a?.origin_server_ts || 0) - (b?.origin_server_ts || 0)
+    )
+}
+
+function computeUnreadCount (
+    messages: any[] | undefined,
+    lastReadMessageId: string | null | undefined
+): number {
+    const real = onlyRealMessages(messages)
+    if (!real.length) return 0
+    if (lastReadMessageId === null) return real.length
+    if (lastReadMessageId === undefined) return 0
+    const idx = findLastIndexByEventId(real, lastReadMessageId)
+    if (idx === -1) return real.length
+    return real.length - idx - 1
+}
+
+function computeFirstUnreadEventId (
+    messages: any[] | undefined,
+    lastReadMessageId: string | null | undefined
+): string | null {
+    const real = onlyRealMessages(messages)
+    if (!real.length) return null
+    if (lastReadMessageId === null) return real[0]?.event_id ?? null
+    if (lastReadMessageId === undefined) return null
+    const idx = findLastIndexByEventId(real, lastReadMessageId)
+    if (idx === -1) return real[0]?.event_id ?? null
+    return real[idx + 1]?.event_id ?? null
+}
+
+const unreadByConversation = computed<UnreadCounts>(() => {
+    const result: UnreadCounts = {}
+    for (const [ cid, conv ] of Object.entries(conversations.value)) {
+        const count = computeUnreadCount(
+            messagesByConversation.value[cid],
+            conv?.currentUserLastReadMessageId
+        )
+        if (count > 0) result[cid] = count
+    }
+    return result
+})
+
+const firstUnreadByConversation = computed<Record<string, string>>(() => {
+    const result: Record<string, string> = {}
+    for (const [ cid, conv ] of Object.entries(conversations.value)) {
+        const eventId = computeFirstUnreadEventId(
+            messagesByConversation.value[cid],
+            conv?.currentUserLastReadMessageId
+        )
+        if (eventId) result[cid] = eventId
+    }
+    return result
+})
 
 const currentConversation = computed<MSRPConversationState | null>(() => {
     const id = currentConversationId.value
@@ -66,7 +143,6 @@ const sortedConversations = computed<MSRPConversationState[]>(() => {
     )
 })
 
-// LOCAL HELPERS
 function findMessage (messages: any[], eventId: string) {
     return messages.find((msg: any) => msg.event_id === eventId)
 }
@@ -83,7 +159,6 @@ function applyReaction (
         target.content.reactions_summary = []
     }
     const summary = target.content.reactions_summary as any[]
-    // Lookup tolerates legacy entries that used `key` instead of `emoji`.
     const existing = summary.find((r) => (r?.emoji || r?.key) === emoji)
 
     if (action === 'remove') {
@@ -124,6 +199,52 @@ function idKey (id: number | null | undefined): string | null {
     return id === undefined || id === null ? null : String(id)
 }
 
+const INCOMING_TYPING_EXPIRY_MS = 5000
+const incomingTypingTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+function typingTimerKey (cid: string, sender: string): string {
+    return `${cid}:${sender}`
+}
+
+function clearTypingIndicator (cid: string, sender: string): void {
+    const key = typingTimerKey(cid, sender)
+    const existing = incomingTypingTimers.get(key)
+    if (existing) {
+        clearTimeout(existing)
+        incomingTypingTimers.delete(key)
+    }
+    const current = typingByConversation.value[cid]
+    if (current?.sender !== sender) return
+    const next = { ...typingByConversation.value }
+    delete next[cid]
+    typingByConversation.value = next
+}
+
+function restartTypingTimeout (cid: string, sender: string): void {
+    const key = typingTimerKey(cid, sender)
+    const existing = incomingTypingTimers.get(key)
+    if (existing) clearTimeout(existing)
+    incomingTypingTimers.set(
+        key,
+        setTimeout(() => clearTypingIndicator(cid, sender), INCOMING_TYPING_EXPIRY_MS)
+    )
+}
+
+function clearAllTypingTimersForConversation (cid: string): void {
+    const prefix = `${cid}:`
+    for (const key of incomingTypingTimers.keys()) {
+        if (key.startsWith(prefix)) {
+            clearTimeout(incomingTypingTimers.get(key)!)
+            incomingTypingTimers.delete(key)
+        }
+    }
+}
+
+function clearAllTypingTimers (): void {
+    incomingTypingTimers.forEach((handle) => clearTimeout(handle))
+    incomingTypingTimers.clear()
+}
+
 function resolveLastEventId (conversationId: string): string | null {
     const messages = messagesByConversation.value[conversationId]
     if (!messages?.length) return null
@@ -132,6 +253,53 @@ function resolveLastEventId (conversationId: string): string | null {
         .sort((a: any, b: any) => (a.origin_server_ts || 0) - (b.origin_server_ts || 0))
         .pop()
     return lastMsg?.event_id ?? null
+}
+
+let lastRequestedReadEventIdByConv: Record<string, string> = {}
+
+const autoReadExclusions = new Set<string>()
+
+watch(currentConversationId, (_newId, oldId) => {
+    if (oldId) autoReadExclusions.delete(oldId)
+})
+
+watch(
+    () => {
+        const cid = currentConversationId.value
+        if (!cid) return null
+        if (autoReadExclusions.has(cid)) return null
+        const conv = conversations.value[cid]
+        if (!conv) return null
+        const latestEventId = resolveLastEventId(cid)
+        if (!latestEventId) return null
+        return {
+            cid,
+            pointer: conv.currentUserLastReadMessageId,
+            latestEventId
+        }
+    },
+    (payload) => {
+        if (!openSIPSJS || !payload) return
+        const { cid, pointer, latestEventId } = payload
+        if (pointer === latestEventId) return
+        if (lastRequestedReadEventIdByConv[cid] === latestEventId) return
+        lastRequestedReadEventIdByConv[cid] = latestEventId
+        const ok = openSIPSJS.msrp.sendReadReceipt(cid, latestEventId)
+        if (ok) applyOptimisticPointer(cid, latestEventId)
+    },
+    { immediate: true }
+)
+
+function applyOptimisticPointer (cid: string, pointerValue: string | null): void {
+    const conv = conversations.value[cid]
+    if (!conv) return
+    if (conv.currentUserLastReadMessageId === pointerValue) return
+    conv.currentUserLastReadMessageId = pointerValue
+}
+
+function beginUnreadOverride (cid: string): void {
+    autoReadExclusions.add(cid)
+    delete lastRequestedReadEventIdByConv[cid]
 }
 
 export const vsipAPI: VsipAPI = {
@@ -150,7 +318,8 @@ export const vsipAPI: VsipAPI = {
         sortedConversations,
         typingByConversation,
         presenceBySender,
-        unreadByConversation
+        unreadByConversation,
+        firstUnreadByConversation
     },
     actions: {
         init (
@@ -210,19 +379,25 @@ export const vsipAPI: VsipAPI = {
                         })
                         .on('changeMsrpSession', (session: IMessage | null) => {
                             currentMsrpSession.value = session
+                            if (!session) {
+                                clearAllTypingTimers()
+                                typingByConversation.value = {}
+                            }
                         })
                         .on('isMSRPInitializingChanged', (value: boolean) => {
                             isMSRPInitializing.value = value
                         })
                         .on('msrpSyncCompleted', (payload) => {
                             conversations.value = { ...payload.conversations }
-                            messagesByConversation.value = { ...(payload.messagesByConversation ?? {}) }
-
-                            const nextUnread: UnreadCounts = {}
-                            for (const k of Object.keys(unreadByConversation.value)) {
-                                if (payload.conversations[k]) nextUnread[k] = unreadByConversation.value[k]
+                            const nextMessages = { ...messagesByConversation.value }
+                            const incoming = payload.messagesByConversation ?? {}
+                            for (const [ cid, historicalList ] of Object.entries(incoming)) {
+                                nextMessages[cid] = mergeMessagesByEventId(
+                                    nextMessages[cid] ?? [],
+                                    historicalList as any[]
+                                )
                             }
-                            unreadByConversation.value = nextUnread
+                            messagesByConversation.value = nextMessages
                         })
                         .on('msrpConversationCreated', (payload) => {
                             const cid = idKey(payload.conversation.conversation_id)
@@ -251,10 +426,16 @@ export const vsipAPI: VsipAPI = {
                                 delete nextMsgs[cid]
                                 messagesByConversation.value = nextMsgs
                             }
-                            if (unreadByConversation.value[cid]) {
-                                const u = { ...unreadByConversation.value }
-                                delete u[cid]
-                                unreadByConversation.value = u
+                            if (cid in lastRequestedReadEventIdByConv) {
+                                const next = { ...lastRequestedReadEventIdByConv }
+                                delete next[cid]
+                                lastRequestedReadEventIdByConv = next
+                            }
+                            clearAllTypingTimersForConversation(cid)
+                            if (cid in typingByConversation.value) {
+                                const nextTyping = { ...typingByConversation.value }
+                                delete nextTyping[cid]
+                                typingByConversation.value = nextTyping
                             }
                         })
                         .on('msrpConversationUpdated', (payload) => {
@@ -269,21 +450,32 @@ export const vsipAPI: VsipAPI = {
                             if (!cid) return
                             const c = conversations.value[cid]
                             if (!c) return
-                            // Ensure the message bucket exists - it may not
-                            // if the message arrives before a sync.
                             if (!messagesByConversation.value[cid]) {
                                 messagesByConversation.value[cid] = []
                             }
-                            messagesByConversation.value[cid].push(payload.message)
-                            c.updated_at = payload.message.origin_server_ts || Date.now()
-
-                            if (cid === currentConversationId.value) return
-                            if (payload.message?.sender && payload.message.sender === currentUserUri) return
-                            unreadByConversation.value = {
-                                ...unreadByConversation.value,
-                                [cid]:
-                                    (unreadByConversation.value[cid] || 0) + 1
+                            const list = messagesByConversation.value[cid]
+                            const incomingEventId = payload.message?.event_id
+                            if (incomingEventId) {
+                                const existingIdx = list.findIndex(
+                                    (m: any) => m?.event_id === incomingEventId
+                                )
+                                if (existingIdx !== -1) {
+                                    list.splice(existingIdx, 1, {
+                                        ...list[existingIdx],
+                                        ...payload.message,
+                                        content: {
+                                            ...(list[existingIdx]?.content ?? {}),
+                                            ...(payload.message?.content ?? {})
+                                        }
+                                    })
+                                    c.updated_at = payload.message.origin_server_ts || Date.now()
+                                    return
+                                }
                             }
+                            list.push(payload.message)
+                            c.updated_at = payload.message.origin_server_ts || Date.now()
+                            const senderUri = payload.message?.sender
+                            if (senderUri) clearTypingIndicator(cid, senderUri)
                         })
                         .on('msrpReceiptChanged', (payload) => {
                             const cid = idKey(payload.conversation_id)
@@ -318,8 +510,6 @@ export const vsipAPI: VsipAPI = {
                                     const newText = payload.newContent?.content
                                     if (typeof newText === 'string') m.content.content = newText
                                     m.content.edited_at = payload.updatedAt
-                                    // Mirror the backend aggregation so relation-aware
-                                    // consumers can read the latest replacement.
                                     m.unsigned = m.unsigned || {}
                                     m.unsigned['m.relations'] = {
                                         'm.replace': {
@@ -351,7 +541,7 @@ export const vsipAPI: VsipAPI = {
                         })
                         .on('msrpTyping', (payload: { conversation_id?: number, sender: string, isTyping: boolean }) => {
                             const cid = idKey(payload.conversation_id)
-                            if (!cid) return
+                            if (!cid || !payload.sender) return
                             if (payload.isTyping) {
                                 typingByConversation.value = {
                                     ...typingByConversation.value,
@@ -361,10 +551,9 @@ export const vsipAPI: VsipAPI = {
                                         updatedAt: Date.now()
                                     }
                                 }
+                                restartTypingTimeout(cid, payload.sender)
                             } else {
-                                const next = { ...typingByConversation.value }
-                                delete next[cid]
-                                typingByConversation.value = next
+                                clearTypingIndicator(cid, payload.sender)
                             }
                         })
                         .on('msrpPresence', (payload) => {
@@ -430,6 +619,13 @@ export const vsipAPI: VsipAPI = {
         deleteMessage (conversationRef: MSRPConversationRef, targetEventId: string) {
             return openSIPSJS?.msrp.deleteMessage(conversationRef, targetEventId) ?? false
         },
+        forwardMessage (
+            sourceMessage: any,
+            targetConversationRef: MSRPConversationRef,
+            forwardedFromLabel?: string
+        ) {
+            return openSIPSJS?.msrp.forwardMessage(sourceMessage, targetConversationRef, forwardedFromLabel) ?? false
+        },
         sendMediaMessage (conversationRef: MSRPConversationRef, uploadResult: MSRPUploadResult, caption = '') {
             return openSIPSJS?.msrp.sendMediaMessage(conversationRef, uploadResult, caption) ?? false
         },
@@ -439,21 +635,37 @@ export const vsipAPI: VsipAPI = {
         removeReaction (conversationRef: MSRPConversationRef, targetEventId: string, emoji: string) {
             return openSIPSJS?.msrp.removeReaction(conversationRef, targetEventId, emoji) ?? false
         },
-        sendTypingIndicator (conversationRef: MSRPConversationRef, isTyping: boolean) {
-            return openSIPSJS?.msrp.sendTypingIndicator(conversationRef, isTyping) ?? false
+        sendTypingIndicator (conversationRef: MSRPConversationRef) {
+            return openSIPSJS?.msrp.sendTypingIndicator(conversationRef) ?? false
         },
         startTypingKeepAlive (conversationRef: MSRPConversationRef) {
             openSIPSJS?.msrp.startTypingKeepAlive(conversationRef)
         },
-        stopTypingKeepAlive (sendStop = true) {
-            openSIPSJS?.msrp.stopTypingKeepAlive(sendStop)
+        stopTypingKeepAlive () {
+            openSIPSJS?.msrp.stopTypingKeepAlive()
         },
-        sendReadReceipt (conversationRef: MSRPConversationRef) {
-            const conversationId = idKey(Number(conversationRef))
-            if (!conversationId) return false
-            const lastEventId = resolveLastEventId(conversationId)
-            if (!lastEventId) return false
-            return openSIPSJS?.msrp.sendReadReceipt(conversationRef, lastEventId) ?? false
+        markConversationAsUnread (conversationRef: MSRPConversationRef) {
+            const cid = idKey(Number(conversationRef))
+            if (cid) beginUnreadOverride(cid)
+            const ok = openSIPSJS?.msrp.markAsUnread(conversationRef, null) ?? false
+            if (ok && cid) applyOptimisticPointer(cid, null)
+            return ok
+        },
+        markAsUnreadFromMessage (
+            conversationRef: MSRPConversationRef,
+            targetEventId: string
+        ) {
+            const cid = idKey(Number(conversationRef))
+            if (!cid || !targetEventId) return false
+            const real = onlyRealMessages(messagesByConversation.value[cid])
+            if (!real.length) return false
+            const idx = findLastIndexByEventId(real, targetEventId)
+            if (idx === -1) return false
+            const prevEventId = idx > 0 ? real[idx - 1].event_id : null
+            beginUnreadOverride(cid)
+            const ok = openSIPSJS?.msrp.markAsUnread(conversationRef, prevEventId) ?? false
+            if (ok) applyOptimisticPointer(cid, prevEventId)
+            return ok
         },
         closeConversation (conversationRef: MSRPConversationRef, reason?: string, cause?: string) {
             return openSIPSJS?.msrp.closeConversation(conversationRef, reason, cause) ?? false
@@ -473,17 +685,6 @@ export const vsipAPI: VsipAPI = {
         setActiveConversation (conversationId: string | null) {
             if (currentConversationId.value === conversationId) return
             currentConversationId.value = conversationId
-            if (conversationId) {
-                const lastEventId = resolveLastEventId(conversationId)
-                if (lastEventId) {
-                    openSIPSJS?.msrp.sendReadReceipt(conversationId, lastEventId)
-                }
-                if (unreadByConversation.value[conversationId]) {
-                    const next = { ...unreadByConversation.value }
-                    delete next[conversationId]
-                    unreadByConversation.value = next
-                }
-            }
         },
         requestUploadUrl (conversationRef: MSRPConversationRef, filename: string, mimeType: string, fileSize: number) {
             if (!openSIPSJS) return Promise.reject(new Error('OpenSIPSJS not initialized'))

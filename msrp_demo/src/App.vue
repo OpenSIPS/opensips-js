@@ -2,32 +2,24 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { vsipAPI } from './composables'
 import { MODULES } from '../../src/enum/modules'
+import { MSRP_EVT } from '../../src/modules/msrp'
 import { exportConversation, hasApiToken, setApiToken } from './api'
+import EmojiPicker from './components/EmojiPicker.vue'
 
 const QUICK_REACTION_EMOJIS = [ '👍', '❤️', '😂', '😮', '😢', '🙏' ] as const
 
-// =====================================================================
-// LOCAL STORAGE KEYS - mirrors demo_example/main.js naming
-// =====================================================================
 const LS_DOMAIN = 'sipDomain'
 const LS_USERNAME = 'sipUsername'
 const LS_PASSWORD = 'sipPassword'
 const LS_MSRP_DOMAIN = 'msrpDomain'
 const LS_API_TOKEN = 'voicenterApiToken'
 
-// =====================================================================
-// LOGIN FORM (localStorage-backed, just like demo_example/main.js)
-// =====================================================================
 const domain = ref<string>(localStorage.getItem(LS_DOMAIN) ?? '')
 const username = ref<string>(localStorage.getItem(LS_USERNAME) ?? '')
 const password = ref<string>(localStorage.getItem(LS_PASSWORD) ?? '')
 const msrpDomain = ref<string>(localStorage.getItem(LS_MSRP_DOMAIN) ?? '')
 const apiToken = ref<string>(localStorage.getItem(LS_API_TOKEN) ?? '')
 
-// Push any persisted token into the shared api client immediately, so
-// REST calls from other parts of the demo (later: sidebar lazy-load,
-// search, export, channel management) already work before the user
-// touches the login form.
 if (apiToken.value.trim()) {
     setApiToken(apiToken.value.trim())
 }
@@ -105,16 +97,10 @@ function handleForget () {
     setApiToken(null)
 }
 
-// =====================================================================
-// MSRP SESSION JOIN - mirrors demo_example/main.js btn-join-conversation
-// =====================================================================
 function handleStartMSRPSession () {
     actions.initMSRP()
 }
 
-// =====================================================================
-// CONVERSATION LIST + CURRENT CONVERSATION
-// =====================================================================
 const newConversationTarget = ref<string>('')
 
 function handleCreateConversation () {
@@ -136,12 +122,6 @@ function handleCloseConversation (id: number | string) {
     actions.closeConversation(id)
 }
 
-// =====================================================================
-// EXPORT CONVERSATION (PDF §7.3)
-// Fetches the transcript from the REST API and triggers a browser
-// download. Uses the JWT set on the shared api client (Token field on
-// the login form).
-// =====================================================================
 const isExporting = ref<boolean>(false)
 const exportError = ref<string>('')
 
@@ -203,23 +183,15 @@ const canSend = computed<boolean>(() => {
     return c.currentUserRole !== 'manager'
 })
 
-// =====================================================================
-// COMPOSE BAR + EDIT / REPLY / INTERNAL NOTE
-// =====================================================================
 const draft = ref<string>('')
 const chatMessagesEl = ref<HTMLDivElement | null>(null)
 const draftEl = ref<HTMLTextAreaElement | null>(null)
 
-// Draft textarea starts single-line and grows up to DRAFT_MAX_LINES,
-// then scrolls internally. Measured via computed line-height so it
-// respects font-size / zoom without hard-coded pixel constants.
 const DRAFT_MAX_LINES = 3
 
 function autoResizeDraft () {
     const el = draftEl.value
     if (!el) return
-    // Reset height so scrollHeight reflects actual content, not the
-    // previous (possibly larger) box.
     el.style.height = 'auto'
     const style = window.getComputedStyle(el)
     const lineHeight = parseFloat(style.lineHeight) || 20
@@ -233,17 +205,10 @@ function autoResizeDraft () {
     el.style.overflowY = el.scrollHeight + borderY > maxHeight ? 'auto' : 'hidden'
 }
 
-// Reply target — set via the per-message "Reply" action. The event_id
-// is sent in `content.in_reply_to.event_id` by the module.
 const replyingToMessage = ref<any | null>(null)
 
-// Edit mode — set via the per-message "Edit" action on our own messages.
-// Sending in edit mode routes to actions.editMessage() instead of
-// sendTextMessage()/sendInternalNote().
 const editingMessageId = ref<string | null>(null)
 
-// When true, the compose bar routes to sendInternalNote (operator-only
-// message, not fanned out to external channels).
 const sendAsInternalNote = ref<boolean>(false)
 
 function isMyMessage (msg: any): boolean {
@@ -256,7 +221,6 @@ function messageBodyText (msg: any): string {
 
 function beginReply (msg: any) {
     if (!msg?.event_id) return
-    // Cannot reply and edit at the same time - reply wins.
     editingMessageId.value = null
     replyingToMessage.value = msg
 }
@@ -286,13 +250,10 @@ function handleDelete (msg: any) {
     if (!msg?.event_id || !isMyMessage(msg)) return
     const key = state.currentConversationId.value
     if (!key) return
-    // eslint-disable-next-line no-alert
     if (!window.confirm('Delete this message for everyone?')) return
     actions.deleteMessage(key, msg.event_id)
 }
 
-// Surfaces the SDK boolean return value so a silent "false" doesn't
-// leave the user wondering why their message didn't go anywhere.
 const sendError = ref<string>('')
 
 function handleSend () {
@@ -319,13 +280,10 @@ function handleSend () {
         })
     }
 
-    // eslint-disable-next-line no-console
-    console.debug('[compose] send', { mode, conversation_id: key, ok, text })
-
     if (ok) {
         draft.value = ''
         replyingToMessage.value = null
-        actions.stopTypingKeepAlive(true)
+        actions.stopTypingKeepAlive()
         nextTick(() => autoResizeDraft())
     } else {
         sendError.value = `Send failed (mode: ${mode}). SDK returned false — the MSRP session may be down, or the module rejected the payload. Check console.`
@@ -339,15 +297,20 @@ function handleDraftInput () {
     if (draft.value.trim()) {
         actions.startTypingKeepAlive(key)
     } else {
-        actions.stopTypingKeepAlive(true)
+        actions.stopTypingKeepAlive()
     }
 }
 
-/**
- * Enter → send; Shift+Enter → newline (default textarea behavior).
- * Ignored during IME composition so pressing Enter to confirm a Chinese/
- * Japanese/Korean composition doesn't accidentally submit the draft.
- */
+function handleDraftFocus () {
+    const key = state.currentConversationId.value
+    if (!key) return
+    if (draft.value.trim()) actions.startTypingKeepAlive(key)
+}
+
+function handleDraftBlur () {
+    actions.stopTypingKeepAlive()
+}
+
 function handleDraftKeydown (e: KeyboardEvent) {
     if (e.key !== 'Enter') return
     if (e.isComposing || e.shiftKey) return
@@ -355,9 +318,6 @@ function handleDraftKeydown (e: KeyboardEvent) {
     handleSend()
 }
 
-// =====================================================================
-// FILE UPLOAD
-// =====================================================================
 const uploadInputRef = ref<HTMLInputElement | null>(null)
 const isUploading = ref<boolean>(false)
 const uploadError = ref<string>('')
@@ -384,16 +344,12 @@ async function handleFileSelected (event: Event) {
     }
 }
 
-// =====================================================================
-// REACTIONS
-// =====================================================================
 function handleAddReaction (eventId: string, emoji: string) {
     const key = state.currentConversationId.value
     if (!key || !eventId) return
     actions.sendReaction(key, eventId, emoji)
 }
 
-/** Toggle an existing reaction: click own reaction (viewer_reacted) to remove. */
 function handleToggleReaction (msg: any, emoji: string) {
     const key = state.currentConversationId.value
     if (!key || !msg?.event_id) return
@@ -406,23 +362,195 @@ function handleToggleReaction (msg: any, emoji: string) {
     }
 }
 
-// =====================================================================
-// ROLE MANAGEMENT
-// =====================================================================
+const emojiPickerOpen = ref<boolean>(false)
+const emojiPickerTargetEventId = ref<string | null>(null)
+const emojiPickerPos = ref<{ x: number, y: number }>({ x: 0, y: 0 })
+const EMOJI_PICKER_WIDTH = 320
+const EMOJI_PICKER_HEIGHT = 360
+
+function openEmojiPicker (msg: any, e: MouseEvent) {
+    if (!msg?.event_id) return
+    const trigger = e.currentTarget as HTMLElement | null
+    if (!trigger) return
+    const rect = trigger.getBoundingClientRect()
+
+    const viewportH = window.innerHeight
+    const viewportW = window.innerWidth
+    const spaceAbove = rect.top
+    const openAbove = spaceAbove >= EMOJI_PICKER_HEIGHT + 8
+
+    let y = openAbove
+        ? rect.top - EMOJI_PICKER_HEIGHT - 6
+        : rect.bottom + 6
+
+    let x = rect.left
+    if (x + EMOJI_PICKER_WIDTH > viewportW - 8) {
+        x = Math.max(8, viewportW - EMOJI_PICKER_WIDTH - 8)
+    }
+    if (y < 8) y = 8
+    if (y + EMOJI_PICKER_HEIGHT > viewportH - 8) {
+        y = Math.max(8, viewportH - EMOJI_PICKER_HEIGHT - 8)
+    }
+
+    emojiPickerPos.value = { x, y }
+    emojiPickerTargetEventId.value = msg.event_id
+    emojiPickerOpen.value = true
+}
+
+function closeEmojiPicker () {
+    emojiPickerOpen.value = false
+    emojiPickerTargetEventId.value = null
+}
+
+function handleEmojiPicked (emoji: string) {
+    const targetId = emojiPickerTargetEventId.value
+    if (targetId) handleAddReaction(targetId, emoji)
+    closeEmojiPicker()
+}
+
+const forwardPickerOpen = ref<boolean>(false)
+const forwardPickerSourceMsg = ref<any | null>(null)
+const forwardPickerPos = ref<{ x: number, y: number }>({ x: 0, y: 0 })
+const FORWARD_PICKER_WIDTH = 260
+const FORWARD_PICKER_MAX_HEIGHT = 320
+
+function messageHasAttachments (msg: any): boolean {
+    return !!msg?.content?.attachments?.length
+}
+
+function isClosedConversation (c: any): boolean {
+    return !!c?.state_events?.['m.conversation.closed']?.['']
+}
+
+const forwardEligibleConversations = computed(() => {
+    return state.sortedConversations.value.filter((c) => {
+        if (!c || c.currentUserStatus !== 'join') return false
+        if (isClosedConversation(c)) return false
+        if (c.currentUserRole === 'manager') return false
+        return true
+    })
+})
+
+function openForwardPicker (msg: any, e: MouseEvent) {
+    if (!msg?.event_id) return
+    if (messageHasAttachments(msg)) return
+    closeEmojiPicker()
+
+    const trigger = e.currentTarget as HTMLElement | null
+    if (!trigger) return
+    const rect = trigger.getBoundingClientRect()
+    const viewportH = window.innerHeight
+    const viewportW = window.innerWidth
+
+    let y = rect.bottom + 6
+    if (y + FORWARD_PICKER_MAX_HEIGHT > viewportH - 8) {
+        y = Math.max(8, rect.top - FORWARD_PICKER_MAX_HEIGHT - 6)
+    }
+    if (y < 8) y = 8
+
+    let x = rect.left
+    if (x + FORWARD_PICKER_WIDTH > viewportW - 8) {
+        x = Math.max(8, viewportW - FORWARD_PICKER_WIDTH - 8)
+    }
+
+    forwardPickerPos.value = { x, y }
+    forwardPickerSourceMsg.value = msg
+    forwardPickerOpen.value = true
+}
+
+function closeForwardPicker () {
+    forwardPickerOpen.value = false
+    forwardPickerSourceMsg.value = null
+}
+
+function handleForwardToConversation (targetConversationId: number | string) {
+    const src = forwardPickerSourceMsg.value
+    if (!src) return
+    const label = extractSipUser(src.sender)
+    const ok = actions.forwardMessage(src, targetConversationId, label)
+    if (!ok) {
+        sendError.value = 'Forward failed. The SDK returned false — check the MSRP session or console.'
+    }
+    closeForwardPicker()
+}
+
 function handleChangeRole (targetUri: string, newRole: string) {
     const key = state.currentConversationId.value
     if (!key) return
     actions.changeMemberRole(key, targetUri, newRole as 'in_charge' | 'manager' | 'assigned')
 }
 
-// =====================================================================
-// AUTO-SCROLL CHAT ON NEW MESSAGE
-// =====================================================================
 const sortedMessages = computed(() => {
     return [ ...state.currentMessages.value ].sort(
         (a, b) => (a.origin_server_ts || 0) - (b.origin_server_ts || 0)
     )
 })
+
+const sortedRealMessages = computed(() =>
+    sortedMessages.value.filter((m: any) => m?.type === MSRP_EVT.MESSAGE)
+)
+
+const currentReadPointer = computed<string | null | undefined>(() => {
+    return state.currentConversation.value?.currentUserLastReadMessageId
+})
+
+const currentReadPointerIndex = computed<number>(() => {
+    const pointer = currentReadPointer.value
+    if (pointer === null || pointer === undefined) return -1
+    const list = sortedRealMessages.value
+    for (let i = list.length - 1; i >= 0; i--) {
+        if (list[i]?.event_id === pointer) return i
+    }
+    return -1
+})
+
+const firstUnreadEventIdInCurrent = computed<string | null>(() => {
+    const cid = state.currentConversationId.value
+    if (!cid) return null
+    return state.firstUnreadByConversation.value[cid] ?? null
+})
+
+function canMarkMessageAsUnread (msg: any): boolean {
+    if (!msg?.event_id) return false
+    const pointer = currentReadPointer.value
+    // Absent pointer means the backend hasn't shared read state yet — hide
+    // to avoid confusing the user with an action of unclear effect.
+    if (pointer === undefined) return false
+    // Already whole-conversation unread → nothing would change.
+    if (pointer === null) return false
+    const list = sortedRealMessages.value
+    if (!list.length) return false
+    const pointerIdx = currentReadPointerIndex.value
+    const msgIdx = list.findIndex((m: any) => m?.event_id === msg.event_id)
+    if (msgIdx === -1) return false
+    // Must be a message the agent already read AND must not be the most-
+    // recent message (per FRONTEND_MARK_AS_UNREAD_GUIDE §7b).
+    if (msgIdx > pointerIdx) return false
+    if (msgIdx === list.length - 1) return false
+    return true
+}
+
+function canMarkConversationAsUnread (conv: any): boolean {
+    if (!conv) return false
+    if (conv.currentUserStatus !== 'join') return false
+    // Guide §7b: hidden when already fully unread.
+    return conv.currentUserLastReadMessageId !== null
+}
+
+function handleMarkConversationAsUnread (
+    conversationId: number | string | undefined,
+    e?: MouseEvent
+) {
+    if (e) e.stopPropagation()
+    if (conversationId === undefined || conversationId === null) return
+    actions.markConversationAsUnread(conversationId as any)
+}
+
+function handleMarkAsUnreadFromMessage (msg: any) {
+    const cid = state.currentConversationId.value
+    if (!cid || !msg?.event_id) return
+    actions.markAsUnreadFromMessage(cid, msg.event_id)
+}
 
 watch(sortedMessages, async () => {
     await nextTick()
@@ -431,9 +559,6 @@ watch(sortedMessages, async () => {
     }
 })
 
-// =====================================================================
-// HELPERS
-// =====================================================================
 function extractSipUser (uri: string | null | undefined): string {
     if (!uri) return 'unknown'
     const match = String(uri).match(/^sip:([^@]+)@/)
@@ -473,6 +598,13 @@ function isInternalNote (msg: any): boolean {
     return msg?.content?.message_type === 'internal_note'
 }
 
+function forwardedFromLabel (msg: any): string | null {
+    const label = msg?.content?.forwarded_from
+    if (typeof label !== 'string') return null
+    const trimmed = label.trim()
+    return trimmed || null
+}
+
 function replyPreviewFor (msg: any): { sender: string, text: string } | null {
     const parentId = msg?.content?.in_reply_to?.event_id
     if (!parentId) return null
@@ -486,8 +618,6 @@ function replyPreviewFor (msg: any): { sender: string, text: string } | null {
     }
 }
 
-// Presence: the module emits a state string and last-seen ts. Map it to
-// a small dot color for the members panel.
 function presenceClass (uri: string): string {
     const p = state.presenceBySender.value[uri]?.presence
     switch (p) {
@@ -498,11 +628,6 @@ function presenceClass (uri: string): string {
     }
 }
 
-// =====================================================================
-// DEBUG PANEL - live JSON view of reactive state.
-// Map/Set values are not JSON-serialisable by default, so we coerce
-// them via a custom replacer.
-// =====================================================================
 function debugReplacer (_key: string, value: unknown): unknown {
     if (value instanceof Map) return Object.fromEntries(value.entries())
     if (value instanceof Set) return Array.from(value)
@@ -525,9 +650,8 @@ const debugMessagesByConversation = computed(() =>
     JSON.stringify(state.messagesByConversation.value, debugReplacer, 2)
 )
 
-// Reset draft + typing + edit/reply/note toggle when active conversation changes
 watch(() => state.currentConversationId.value, (next, prev) => {
-    if (prev) actions.stopTypingKeepAlive(false)
+    if (prev) actions.stopTypingKeepAlive()
     draft.value = ''
     editingMessageId.value = null
     replyingToMessage.value = null
@@ -536,7 +660,7 @@ watch(() => state.currentConversationId.value, (next, prev) => {
 })
 
 onBeforeUnmount(() => {
-    actions.stopTypingKeepAlive(false)
+    actions.stopTypingKeepAlive()
 })
 </script>
 
@@ -563,7 +687,6 @@ onBeforeUnmount(() => {
             </div>
         </header>
 
-        <!-- ====================== LOGIN ====================== -->
         <section v-if="!state.isInitialized.value" class="login-card">
             <h2>Connect</h2>
             <p class="hint">Credentials are persisted to localStorage (same keys as demo_example/main.js).</p>
@@ -605,9 +728,7 @@ onBeforeUnmount(() => {
             <p v-if="connectError" class="error">{{ connectError }}</p>
         </section>
 
-        <!-- ====================== MAIN UI ====================== -->
         <main v-else class="main">
-            <!-- Sidebar -->
             <aside class="sidebar">
                 <div class="sidebar-actions">
                     <button
@@ -657,19 +778,28 @@ onBeforeUnmount(() => {
                                 </button>
                             </div>
                         </div>
-                        <button
-                            v-else
-                            class="conversation-btn"
-                            @click="handleSelectConversation(conv.conversation_id)"
-                        >
-                            <span class="name">{{ conv.conversation_id }}</span>
-                            <span
-                                v-if="state.unreadByConversation.value[String(conv.conversation_id)]"
-                                class="unread"
+                        <div v-else class="conv-row">
+                            <button
+                                class="conversation-btn"
+                                @click="handleSelectConversation(conv.conversation_id)"
                             >
-                                {{ state.unreadByConversation.value[String(conv.conversation_id)] }}
-                            </span>
-                        </button>
+                                <span class="name">{{ conv.conversation_id }}</span>
+                                <span
+                                    v-if="state.unreadByConversation.value[String(conv.conversation_id)]"
+                                    class="unread"
+                                >
+                                    {{ state.unreadByConversation.value[String(conv.conversation_id)] }}
+                                </span>
+                            </button>
+                            <button
+                                v-if="canMarkConversationAsUnread(conv)"
+                                class="conv-row-action"
+                                title="Mark conversation as unread"
+                                @click="handleMarkConversationAsUnread(conv.conversation_id, $event)"
+                            >
+                                ✉
+                            </button>
+                        </div>
                     </li>
                 </ul>
                 <p v-else class="hint">
@@ -680,7 +810,6 @@ onBeforeUnmount(() => {
                     }}
                 </p>
 
-                <!-- ============ DEBUG PANEL (temporary) ============ -->
                 <details class="debug-panel" open>
                     <summary>Debug · reactive state</summary>
                     <div class="debug-block">
@@ -706,7 +835,6 @@ onBeforeUnmount(() => {
                 </details>
             </aside>
 
-            <!-- Chat panel -->
             <section class="chat-panel">
                 <div v-if="!state.currentConversation.value" class="empty-state">
                     <p>Select or create a conversation to start chatting.</p>
@@ -777,9 +905,19 @@ onBeforeUnmount(() => {
                     </details>
 
                     <div ref="chatMessagesEl" class="chat-messages">
-                        <div
+                        <template
                             v-for="msg in sortedMessages"
                             :key="msg.event_id ?? `${msg.origin_server_ts}-${msg.sender}`"
+                        >
+                            <div
+                                v-if="msg.event_id
+                                    && firstUnreadEventIdInCurrent
+                                    && msg.event_id === firstUnreadEventIdInCurrent"
+                                class="unread-divider"
+                            >
+                                <span>New messages</span>
+                            </div>
+                        <div
                             class="message"
                             :class="{
                                 mine: isMyMessage(msg),
@@ -796,7 +934,6 @@ onBeforeUnmount(() => {
                                 <span class="status">{{ statusIcon(msg.content?.status) }}</span>
                             </div>
 
-                            <!-- reply-to quote (rendered when this message replied to another) -->
                             <div v-if="replyPreviewFor(msg)" class="reply-quote">
                                 <span class="reply-quote-sender">
                                     ↩ {{ replyPreviewFor(msg)?.sender }}
@@ -804,6 +941,10 @@ onBeforeUnmount(() => {
                                 <span class="reply-quote-body">
                                     {{ replyPreviewFor(msg)?.text }}
                                 </span>
+                            </div>
+
+                            <div v-if="forwardedFromLabel(msg)" class="forwarded-label">
+                                ↪ Forwarded from <b>{{ forwardedFromLabel(msg) }}</b>
                             </div>
 
                             <div v-if="isDeleted(msg)" class="message-body deleted-body">
@@ -840,7 +981,6 @@ onBeforeUnmount(() => {
                                 </button>
                             </div>
 
-                            <!-- action row: shows on hover, contains reply / edit / delete / react picker -->
                             <div v-if="msg.event_id && !isDeleted(msg)" class="msg-actions">
                                 <button
                                     v-for="emoji in quickReactions()"
@@ -853,10 +993,38 @@ onBeforeUnmount(() => {
                                 </button>
                                 <button
                                     class="action-btn"
+                                    title="More emoji…"
+                                    :class="{ active: emojiPickerOpen && emojiPickerTargetEventId === msg.event_id }"
+                                    @click="openEmojiPicker(msg, $event)"
+                                >
+                                    ➕
+                                </button>
+                                <button
+                                    class="action-btn"
                                     title="Reply"
                                     @click="beginReply(msg)"
                                 >
                                     ↩
+                                </button>
+                                <button
+                                    class="action-btn"
+                                    :title="messageHasAttachments(msg)
+                                        ? 'Forwarding media is not supported yet'
+                                        : 'Forward'"
+                                    :disabled="messageHasAttachments(msg)"
+                                    :class="{ active: forwardPickerOpen
+                                        && forwardPickerSourceMsg?.event_id === msg.event_id }"
+                                    @click="openForwardPicker(msg, $event)"
+                                >
+                                    ➡
+                                </button>
+                                <button
+                                    v-if="canMarkMessageAsUnread(msg)"
+                                    class="action-btn"
+                                    title="Mark as unread from here"
+                                    @click="handleMarkAsUnreadFromMessage(msg)"
+                                >
+                                    ✉
                                 </button>
                                 <template v-if="isMyMessage(msg)">
                                     <button
@@ -876,6 +1044,7 @@ onBeforeUnmount(() => {
                                 </template>
                             </div>
                         </div>
+                        </template>
                         <p v-if="!sortedMessages.length" class="hint center">
                             No messages yet. Say hello.
                         </p>
@@ -891,12 +1060,10 @@ onBeforeUnmount(() => {
                     </div>
 
                     <div v-if="canSend" class="compose-wrap">
-                        <!-- Edit-mode banner -->
                         <div v-if="editingMessageId" class="compose-banner edit">
                             <span class="banner-label">✎ Editing message</span>
                             <button class="ghost small" @click="cancelEdit">Cancel</button>
                         </div>
-                        <!-- Reply banner -->
                         <div v-else-if="replyingToMessage" class="compose-banner reply">
                             <span class="banner-label">
                                 ↩ Replying to <b>{{ extractSipUser(replyingToMessage.sender) }}</b>:
@@ -943,6 +1110,8 @@ onBeforeUnmount(() => {
                                         : 'Type a message…  (Shift+Enter = new line)'"
                                 @input="handleDraftInput"
                                 @keydown="handleDraftKeydown"
+                                @focus="handleDraftFocus"
+                                @blur="handleDraftBlur"
                             />
                             <button class="primary" :disabled="!draft.trim()" @click="handleSend">
                                 {{ editingMessageId ? 'Save' : '➤' }}
@@ -966,6 +1135,53 @@ onBeforeUnmount(() => {
                 </template>
             </section>
         </main>
+
+        <EmojiPicker
+            :open="emojiPickerOpen"
+            :x="emojiPickerPos.x"
+            :y="emojiPickerPos.y"
+            @select="handleEmojiPicked"
+            @close="closeEmojiPicker"
+        />
+
+        <template v-if="forwardPickerOpen">
+            <div class="fp-backdrop" @click="closeForwardPicker" />
+            <div
+                class="forward-picker"
+                :style="{ top: forwardPickerPos.y + 'px', left: forwardPickerPos.x + 'px' }"
+                @click.stop
+            >
+                <div class="fp-header">
+                    <span>Forward to…</span>
+                    <button class="ghost small" @click="closeForwardPicker">✕</button>
+                </div>
+                <div v-if="forwardEligibleConversations.length" class="fp-list">
+                    <button
+                        v-for="c in forwardEligibleConversations"
+                        :key="c.conversation_id"
+                        class="fp-item"
+                        :class="{ current: String(c.conversation_id) === state.currentConversationId.value }"
+                        @click="handleForwardToConversation(c.conversation_id)"
+                    >
+                        <span class="fp-item-name">
+                            #{{ c.conversation_id }}
+                            <span
+                                v-if="String(c.conversation_id) === state.currentConversationId.value"
+                                class="fp-item-current-tag"
+                            >
+                                current
+                            </span>
+                        </span>
+                        <span class="fp-item-meta">
+                            {{ c.members.size }} member{{ c.members.size === 1 ? '' : 's' }}
+                        </span>
+                    </button>
+                </div>
+                <p v-else class="fp-empty hint small">
+                    No other conversations available to forward to.
+                </p>
+            </div>
+        </template>
     </div>
 </template>
 
@@ -1018,7 +1234,6 @@ onBeforeUnmount(() => {
 .badge.pending { background: #92400e; }
 .badge.warn { background: #b91c1c; }
 
-/* ---------- Login ---------- */
 .login-card {
     margin: 2rem auto;
     background: #ffffff;
@@ -1058,7 +1273,6 @@ onBeforeUnmount(() => {
 }
 .row { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
 
-/* ---------- Main layout ---------- */
 .main {
     flex: 1;
     display: grid;
@@ -1126,6 +1340,30 @@ onBeforeUnmount(() => {
     font-size: 0.75rem;
 }
 
+.conv-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0.25rem;
+}
+.conv-row .conversation-btn { flex: 1; min-width: 0; }
+.conv-row-action {
+    background: transparent;
+    border: 1px solid transparent;
+    padding: 0 0.55rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    color: #6b7280;
+    font-size: 0.95rem;
+    opacity: 0;
+    transition: opacity 0.15s ease, background 0.15s ease;
+}
+.conv-row:hover .conv-row-action { opacity: 1; }
+.conv-row-action:hover {
+    background: #f3f4f6;
+    color: #111827;
+    border-color: #e5e7eb;
+}
+
 .invite-card {
     background: #fef3c7;
     border: 1px solid #fbbf24;
@@ -1136,7 +1374,6 @@ onBeforeUnmount(() => {
 .invite-from { font-size: 0.8rem; color: #6b7280; margin: 0.25rem 0; }
 .invite-actions { display: flex; gap: 0.35rem; }
 
-/* ---------- Chat panel ---------- */
 .chat-panel {
     background: #ffffff;
     border-radius: 0.75rem;
@@ -1178,7 +1415,6 @@ onBeforeUnmount(() => {
 .role-tag.in_charge { background: #fef3c7; }
 .role-tag.manager { background: #dbeafe; }
 
-/* ---------- presence dot ---------- */
 .presence {
     width: 0.55rem;
     height: 0.55rem;
@@ -1199,6 +1435,27 @@ onBeforeUnmount(() => {
     flex-direction: column;
     gap: 0.6rem;
 }
+.unread-divider {
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: #ef4444;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 0.25rem 0;
+}
+.unread-divider::before,
+.unread-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #ef4444;
+    opacity: 0.35;
+}
+.unread-divider span { white-space: nowrap; }
 .message {
     background: #f3f4f6;
     border-radius: 0.6rem;
@@ -1249,6 +1506,16 @@ onBeforeUnmount(() => {
 }
 .reply-quote-sender { font-weight: 600; color: #4338ca; }
 .reply-quote-body { white-space: pre-wrap; word-break: break-word; }
+.forwarded-label {
+    font-size: 0.72rem;
+    color: #475569;
+    background: rgba(148, 163, 184, 0.15);
+    border-left: 3px solid #94a3b8;
+    padding: 2px 6px;
+    border-radius: 0.25rem;
+    margin: 0.1rem 0 0.25rem;
+}
+.forwarded-label b { color: #1e293b; }
 .message-meta {
     display: flex;
     gap: 0.5rem;
@@ -1304,6 +1571,10 @@ onBeforeUnmount(() => {
 }
 .emoji-btn:hover,
 .action-btn:hover { background: #f3f4f6; border-color: #e5e7eb; }
+.action-btn.active {
+    background: #eef2ff;
+    border-color: #6366f1;
+}
 .action-btn.danger:hover { background: #fee2e2; border-color: #fca5a5; color: #b91c1c; }
 
 .typing-indicator {
@@ -1360,7 +1631,6 @@ onBeforeUnmount(() => {
     resize: none;
     overflow-y: hidden;
     min-height: calc(1.35em + 1rem + 2px);
-    /* Safety net if JS auto-resize hasn't run yet - matches DRAFT_MAX_LINES */
     max-height: calc(1.35em * 3 + 1rem + 2px);
     display: block;
     box-sizing: border-box;
@@ -1405,7 +1675,6 @@ onBeforeUnmount(() => {
     color: #6b7280;
 }
 
-/* ---------- buttons ---------- */
 button {
     cursor: pointer;
     border: 1px solid #d1d5db;
@@ -1425,14 +1694,12 @@ button.ghost { background: transparent; }
 button.small { padding: 0.3rem 0.55rem; font-size: 0.78rem; }
 button.block { width: 100%; }
 
-/* ---------- text ---------- */
 .hint { color: #6b7280; font-size: 0.85rem; }
 .hint.small { font-size: 0.75rem; }
 .hint.center { text-align: center; margin: auto; }
 .error { color: #b91c1c; font-size: 0.85rem; margin: 0.5rem 0 0; }
 .error.small { font-size: 0.75rem; padding: 0 0.75rem 0.5rem; }
 
-/* ---------- debug panel (temporary) ---------- */
 .debug-panel {
     margin-top: 1rem;
     border: 1px dashed #cbd5e1;
@@ -1467,4 +1734,78 @@ button.block { width: 100%; }
     font-size: 0.7rem;
     line-height: 1.3;
 }
+
+.fp-backdrop {
+    position: fixed;
+    inset: 0;
+    background: transparent;
+    z-index: 40;
+}
+.forward-picker {
+    position: fixed;
+    z-index: 50;
+    width: 260px;
+    max-height: 320px;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.6rem;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.15);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.fp-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid #e5e7eb;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #374151;
+    background: #f9fafb;
+}
+.fp-list {
+    overflow-y: auto;
+    padding: 0.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+.fp-item {
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: 1px solid transparent;
+    padding: 0.4rem 0.5rem;
+    border-radius: 0.4rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+}
+.fp-item:hover {
+    background: #eef2ff;
+    border-color: #c7d2fe;
+}
+.fp-item-name {
+    font-weight: 600;
+    color: #1f2937;
+    font-size: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+.fp-item-current-tag {
+    font-size: 0.62rem;
+    padding: 1px 5px;
+    border-radius: 999px;
+    background: #eef2ff;
+    color: #4338ca;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.fp-item-meta { font-size: 0.7rem; color: #6b7280; }
+.fp-empty { padding: 0.75rem; text-align: center; }
 </style>

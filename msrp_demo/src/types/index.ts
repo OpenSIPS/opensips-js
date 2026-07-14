@@ -58,7 +58,17 @@ export interface VsipAPIState {
     sortedConversations: ComputedRef<MSRPConversationState[]>
     typingByConversation: Ref<{ [conversationId: string]: MSRPTypingState }>
     presenceBySender: Ref<{ [sender: string]: MSRPPresenceState }>
-    unreadByConversation: Ref<UnreadCounts>
+    /**
+     * Per-conversation unread count, derived from
+     * `MSRPConversationState.currentUserLastReadMessageId` + local timeline.
+     * Only conversations with count > 0 appear in the map.
+     */
+    unreadByConversation: ComputedRef<UnreadCounts>
+    /**
+     * event_id of the first unread message per conversation. Consumers use
+     * this to place a "— New messages —" divider inside the open chat.
+     */
+    firstUnreadByConversation: ComputedRef<Record<string, string>>
 }
 
 export interface VsipAPIActions {
@@ -86,6 +96,11 @@ export interface VsipAPIActions {
     ): boolean
     editMessage (conversationRef: MSRPConversationRef, targetEventId: string, newText: string): boolean
     deleteMessage (conversationRef: MSRPConversationRef, targetEventId: string): boolean
+    forwardMessage (
+        sourceMessage: any,
+        targetConversationRef: MSRPConversationRef,
+        forwardedFromLabel?: string
+    ): boolean
     sendMediaMessage (
         conversationRef: MSRPConversationRef,
         uploadResult: MSRPUploadResult,
@@ -98,10 +113,20 @@ export interface VsipAPIActions {
         action?: MSRPReactionAction
     ): boolean
     removeReaction (conversationRef: MSRPConversationRef, targetEventId: string, emoji: string): boolean
-    sendTypingIndicator (conversationRef: MSRPConversationRef, isTyping: boolean): boolean
+    sendTypingIndicator (conversationRef: MSRPConversationRef): boolean
     startTypingKeepAlive (conversationRef: MSRPConversationRef): void
-    stopTypingKeepAlive (sendStop?: boolean): void
-    sendReadReceipt (conversationRef: MSRPConversationRef): boolean
+    stopTypingKeepAlive (): void
+    /**
+     * Mark the whole conversation as unread (server-side pointer → null).
+     */
+    markConversationAsUnread (conversationRef: MSRPConversationRef): boolean
+    /**
+     * Mark the given message and every later message as unread. The pointer
+     * is moved to the message immediately preceding `targetEventId` in the
+     * local timeline; if the target is the very first message the pointer
+     * becomes null (whole conversation unread).
+     */
+    markAsUnreadFromMessage (conversationRef: MSRPConversationRef, targetEventId: string): boolean
     closeConversation (conversationRef: MSRPConversationRef, reason?: string, cause?: string): boolean
     changeMemberRole (conversationRef: MSRPConversationRef, targetUri: string, newRole: MSRPMemberRole): boolean
     acceptInvite (conversationRef: MSRPConversationRef): boolean
