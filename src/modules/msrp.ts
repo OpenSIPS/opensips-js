@@ -14,9 +14,6 @@ import {
 import MSRPMessage from '@/lib/msrp/message'
 import { MSRPSessionEvent } from '@/helpers/UA'
 
-// Re-export so existing consumers that imported these from
-// `@/modules/msrp` (or the module's compiled entry) keep working
-// during the transition. New code should import from `@/types/msrp`.
 export type {
     MSRPMemberRole,
     MSRPMembership,
@@ -25,7 +22,6 @@ export type {
     MSRPUploadResult
 }
 
-// ---------- CONVERSATION EVENT TYPES (backend v3 - June 2026) ----------
 export const MSRP_EVT = {
     CREATE: 'm.conversation.create',
     MESSAGE: 'm.conversation.message',
@@ -44,14 +40,11 @@ export const MSRP_EVT = {
     SENT: 'm.sent',
     DELIVERED: 'm.delivered',
     READ: 'm.read',
+    UNREAD: 'm.unread',
     FAILED: 'm.failed',
     SENDING: 'm.sending'
 } as const
 
-// Matrix-style relation keys — mirror the backend contract
-// (opensips-chat-manager `MatrixContentKey` / `RelationType`). Edits are a
-// regular `m.conversation.message` carrying an `m.relates_to` replace pointer
-// plus the replacement body under `m.new_content`.
 export const MSRP_RELATION = {
     RELATES_TO: 'm.relates_to',
     NEW_CONTENT: 'm.new_content',
@@ -59,7 +52,6 @@ export const MSRP_RELATION = {
     REPLACE: 'm.replace'
 } as const
 
-// Well-known message_type values understood by the backend fan-out layer.
 export const MSRP_MESSAGE_TYPE = {
     TEXT: 'text',
     INTERNAL_NOTE: 'internal_note'
@@ -79,6 +71,8 @@ export interface MSRPSendMessageOptions {
     replyToEventId?: string
     /** Overrides `content.message_type` (defaults to 'text'). */
     messageType?: string
+    /** Attribution label for a forwarded message — becomes `content.forwarded_from`. */
+    forwardedFrom?: string
 }
 
 export const MSRP_STATE_MEMBER = 'm.conversation.member'
@@ -90,8 +84,6 @@ interface PendingPromise<T> {
     reject: (reason?: any) => void
 }
 
-// Tiny RFC4122-ish UUID v4 fallback so the module works in any browser even
-// when crypto.randomUUID() is unavailable.
 function generateUuid (): string {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
         return crypto.randomUUID()
@@ -147,19 +139,13 @@ export class MSRPModule {
 
     private isMSRPInitializingValue: boolean | undefined
 
-    // ---------- CONVERSATION STATE ----------
-    // Keyed by the backend's public numeric conversation_id (as a string). This
-    // is the only identifier the SDK uses — conversationKey is backend-internal
-    // and never crosses into client code.
     private conversationsMap: Map<string, MSRPConversationState> = new Map()
 
-    // ---------- IN-FLIGHT REQUEST/RESPONSE TRACKING ----------
     private pendingUploads: Map<string, PendingPromise<MSRPUploadResult>> = new Map()
     private pendingFileAccessRequests: Map<string, PendingPromise<string>> = new Map()
     private uploadRequestTimeoutMs = 30000
     private fileAccessTimeoutMs = 30000
 
-    // ---------- TYPING KEEPALIVE ----------
     private typingKeepAliveInterval: ReturnType<typeof setInterval> | null = null
     private typingKeepAliveConversationId: number | null = null
     private typingKeepAliveIntervalMs = 2000
@@ -172,10 +158,6 @@ export class MSRPModule {
             this.newMSRPSessionCallback.bind(this)
         )
     }
-
-    // =====================================================================
-    // PUBLIC GETTERS
-    // =====================================================================
 
     public get isMSRPInitializing () {
         return this.isMSRPInitializingValue
@@ -196,10 +178,6 @@ export class MSRPModule {
         })
         return result
     }
-
-    // =====================================================================
-    // SESSION LIFECYCLE (existing)
-    // =====================================================================
 
     public msrpAnswer (_callId: string) {
         if (!this.extendedSession) {
@@ -386,7 +364,6 @@ export class MSRPModule {
         }
     }
 
-    // EVENT BUILDERS
     private buildCreateConversationEvent (inviteeSipUris: string[]) {
         return {
             type: MSRP_EVT.CREATE,
@@ -412,6 +389,9 @@ export class MSRPModule {
         if (options.replyToEventId) {
             content.in_reply_to = { event_id: options.replyToEventId }
         }
+        if (options.forwardedFrom) {
+            content.forwarded_from = options.forwardedFrom
+        }
         return {
             type: MSRP_EVT.MESSAGE,
             conversation_id: conversationId,
@@ -428,8 +408,6 @@ export class MSRPModule {
             sender: this.getUserUri(),
             origin_server_ts: Date.now(),
             content: {
-                // Matrix replace relation — the backend detects this via
-                // content['m.relates_to'].rel_type === 'm.replace'.
                 [MSRP_RELATION.RELATES_TO]: {
                     rel_type: MSRP_RELATION.REPLACE,
                     event_id: targetEventId
@@ -438,7 +416,6 @@ export class MSRPModule {
                     message_type: MSRP_MESSAGE_TYPE.TEXT,
                     content: newText
                 },
-                // Fallback body so non-relation-aware consumers still see text.
                 message_type: MSRP_MESSAGE_TYPE.TEXT,
                 content: newText,
                 txn_id: generateUuid()
@@ -501,21 +478,22 @@ export class MSRPModule {
 
     private buildCloseConversationEvent (
         conversationId: number,
-        reason = 'Conversation resolved',
-        cause = 'resolved'
+        reason?: string,
+        cause?: string
     ) {
         const now = Date.now()
+        const content: Record<string, any> = {
+            closed_by: this.getUserUri(),
+            closed_at: now
+        }
+        if (reason !== undefined) content.reason = reason
+        if (cause !== undefined) content.cause = cause
         return {
             type: MSRP_EVT.CLOSED,
             conversation_id: conversationId,
             sender: this.getUserUri(),
             origin_server_ts: now,
-            content: {
-                reason,
-                cause,
-                closed_by: this.getUserUri(),
-                closed_at: now
-            }
+            content
         }
     }
 
@@ -531,8 +509,6 @@ export class MSRPModule {
             sender: this.getUserUri(),
             origin_server_ts: Date.now(),
             content: {
-                // The backend toggles server-side by membership, but we send an
-                // explicit hint so the intent is unambiguous and forward-compatible.
                 action,
                 relates_to: { event_id: targetEventId, key: emoji }
             }
@@ -560,7 +536,18 @@ export class MSRPModule {
         }
     }
 
-    // PUBLIC ACTIONS — outgoing requests
+    private buildUnreadEvent (conversationId: number, lastReadEventId: string | null) {
+        const evt: Record<string, any> = {
+            type: MSRP_EVT.UNREAD,
+            conversation_id: conversationId,
+            sender: this.getUserUri(),
+            origin_server_ts: Date.now(),
+            content: {}
+        }
+        if (lastReadEventId) evt.event_id = lastReadEventId
+        return evt
+    }
+
     public sendCreateConversationMessage (targetSip: string | string[]): boolean {
         if (!this.extendedSession) {
             console.warn('No MSRP session available for creating conversation')
@@ -635,6 +622,36 @@ export class MSRPModule {
         return this.sendEvent(this.buildDeleteMessageEvent(conversationId, targetEventId))
     }
 
+    /**
+     * Forward the text of an existing message into another conversation.
+     * The caller owns `forwardedFromLabel`; when omitted the raw sender URI
+     * of the source message is used. The SDK never invents a display name.
+     */
+    public forwardMessage (
+        sourceMessage: any,
+        targetConversationRef: MSRPConversationRef,
+        forwardedFromLabel?: string
+    ): boolean {
+        const targetConversationId = this.toConversationId(targetConversationRef)
+        if (targetConversationId === null || !sourceMessage?.content) return false
+
+        if (Array.isArray(sourceMessage.content.attachments) && sourceMessage.content.attachments.length > 0) {
+            console.warn('forwardMessage: media forwarding is not supported yet (backend gap)')
+            return false
+        }
+
+        const text = typeof sourceMessage.content.content === 'string'
+            ? sourceMessage.content.content
+            : ''
+        if (!text.trim()) return false
+
+        const label = forwardedFromLabel ?? (sourceMessage.sender ?? '')
+
+        return this.sendTextMessage(targetConversationId, text, {
+            forwardedFrom: label
+        })
+    }
+
     public sendMediaMessage (
         conversationRef: MSRPConversationRef,
         uploadResult: MSRPUploadResult,
@@ -661,37 +678,42 @@ export class MSRPModule {
         return this.sendReaction(conversationRef, targetEventId, emoji, 'remove')
     }
 
-    public sendTypingIndicator (conversationRef: MSRPConversationRef, isTyping: boolean): boolean {
+    /**
+     * Emit a single `m.typing` heartbeat. Prefer {@link startTypingKeepAlive}
+     * — the heartbeat protocol requires a stream of `true` events.
+     */
+    public sendTypingIndicator (conversationRef: MSRPConversationRef): boolean {
         const conversationId = this.toConversationId(conversationRef)
         if (conversationId === null) return false
-        return this.sendEvent(this.buildTypingEvent(conversationId, isTyping))
+        return this.sendEvent(this.buildTypingEvent(conversationId, true))
     }
 
     public startTypingKeepAlive (conversationRef: MSRPConversationRef): void {
         const conversationId = this.toConversationId(conversationRef)
         if (conversationId === null) return
-        this.stopTypingKeepAlive(false)
+        this.stopTypingKeepAlive()
         this.typingKeepAliveConversationId = conversationId
-        this.sendTypingIndicator(conversationId, true)
+        this.sendEvent(this.buildTypingEvent(conversationId, true))
         this.typingKeepAliveInterval = setInterval(() => {
             if (this.typingKeepAliveConversationId !== null && this.hasActiveSession) {
-                this.sendTypingIndicator(this.typingKeepAliveConversationId, true)
+                this.sendEvent(this.buildTypingEvent(this.typingKeepAliveConversationId, true))
             } else {
-                this.stopTypingKeepAlive(true)
+                this.stopTypingKeepAlive()
             }
         }, this.typingKeepAliveIntervalMs)
     }
 
-    public stopTypingKeepAlive (sendStop = true): void {
+    /**
+     * Stop our own heartbeat stream. Does NOT send a `typing=false` event —
+     * peers clear our indicator via their own silence-timeout, which also
+     * covers crash / network-drop / session-end cases.
+     */
+    public stopTypingKeepAlive (): void {
         if (this.typingKeepAliveInterval) {
             clearInterval(this.typingKeepAliveInterval)
             this.typingKeepAliveInterval = null
         }
-        const stoppedId = this.typingKeepAliveConversationId
         this.typingKeepAliveConversationId = null
-        if (sendStop && stoppedId !== null) {
-            this.sendTypingIndicator(stoppedId, false)
-        }
     }
 
     public sendReadReceipt (conversationRef: MSRPConversationRef, lastEventId: string): boolean {
@@ -701,13 +723,28 @@ export class MSRPModule {
     }
 
     /**
+     * Set the caller's per-user read pointer.
+     * - `lastReadEventId` = the last event to remain read (everything after
+     *   becomes unread).
+     * - `null` (or omitted) = mark the whole conversation as unread.
+     */
+    public markAsUnread (
+        conversationRef: MSRPConversationRef,
+        lastReadEventId?: string | null
+    ): boolean {
+        const conversationId = this.toConversationId(conversationRef)
+        if (conversationId === null || !this.hasActiveSession) return false
+        return this.sendEvent(this.buildUnreadEvent(conversationId, lastReadEventId ?? null))
+    }
+
+    /**
      * Close a conversation. Only callers with role 'in_charge' or 'manager'
      * are allowed by the backend.
      */
     public closeConversation (
         conversationRef: MSRPConversationRef,
-        reason = 'Conversation resolved',
-        cause = 'resolved'
+        reason?: string,
+        cause?: string
     ): boolean {
         const conversationId = this.toConversationId(conversationRef)
         if (conversationId === null) return false
@@ -721,8 +758,8 @@ export class MSRPModule {
     }
 
     /**
-     * Change another member's role inside a conversation. The current user
-     * must be 'in_charge' or 'manager'.
+     * Change another member's role. Only callers with role 'in_charge' or
+     * 'manager' are allowed by the backend.
      */
     public changeMemberRole (
         conversationRef: MSRPConversationRef,
@@ -767,9 +804,9 @@ export class MSRPModule {
     }
 
     /**
-     * Ask the server for a presigned upload URL via MSRP. Resolves with the
-     * upload metadata once the matching `m.upload.response` arrives, or
-     * rejects after `uploadRequestTimeoutMs` if no response is received.
+     * Ask the server for a presigned upload URL. Resolves with the upload
+     * metadata once the matching `m.upload.response` arrives, or rejects
+     * after `uploadRequestTimeoutMs`.
      */
     public requestUploadUrl (
         conversationRef: MSRPConversationRef,
@@ -820,9 +857,8 @@ export class MSRPModule {
     }
 
     /**
-     * Ask the server for a one-shot download URL for a previously-uploaded
-     * file. Resolves with the download URL, rejects on timeout or explicit
-     * server error.
+     * Ask the server for a one-shot download URL. Resolves with the URL,
+     * rejects on timeout or explicit server error.
      */
     public requestFileAccess (conversationRef: MSRPConversationRef, eventId: string): Promise<string> {
         return new Promise<string>((resolve, reject) => {
@@ -899,7 +935,6 @@ export class MSRPModule {
         return result
     }
 
-    // INCOMING EVENT PROCESSING
     private processIncomingMSRPMessage (msg: any) {
         if (!msg || msg.direction === 'outgoing') return
 
@@ -985,6 +1020,7 @@ export class MSRPModule {
             const memberRoles = new Map<string, MSRPMemberRole>()
             let currentUserStatus: MSRPMembership | null = null
             let currentUserRole: MSRPMemberRole = 'assigned'
+            let currentUserLastReadMessageId: string | null | undefined = undefined
 
             if (stateEvents[MSRP_STATE_MEMBER]) {
                 Object.entries<any>(stateEvents[MSRP_STATE_MEMBER]).forEach(([ userId, memberEvent ]) => {
@@ -996,6 +1032,10 @@ export class MSRPModule {
                         currentUserStatus = membership ?? null
                         if (membership === 'join') {
                             currentUserRole = role
+                        }
+                        const pointer = this.readLastReadEventIdFromMemberContent(memberEvent.content)
+                        if (pointer !== undefined) {
+                            currentUserLastReadMessageId = pointer
                         }
                     }
 
@@ -1020,6 +1060,7 @@ export class MSRPModule {
                 memberRoles,
                 currentUserRole,
                 currentUserStatus,
+                currentUserLastReadMessageId,
                 state_events: stateEvents,
                 created_at: created_at || Date.now(),
                 updated_at: updated_at || Date.now(),
@@ -1027,11 +1068,6 @@ export class MSRPModule {
             })
         })
 
-        // m.sync is the one legitimate bulk-replace - everything else uses
-        // granular events. Hand consumers their own copy of every
-        // conversation so internal mutations stay isolated. Historical
-        // messages travel alongside in `messagesByConversation` because
-        // the module does not retain them.
         this.context.emit('msrpSyncCompleted', {
             conversations: this.snapshotConversationsMap(),
             messagesByConversation
@@ -1042,8 +1078,6 @@ export class MSRPModule {
         const conversationId = this.conversationIdOf(event)
         if (!conversationId) return
 
-        // Duplicate create event for an already-known conversation - nothing
-        // changed, no event to emit.
         if (this.conversationsMap.has(conversationId)) return
 
         const userUri = this.getUserUri()
@@ -1070,9 +1104,6 @@ export class MSRPModule {
         const conversation = this.conversationsMap.get(conversationId)
         if (!conversation) return
 
-        // Edit relation — a replace points at the original message. Surface it as
-        // a dedicated `edited` signal instead of a brand-new message so the
-        // consumer can patch the original in place.
         const relatesTo = event.content?.[MSRP_RELATION.RELATES_TO]
         if (relatesTo?.rel_type === MSRP_RELATION.REPLACE && relatesTo.event_id) {
             const newContent = event.content?.[MSRP_RELATION.NEW_CONTENT] ?? { content: event.content?.content }
@@ -1089,10 +1120,6 @@ export class MSRPModule {
 
         if (!messageHasContent(event.content)) return
 
-        // Update protocol-level metadata (updated_at) but do NOT retain the
-        // message itself - chat history is owned by the consumer.
-        // Deduplication is also a consumer concern because only the consumer
-        // knows what it has already rendered.
         conversation.updated_at = event.origin_server_ts || Date.now()
 
         this.context.emit('msrpMessageAdded', {
@@ -1112,8 +1139,6 @@ export class MSRPModule {
         const conversation = this.conversationsMap.get(conversationId)
         if (conversation) conversation.updated_at = updatedAt
 
-        // The consumer owns the message history and applies the tombstone
-        // (is_deleted flag) to the target message.
         this.context.emit('msrpMessageDeleted', {
             conversation_id: conversation?.conversation_id ?? Number(conversationId),
             eventId: targetEventId,
@@ -1129,7 +1154,6 @@ export class MSRPModule {
         const conversation = this.conversationsMap.get(conversationId)
         if (!conversation) return
 
-        // Clear the closed tombstone so the conversation is writable again.
         if (conversation.state_events?.[MSRP_STATE_CLOSED]) {
             delete conversation.state_events[MSRP_STATE_CLOSED]
         }
@@ -1148,7 +1172,6 @@ export class MSRPModule {
 
     private handleIncomingPresence (event: any) {
         const conversationId = this.conversationIdOf(event)
-        // Presence may be conversation-scoped or global — pass whatever we have.
         this.context.emit('msrpPresence', {
             conversation_id: conversationId ? Number(conversationId) : undefined,
             sender: event.sender,
@@ -1200,8 +1223,6 @@ export class MSRPModule {
         const conversation = this.conversationsMap.get(conversationId)
         if (conversation) conversation.updated_at = updatedAt
 
-        // We do not look up the target message - the consumer holds the
-        // message history and is responsible for applying the new status.
         this.context.emit('msrpReceiptChanged', {
             conversation_id: conversation?.conversation_id ?? Number(conversationId),
             eventId: targetEventId,
@@ -1234,9 +1255,6 @@ export class MSRPModule {
         const conversation = this.conversationsMap.get(conversationId)
         if (conversation) conversation.updated_at = updatedAt
 
-        // Emit the raw reaction event. The consumer holds the message
-        // history and is the only place that can (and should) aggregate
-        // these into a reactions_summary array on the target message.
         this.context.emit('msrpReactionChanged', {
             conversation_id: conversation?.conversation_id ?? Number(conversationId),
             eventId: relatesTo.event_id,
@@ -1286,6 +1304,10 @@ export class MSRPModule {
             if (isCurrentUser) {
                 conversation.currentUserStatus = 'join'
                 conversation.currentUserRole = role
+                const pointer = this.readLastReadEventIdFromMemberContent(content)
+                if (pointer !== undefined) {
+                    conversation.currentUserLastReadMessageId = pointer
+                }
             }
         } else if (membership === 'leave' || membership === 'ban') {
             conversation.members.delete(state_key)
@@ -1310,9 +1332,6 @@ export class MSRPModule {
             return
         }
 
-        // The conversation did not exist before this event - emit a single
-        // `created` so consumers can add it in one shot rather than
-        // `created` + `updated` back-to-back.
         if (!conversationExisted) {
             this.context.emit('msrpConversationCreated', {
                 conversation: this.snapshotConversation(conversation)
@@ -1320,9 +1339,6 @@ export class MSRPModule {
             return
         }
 
-        // Clone members/memberRoles so the consumer owns its own copies -
-        // otherwise the next in-place mutation on conversation.members
-        // would bypass the consumer's reactivity layer.
         this.context.emit('msrpConversationUpdated', {
             conversation_id: conversation.conversation_id,
             patch: {
@@ -1330,6 +1346,7 @@ export class MSRPModule {
                 memberRoles: new Map(conversation.memberRoles),
                 currentUserRole: conversation.currentUserRole,
                 currentUserStatus: conversation.currentUserStatus,
+                currentUserLastReadMessageId: conversation.currentUserLastReadMessageId,
                 updated_at: conversation.updated_at
             }
         })
@@ -1375,19 +1392,10 @@ export class MSRPModule {
         }
     }
 
-    // CONVERSATION STATE HELPERS
-
     private upsertConversationState (key: string, data: MSRPConversationState) {
         this.conversationsMap.set(key, { ...data })
     }
 
-    // ---------- conversation_id resolution ----------
-
-    /**
-     * Normalize a caller-supplied conversation reference to the numeric
-     * conversation_id used to address conversations end-to-end. Accepts a number
-     * or an all-digit string; anything else resolves to null.
-     */
     private toConversationId (ref: MSRPConversationRef | null | undefined): number | null {
         if (ref === null || ref === undefined) return null
         if (typeof ref === 'number') return Number.isFinite(ref) ? ref : null
@@ -1396,7 +1404,6 @@ export class MSRPModule {
         return Number(value)
     }
 
-    /** Serialize + send an outbound conversation event. */
     private sendEvent (evt: object): boolean {
         return this.safeSendMSRP(JSON.stringify(evt))
     }
@@ -1423,11 +1430,6 @@ export class MSRPModule {
         return !!conversation?.state_events?.[MSRP_STATE_CLOSED]?.['']
     }
 
-    /**
-     * Extract the conversation_id (as a string map key) from an inbound event or
-     * conversation object. The backend addresses all client-facing events by
-     * conversation_id — conversationKey is backend-internal and never used here.
-     */
     private conversationIdOf (source: any): string | null {
         if (source === null || source === undefined) return null
         if (typeof source === 'number') return String(source)
@@ -1441,6 +1443,25 @@ export class MSRPModule {
         const uriString = typeof sipUri === 'string' ? sipUri : String(sipUri)
         const match = uriString.match(/^sip:([^@]+)@/)
         return match ? match[1] : null
+    }
+
+    private readLastReadEventIdFromMemberContent (
+        content: any
+    ): string | null | undefined {
+        if (!content) return undefined
+        if ('last_read_event_id' in content
+            && content.last_read_event_id != null) {
+            return content.last_read_event_id
+        }
+        if ('last_read_message_id' in content
+            && content.last_read_message_id != null) {
+            return content.last_read_message_id
+        }
+        if ('last_read_event_id' in content
+            || 'last_read_message_id' in content) {
+            return null
+        }
+        return undefined
     }
 
     public extractDisplayName (uri: string | null | undefined): string {
