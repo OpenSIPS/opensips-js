@@ -189,7 +189,7 @@ ${this._contact};expires=${this._expires}${this._extraContactParams}`)
                         const timeout = expires > 64
                             ? (expires * 1000 / 2) +
                 Math.floor(((expires / 2) - 32) * 1000 * Math.random())
-                            : (expires * 1000) - 5000
+                            : Math.floor(expires * 1000 / 2)
 
                         // Re-Register or emit an event before the expiration interval has elapsed.
                         // For that, decrease the expires value. ie: 3 seconds.

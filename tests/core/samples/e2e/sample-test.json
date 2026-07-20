@@ -1,0 +1,404 @@
+[
+  {
+    "name": "customer",
+    "actions": [
+      {
+        "event": "ready",
+        "actions": [
+          {
+            "type": "request",
+            "data": {
+              "payload": {
+                "url": "https://loginapi.voicenter.com/Auth/Login/Voicenter/Chrome",
+                "options": {
+                  "method": "POST",
+                  "headers": {
+                    "Content-Type": "application/json"
+                  },
+                  "data": {
+                    "email": "{{CALLER.API.EMAIL}}",
+                    "password": "{{CALLER.API.PASSWORD}}"
+                  }
+                }
+              },
+              "responseToContext": {
+                "setToContext": true,
+                "contextKeyToSet": "caller_login_api_response"
+              },
+              "waitUntil": [
+                {
+                  "event": "callee_registered"
+                }
+              ]
+            }
+          },
+          {
+            "type": "request",
+            "data": {
+              "payload": {
+                "url": "https://loginapi.voicenter.com/Application/GetSettings",
+                "options": {
+                  "method": "GET",
+                  "headers": {
+                    "Authorization": "Bearer {{caller_login_api_response.response.Data.AccessToken}}"
+                  }
+                }
+              },
+              "responseToContext": {
+                "setToContext": true,
+                "contextKeyToSet": "caller_get_settings_api_response"
+              }
+            }
+          },
+          {
+            "type": "register",
+            "data": {
+              "payload": {
+                "sip_domain": "{{caller_get_settings_api_response.response.WebRTCData.domain}}",
+                "username": "{{caller_get_settings_api_response.response.WebRTCData.extension_user}}",
+                "password": "{{caller_get_settings_api_response.response.WebRTCData.extension_pass}}"
+              },
+              "customSharedEvent": "caller_registered"
+            }
+          },
+          {
+            "type": "dial",
+            "data": {
+              "payload": {
+                "target": "36"
+              },
+              "customSharedEvent": "call_initiated"
+            }
+          }
+        ]
+      },
+      {
+        "event": "representative_1_played",
+        "actions": [
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/cust_1.mp3"
+              },
+              "customSharedEvent": "customer_1_played"
+            }
+          }
+        ]
+      },
+      {
+        "event": "representative_2_played",
+        "actions": [
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/cust_2.mp3"
+              },
+              "customSharedEvent": "customer_2_played"
+            }
+          }
+        ]
+      },
+      {
+        "event": "representative_3_played",
+        "actions": [
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/cust_3.mp3"
+              },
+              "customSharedEvent": "customer_3_played"
+            }
+          }
+        ]
+      },
+      {
+        "event": "representative_5_played",
+        "actions": [
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/cust_4.mp3"
+              },
+              "customSharedEvent": "customer_4_played"
+            }
+          }
+        ]
+      },
+      {
+        "event": "representative_6_played",
+        "actions": [
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/cust_5.mp3"
+              },
+              "customSharedEvent": "customer_5_played"
+            }
+          }
+        ]
+      },
+      {
+        "event": "representative_7_played",
+        "actions": [
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/cust_6.mp3"
+              },
+              "customSharedEvent": "customer_6_played"
+            }
+          }
+        ]
+      },
+      {
+        "event": "representative_8_played",
+        "actions": [
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/cust_7.mp3"
+              },
+              "customSharedEvent": "customer_7_played"
+            }
+          }
+        ]
+      },
+      {
+        "event": "representative_9_played",
+        "actions": [
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/cust_8.mp3"
+              },
+              "customSharedEvent": "customer_8_played"
+            }
+          },
+          {
+            "type": "hangup",
+            "data": {
+              "customSharedEvent": "customer_hangup"
+            }
+          },
+          {
+            "type": "unregister"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "representative",
+    "actions": [
+      {
+        "event": "ready",
+        "actions": [
+          {
+            "type": "request",
+            "data": {
+              "payload": {
+                "url": "https://loginapi.voicenter.com/Auth/Login/Voicenter/Chrome",
+                "options": {
+                  "method": "POST",
+                  "headers": {
+                    "Content-Type": "application/json"
+                  },
+                  "data": {
+                    "email": "{{CALLEE.API.EMAIL}}",
+                    "password": "{{CALLEE.API.PASSWORD}}"
+                  }
+                }
+              },
+              "responseToContext": {
+                "setToContext": true,
+                "contextKeyToSet": "callee_login_api_response"
+              }
+            }
+          },
+          {
+            "type": "request",
+            "data": {
+              "payload": {
+                "url": "https://loginapi.voicenter.com/Application/GetSettings",
+                "options": {
+                  "method": "GET",
+                  "headers": {
+                    "Authorization": "Bearer {{callee_login_api_response.response.Data.AccessToken}}"
+                  }
+                }
+              },
+              "responseToContext": {
+                "setToContext": true,
+                "contextKeyToSet": "callee_get_settings_api_response"
+              }
+            }
+          },
+          {
+            "type": "register",
+            "data": {
+              "payload": {
+                "sip_domain": "{{callee_get_settings_api_response.response.WebRTCData.domain}}",
+                "username": "{{callee_get_settings_api_response.response.WebRTCData.extension_user}}",
+                "password": "{{callee_get_settings_api_response.response.WebRTCData.extension_pass}}"
+              },
+              "customSharedEvent": "callee_registered"
+            }
+          }
+        ]
+      },
+      {
+        "event": "incoming",
+        "actions": [
+          {
+            "type": "answer"
+          },
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/rep_1.mp3"
+              },
+              "customSharedEvent": "representative_1_played"
+            }
+          }
+        ]
+      },
+      {
+        "event": "customer_1_played",
+        "actions": [
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/rep_2.mp3"
+              },
+              "customSharedEvent": "representative_2_played"
+            }
+          }
+        ]
+      },
+      {
+        "event": "customer_2_played",
+        "actions": [
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/rep_3.mp3"
+              },
+              "customSharedEvent": "representative_3_played"
+            }
+          }
+        ]
+      },
+      {
+        "event": "customer_3_played",
+        "actions": [
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/rep_4.mp3"
+              }
+            }
+          },
+          {
+            "type": "hold"
+          },
+          {
+            "type": "wait",
+            "data": {
+              "payload": {
+                "time": 10000
+              }
+            }
+          },
+          {
+            "type": "unhold"
+          },
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/rep_5.mp3"
+              },
+              "customSharedEvent": "representative_5_played"
+            }
+          }
+        ]
+      },
+      {
+        "event": "customer_4_played",
+        "actions": [
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/rep_6.mp3"
+              },
+              "customSharedEvent": "representative_6_played"
+            }
+          }
+        ]
+      },
+      {
+        "event": "customer_5_played",
+        "actions": [
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/rep_7.mp3"
+              },
+              "customSharedEvent": "representative_7_played"
+            }
+          }
+        ]
+      },
+      {
+        "event": "customer_6_played",
+        "actions": [
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/rep_8.mp3"
+              },
+              "customSharedEvent": "representative_8_played"
+            }
+          }
+        ]
+      },
+      {
+        "event": "customer_7_played",
+        "actions": [
+          {
+            "type": "playSound",
+            "data": {
+              "payload": {
+                "sound": "tests/core/samples/e2e/audio/rep_9.mp3"
+              },
+              "customSharedEvent": "representative_9_played"
+            }
+          }
+        ]
+      },
+      {
+        "event": "customer_hangup",
+        "actions": [
+          {
+            "type": "unregister"
+          }
+        ]
+      }
+    ]
+  }
+]
