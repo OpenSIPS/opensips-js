@@ -1,0 +1,104 @@
+[
+  {
+    "name": "customer",
+    "actions": [
+      {
+        "event": "ready",
+        "actions": [
+          {
+            "type": "request",
+            "data": {
+              "payload": {
+                "url": "https://loginapi.voicenter.com/Auth/Login/Voicenter/Chrome",
+                "options": {
+                  "method": "POST",
+                  "headers": {
+                    "Content-Type": "application/json"
+                  },
+                  "data": {
+                    "email": "{{CALLER.API.EMAIL}}",
+                    "password": "{{CALLER.API.PASSWORD}}"
+                  }
+                }
+              },
+              "responseToContext": {
+                "setToContext": true,
+                "contextKeyToSet": "caller_login_api_response"
+              }
+            }
+          },
+          {
+            "type": "request",
+            "data": {
+              "payload": {
+                "url": "https://loginapi.voicenter.com/Application/GetSettings",
+                "options": {
+                  "method": "GET",
+                  "headers": {
+                    "Authorization": "Bearer {{caller_login_api_response.response.Data.AccessToken}}"
+                  }
+                }
+              },
+              "responseToContext": {
+                "setToContext": true,
+                "contextKeyToSet": "caller_get_settings_api_response"
+              }
+            }
+          },
+          {
+            "type": "register",
+            "data": {
+              "payload": {
+                "sip_domain": "{{caller_get_settings_api_response.response.WebRTCData.domain}}",
+                "username": "{{caller_get_settings_api_response.response.WebRTCData.extension_user}}",
+                "password": "{{caller_get_settings_api_response.response.WebRTCData.extension_pass}}"
+              },
+              "customSharedEvent": "caller_registered"
+            }
+          },
+          {
+            "type": "dial",
+            "data": {
+              "payload": {
+                "target": "665"
+              }
+            }
+          },
+          {
+            "type": "wait",
+            "data": {
+              "payload": {
+                "time": 3000
+              }
+            }
+          },
+          {
+            "type": "sendDTMF",
+            "data": {
+              "payload": {
+                "dtmf": "3"
+              },
+              "customSharedEvent": "call_initiated"
+            }
+          }
+        ]
+      },
+      {
+        "event": "call_initiated",
+        "actions": [
+          {
+            "type": "wait",
+            "data": {
+              "payload": {
+                "time": 3000
+              }
+            }
+          },
+          {
+            "type": "unregister"
+          }
+        ]
+      }
+    ]
+  }
+]
