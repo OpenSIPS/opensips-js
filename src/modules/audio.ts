@@ -5,10 +5,14 @@ import {
     IntervalType,
     IRoom,
     IRoomUpdate,
-    RTCSessionExtended
+    RTCSessionExtended,
+    VADSessionState,
+    NoiseReductionOptions,
+    NoiseReductionOptionsWithoutVadModule
 } from '@/types/rtc'
 import { CallTime, ITimeData, TempTimeData } from '@/types/timer'
 import { setupTime } from '@/helpers/time.helper'
+import { createVADControlledStream, computeRMS } from '@/helpers/vad.helper'
 import {
     MediaDeviceType,
     MetricAudioData,
@@ -16,23 +20,42 @@ import {
     ProbeMetricInType,
     WebrtcMetricsConfigType
 } from '@/types/webrtcmetrics'
-import { isMobile, processAudioVolume, simplifyCallObject, syncStream } from '@/helpers/audio.helper'
+import { isMobile, parseRemotePartyIdDisplayName, parseRemotePartyIdUriUser, processAudioVolume, simplifyCallObject, syncStream } from '@/helpers/audio.helper'
 import { RTCSessionEvent } from 'jssip/lib/UA'
 import { forEach } from 'p-iteration'
-import audioContext from '@/helpers/audioContext'
 import { CALL_EVENT_LISTENER_TYPE } from '@/enum/call.event.listener.type'
-import { IncomingAckEvent, IncomingEvent, OutgoingAckEvent, OutgoingEvent } from 'jssip/lib/RTCSession'
+import { SIP_STATUS_CODE } from '@/enum/sip.status.code'
+import { IncomingAckEvent, IncomingEvent, OutgoingAckEvent, OutgoingEvent, ReInviteEvent } from 'jssip/lib/RTCSession'
 import WebRTCMetrics from '@/helpers/webrtcmetrics/metrics'
 import { filterObjectKeys } from '@/helpers/filter.helper'
 import { METRIC_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
+import vadDefaultConfig from '@/enum/vad.default.config'
 import VUMeter from '@/helpers/VUMeter'
 import OpenSIPSJS from '@/index'
+import ManagedAudioContext from '@/helpers/audioContext'
 
 const STORAGE_KEYS = {
     SELECTED_INPUT_DEVICE: 'OpensipsJSInputDevice',
     SELECTED_OUTPUT_DEVICE: 'OpensipsJSOutputDevice'
 }
 const CALL_STATUS_UNANSWERED = 0
+
+function connectTrackToStream (stream: MediaStream, additionalTrack: MediaStreamTrack) {
+    const ctx = new AudioContext()
+
+    const source1 = ctx.createMediaStreamSource(stream)
+    const source2 = ctx.createMediaStreamSource(
+        new MediaStream([ additionalTrack ])
+    )
+
+    const destination = ctx.createMediaStreamDestination()
+
+    source1.connect(destination)
+    source2.connect(destination)
+
+    // destination.stream already contains exactly ONE mixed audio track
+    return destination.stream
+}
 
 export class AudioModule {
     private context: OpenSIPSJS
@@ -52,6 +75,14 @@ export class AudioModule {
     private activeCalls: { [key: string]: ICall } = {}
     private extendedCalls: { [key: string]: ICall } = {}
 
+    private conferenceNodes: {
+        [roomId: number]: {
+            sources: Map<string, MediaStreamAudioSourceNode>
+            destinations: Map<string, MediaStreamAudioDestinationNode>
+            gains: Map<string, GainNode>
+        }
+    } = {}
+
     private availableMediaDevices: Array<MediaDeviceInfo> = []
     private selectedMediaDevices: { [key in MediaDeviceType]: string } = {
         input: 'default',
@@ -69,7 +100,29 @@ export class AudioModule {
     private activeStreamValue: MediaStream | null = null
     private initialStreamValue: MediaStream | null = null
 
+    private noiseReduction: NoiseReductionOptions
+    private vadSession: any = null
+    private vadSessionState: VADSessionState = {
+        currentMode: 'clean',
+        isSpeaking: false
+    }
+    private vadInterval: ReturnType<typeof setInterval> = null
+    private vadMrsInterval: ReturnType<typeof setInterval>  = null
+    private vadSessionGeneration = 0
+    // TODO: Conference health check - uncomment if needed for automatic track state monitoring
+    // private conferenceHealthCheckIntervals: Record<number, ReturnType<typeof setInterval>> = {}
+
+    // Store ringback tone timers and audio contexts per session
+    private ringbackTimers: { [sessionId: string]: ReturnType<typeof setTimeout> } = {}
+    private ringbackAudioContexts: { [sessionId: string]: { context: AudioContext, oscillator1: OscillatorNode, oscillator2: OscillatorNode, gainNode: GainNode, intervalId?: ReturnType<typeof setInterval> } } = {}
+    private ringbackSessionProgressReceived: { [sessionId: string]: boolean } = {}
+
+    private hangupBeepContext: { context: AudioContext, oscillator: OscillatorNode, gainNode: GainNode } | null = null
+
     private VUMeter: VUMeter
+    private MicVAD: any
+
+    public managedAudioContext = new ManagedAudioContext()
 
     constructor (context: OpenSIPSJS) {
         this.context = context
@@ -84,6 +137,48 @@ export class AudioModule {
         })
 
         this.initializeMediaDevices()
+
+        this.processVADConfiguration(this.context.options.configuration?.noiseReductionOptions || {})
+        this.setupVADInstance()
+    }
+
+    public setVADConfiguration (options: Partial<NoiseReductionOptionsWithoutVadModule>) {
+        if (!this.MicVAD) {
+            throw new Error('VAD module is not provided in the initial configuration')
+        }
+
+        const iterationKeys = Object.keys(options)
+        for (const key of iterationKeys) {
+            this.noiseReduction[key] = options[key]
+        }
+
+        if (this.hasActiveCalls) {
+            this.roomReconfigure(this.currentActiveRoomId)
+        }
+    }
+
+    private setupVADInstance () {
+        const vadModule = this.context.options.configuration?.noiseReductionOptions?.vadModule
+        if (vadModule && vadModule.MicVAD) {
+            this.MicVAD = vadModule.MicVAD
+            console.log('✅ VAD module loaded successfully')
+        } else if (this.noiseReduction.mode !== 'disabled') {
+            console.warn('⚠️ Noise reduction is enabled but VAD module is not provided. To use VAD features, please install @ricky0123/vad-web and pass it via configuration.noiseReductionOptions.vadModule option.')
+            // Disable noise reduction if VAD is not available
+            this.noiseReduction.mode = 'disabled'
+        }
+    }
+
+    private processVADConfiguration (options: Partial<NoiseReductionOptions>) {
+        this.noiseReduction = {
+            mode: options.mode || 'disabled',
+            checkEveryMs: options.checkEveryMs || 500,
+            noiseCheckInterval: options.noiseCheckInterval || 2000,
+            noiseThreshold: options.noiseThreshold || 0.004,
+            vadConfig: options.vadConfig || {},
+            baseAssetPath: options.baseAssetPath || 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.28/dist/',
+            onnxWASMBasePath: options.onnxWASMBasePath || 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/'
+        }
     }
 
     public get sipOptions () {
@@ -252,7 +347,13 @@ export class AudioModule {
             audio: {
                 deviceId: {
                     exact: this.selectedMediaDevices.input
-                }
+                },
+                echoCancellation: true,
+                echoCancellationType: 'system',
+                noiseSuppression: true,
+                autoGainControl: true,
+                sampleRate: 48000,
+                latency: 0.01
             },
             video: false
         }
@@ -306,6 +407,52 @@ export class AudioModule {
             console.error(err)
         }
 
+    }
+
+    private async cleanupConferenceNodes (roomId: number) {
+        // TODO: Conference health check - uncomment if needed
+        // this.stopConferenceHealthCheck(roomId)
+        const nodes = this.conferenceNodes[roomId]
+
+        if (!nodes) {
+            return
+        }
+
+        // Disconnect all nodes with error handling
+        let disconnectedSources = 0
+        nodes.sources.forEach((source, key) => {
+            try {
+                source.disconnect()
+                disconnectedSources++
+            } catch (error) {
+                console.error(`[cleanupConferenceNodes] Error disconnecting source ${key}:`, error)
+                this.context.logger?.error(`[cleanupConferenceNodes] Error disconnecting source ${key}:`, error)
+            }
+        })
+
+        let disconnectedDestinations = 0
+        nodes.destinations.forEach((dest, key) => {
+            try {
+                dest.disconnect()
+                disconnectedDestinations++
+            } catch (error) {
+                console.error(`[cleanupConferenceNodes] Error disconnecting destination ${key}:`, error)
+                this.context.logger?.error(`[cleanupConferenceNodes] Error disconnecting destination ${key}:`, error)
+            }
+        })
+
+        let disconnectedGains = 0
+        nodes.gains.forEach((gain, key) => {
+            try {
+                gain.disconnect()
+                disconnectedGains++
+            } catch (error) {
+                console.error(`[cleanupConferenceNodes] Error disconnecting gain ${key}:`, error)
+                this.context.logger?.error(`[cleanupConferenceNodes] Error disconnecting gain ${key}:`, error)
+            }
+        })
+
+        delete this.conferenceNodes[roomId]
     }
 
     public setCallTime (value: ITimeData) {
@@ -365,6 +512,10 @@ export class AudioModule {
         })
     }
 
+    public getNoiseReductionMode () {
+        return this.noiseReduction.mode
+    }
+
     public setMetricsConfig (config: WebrtcMetricsConfigType)  {
         this.metricConfig = {
             ...this.metricConfig,
@@ -373,9 +524,9 @@ export class AudioModule {
     }
 
     public sendDTMF (callId: string, value: string) {
-        const validation_regex = /^[A-D0-9]+$/g
+        const validation_regex = /^[A-D0-9*#]+$/g
         if (!validation_regex.test(value)) {
-            throw new Error('Not allowed character in DTMF input')
+            throw new Error('Not allowed character used in the DTMF input')
         }
 
         const call = this.extendedCalls[callId]
@@ -405,31 +556,52 @@ export class AudioModule {
 
     private async processHold ({ callId, toHold, automatic }: { callId: string, toHold: boolean, automatic?: boolean }) {
         const call = this.extendedCalls[callId]
+        if (!call) return
+
         call._automaticHold = automatic ?? false
 
-        const holdPromise = new Promise<void>((resolve) => {
-            const resolveHold = () => {
+        const holdPromise = new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                reject(new Error('Hold operation timeout'))
+            }, 5000)
+
+            const handleComplete = () => {
+                clearTimeout(timeout)
                 call.putOnHoldTimestamp = toHold ? Date.now() : undefined
                 resolve()
             }
 
-            if (toHold) {
-                call.hold({}, resolveHold)
-            } else {
-                call.unhold({}, resolveHold)
+            const handleError = (error: any) => {
+                clearTimeout(timeout)
+                reject(error)
+            }
+
+            try {
+                if (toHold) {
+                    this.stopSessionVad()
+                    call.hold({}, handleComplete)
+                } else {
+                    call.unhold({}, handleComplete)
+                }
+            } catch (error) {
+                handleError(error)
             }
         })
 
-        await holdPromise
+        try {
+            await holdPromise
+            this.updateCall(call)
 
-        this.updateCall(call)
+            const callsInRoom = Object.values(this.extendedCalls).filter(c =>
+                c.roomId === call.roomId && (toHold ? callId !== c._id : true)
+            )
 
-        const callsInRoom = Object.values(this.extendedCalls).filter(call =>
-            call.roomId === this.currentActiveRoomId
-            && (toHold ? callId !== call._id: true)
-        )
-        if (callsInRoom.length > 1) {
-            await this.doConference(callsInRoom)
+            if (callsInRoom.length > 1) {
+                await this.doConference(callsInRoom)
+            }
+        } catch (error) {
+            console.error('Hold operation failed:', error)
+            throw error
         }
     }
 
@@ -474,6 +646,22 @@ export class AudioModule {
             callId,
             isMoving: true
         })
+
+        /*const callsInRoom = Object.values(this.extendedCalls).filter(call => call._id === callId)
+
+        callsInRoom.forEach((call, index) => {
+            call.audioTag.muted = true
+        })*/
+
+        /*const newRoomId = this.getNewRoomId()
+
+        const newRoomInfo: IRoom = {
+            started: new Date(),
+            incomingInProgress: false,
+            roomId: newRoomId
+        }
+        this.addRoom(newRoomInfo)*/
+
         await this.processRoomChange({
             callId,
             roomId
@@ -517,6 +705,31 @@ export class AudioModule {
         const callInfoHeader = request.getHeader('Call-Info')
 
         return callInfoHeader && regex.test(callInfoHeader)
+    }
+
+    // Re-parses Remote-Party-ID header from re-INVITE / UPDATE request
+    private refreshRemotePartyId (
+        session: RTCSessionExtended,
+        request: { getHeader: (name: string) => string }
+    ): boolean {
+        const headerValue = request.getHeader('Remote-Party-ID')
+        if (!headerValue) return false
+
+        let changed = false
+
+        const newName = parseRemotePartyIdDisplayName(headerValue)
+        if (newName !== null && session._remote_party_display_name !== newName) {
+            session._remote_party_display_name = newName
+            changed = true
+        }
+
+        const newUriUser = parseRemotePartyIdUriUser(headerValue)
+        if (newUriUser !== null && session._remote_party_uri_user !== newUriUser) {
+            session._remote_party_uri_user = newUriUser
+            changed = true
+        }
+
+        return changed
     }
 
     private addCall (value: ICall, emitEvent = true) {
@@ -607,10 +820,16 @@ export class AudioModule {
         })
     }
 
-    private getActiveStream () {
-        const processedStream = processAudioVolume(this.initialStreamValue, this.microphoneInputLevel * 2)
+    private async setupActiveStream () {
+        const processedStream = await processAudioVolume(await this.managedAudioContext.getContext(), this.initialStreamValue, this.microphoneInputLevel * 2)
         processedStream.getTracks().forEach(track => track.enabled = !this.isMuted)
-        this.setActiveStream(processedStream)
+        await this.setActiveStream(processedStream)
+    }
+
+    private async getActiveStream () {
+        const processedStream = await processAudioVolume(await this.managedAudioContext.getContext(), this.initialStreamValue, this.microphoneInputLevel * 2)
+        processedStream.getTracks().forEach(track => track.enabled = !this.isMuted)
+        await this.setActiveStream(processedStream)
         return processedStream
     }
 
@@ -631,7 +850,8 @@ export class AudioModule {
 
         if (callsInCurrentRoom.length === 1) {
             Object.values(callsInCurrentRoom).forEach(async (call) => {
-                const processedStream = this.getActiveStream()
+                await this.setupActiveStream()
+                const processedStream = this.activeStream
                 call.connection.getSenders()[0].replaceTrack(processedStream.getTracks()[0])
                 this.updateCall(call)
             })
@@ -640,12 +860,12 @@ export class AudioModule {
         }
     }
 
-    private setActiveStream (value: MediaStream) {
+    private async setActiveStream (value: MediaStream) {
         if (this.activeStream) {
             this.stopVUMeter('origin')
         }
 
-        this.setupVUMeter(value, 'origin')
+        await this.setupVUMeter(value, 'origin')
 
         this.activeStreamValue = value
         this.context.emit('changeActiveStream', value)
@@ -721,6 +941,322 @@ export class AudioModule {
         }
     }
 
+    /**
+     * Monitors background noise while user is not speaking.
+     * Calls `onNoiseDetected()` or `onNoiseStop()` when mode should switch.
+     */
+    private async startNoiseMonitor ({
+        stream,
+        onNoiseDetected,
+        onNoiseStop,
+    }: {
+        stream: MediaStream;
+        onNoiseDetected: () => void;
+        onNoiseStop: () => void;
+    }) {
+        let ctx: AudioContext
+        try {
+            ctx = await this.managedAudioContext.getContext()
+        } catch (error) {
+            console.error('[startNoiseMonitor] Failed to get AudioContext:', error)
+            this.context.logger?.error('[startNoiseMonitor] Failed to get AudioContext:', error)
+            return
+        }
+
+        let source: MediaStreamAudioSourceNode
+        let analyser: AnalyserNode
+        try {
+            source = ctx.createMediaStreamSource(stream.clone())
+            analyser = ctx.createAnalyser()
+        } catch (error) {
+            console.error('[startNoiseMonitor] Failed to create audio nodes:', error)
+            console.error('[startNoiseMonitor] AudioContext state:', ctx.state)
+            this.context.logger?.error('[startNoiseMonitor] Failed to create audio nodes:', error)
+            this.context.logger?.error('[startNoiseMonitor] AudioContext state:', ctx.state)
+            return
+        }
+        analyser.fftSize = 1024
+        const buf = new Float32Array(analyser.fftSize)
+        source.connect(analyser)
+
+        const rmsHistory: number[] = []
+
+        if (this.vadInterval) {
+            clearInterval(this.vadInterval)
+            this.vadInterval = null
+        }
+
+        if (this.vadMrsInterval) {
+            clearInterval(this.vadMrsInterval)
+            this.vadMrsInterval = null
+        }
+
+        this.vadMrsInterval = setInterval(() => {
+            analyser.getFloatTimeDomainData(buf)
+            const rms = computeRMS(buf)
+            rmsHistory.push(rms)
+
+            const maxSamples = Math.ceil(
+                this.noiseReduction.noiseCheckInterval / this.noiseReduction.checkEveryMs
+            )
+            if (rmsHistory.length > maxSamples) rmsHistory.shift()
+        }, this.noiseReduction.checkEveryMs)
+
+        this.vadInterval = setInterval(() => {
+            if (rmsHistory.length === 0) return
+
+            const avgRms =
+                rmsHistory.reduce((a, b) => a + b, 0) / rmsHistory.length
+
+            const state = this.vadSessionState
+
+            if (!state) {
+                console.warn('[startNoiseMonitor] State not found, stopping interval')
+                this.context.logger?.warn('[startNoiseMonitor] State not found, stopping interval')
+                if (this.vadInterval) {
+                    clearInterval(this.vadInterval)
+                    this.vadInterval = null
+                }
+                if (this.vadMrsInterval) {
+                    clearInterval(this.vadMrsInterval)
+                    this.vadMrsInterval = null
+                }
+                return
+            }
+
+            const isNoisy = avgRms > this.noiseReduction.noiseThreshold
+
+            if (!state.isSpeaking) {
+                if (isNoisy && state.currentMode === 'clean') {
+                    state.currentMode = 'noisy'
+                    console.log('Average noise high → enable VAD')
+                    this.context.emit('changeNoiseReductionState',  true)
+                    onNoiseDetected()
+                } else if (!isNoisy && state.currentMode === 'noisy') {
+                    state.currentMode = 'clean'
+                    console.log('Average noise low → disable VAD')
+                    this.context.emit('changeNoiseReductionState', false)
+                    onNoiseStop()
+                }
+            }
+        }, this.noiseReduction.noiseCheckInterval)
+    }
+
+    private async processVADForActiveStream (vadTracksToPopulate = {}) {
+        const stream = this.activeStream
+        this.stopSessionVad()
+
+        const currentGeneration = this.vadSessionGeneration
+        const isStale = () => currentGeneration !== this.vadSessionGeneration
+
+        this.vadSessionState = {
+            currentMode: 'clean',
+            isSpeaking: false
+        }
+
+        const audioContext = await this.managedAudioContext.getContext()
+        if (isStale()) {
+            return
+        }
+
+        const vadControlled = await createVADControlledStream(stream, audioContext, 150)
+        if (isStale()) {
+            return
+        }
+
+        let isFirstFrameProcessed = false
+
+        const callsInCurrentRoom = Object.values(this.extendedCalls)
+            .filter((session) => session.roomId === this.currentActiveRoomId)
+
+        const vadSession = await this.MicVAD.new({
+            getStream: () => new Promise((res) => res(stream)),
+            pauseStream: async () => { /* no-op: prevent MicVAD from stopping our processed stream tracks */ },
+            resumeStream: async (_stream) => _stream,
+            ...vadDefaultConfig,
+            ...this.noiseReduction.vadConfig,
+            baseAssetPath: this.noiseReduction.baseAssetPath,
+            onnxWASMBasePath: this.noiseReduction.onnxWASMBasePath,
+            onFrameProcessed: () => {
+                if (isStale()) return
+
+                if (!isFirstFrameProcessed) {
+                    isFirstFrameProcessed = true
+                    console.log('✅ VAD initialized, starting background noise monitoring')
+
+                    if (this.noiseReduction.mode === 'enabled') {
+                        if (vadTracksToPopulate && Object.keys(vadTracksToPopulate).length) {
+                            Object.keys(vadTracksToPopulate).forEach((sessionId) => {
+                                const session = this.extendedCalls[sessionId]
+                                if (!session) return
+
+                                if (session.connection.getSenders()[0]) {
+                                    const streamToSend =
+                                        connectTrackToStream(vadControlled.stream, vadTracksToPopulate[sessionId])
+                                    session.connection.getSenders()[0].replaceTrack(streamToSend.getAudioTracks()[0])
+                                }
+                            })
+                        } else {
+                            const session = callsInCurrentRoom[0]
+                            const sender = session?.connection?.getSenders()[0]
+                            const vadTrack = vadControlled.stream.getAudioTracks()[0]
+                            if (sender) {
+                                sender.replaceTrack(vadTrack)
+                            }
+                        }
+
+                        return
+                    }
+
+                    if (!this.vadSessionState) {
+                        console.error('[processVAD] CRITICAL: State not found')
+                        this.context.logger?.error('[processVAD] CRITICAL: State not found')
+                        return
+                    }
+
+                    // Start noise monitor asynchronously (don't await to avoid blocking callback)
+                    this.startNoiseMonitor({
+                        stream,
+                        onNoiseDetected: async () => {
+                            console.log('[processVad] - Replace track with Vad Controlled')
+                            this.context.logger?.log('[processVad] - Replace track with Vad Controlled')
+
+                            if (vadTracksToPopulate && Object.keys(vadTracksToPopulate).length) {
+                                Object.keys(vadTracksToPopulate).forEach((sessionId) => {
+                                    const session = this.extendedCalls[sessionId]
+                                    if (!session) return
+
+                                    if (session.connection.getSenders()[0]) {
+                                        const streamToSend =
+                                            connectTrackToStream(vadControlled.stream, vadTracksToPopulate[sessionId])
+                                        session.connection.getSenders()[0].replaceTrack(streamToSend.getAudioTracks()[0])
+                                    }
+                                })
+                            } else {
+                                const session = callsInCurrentRoom[0]
+                                if (session.connection.getSenders()[0]) {
+                                    session.connection.getSenders()[0].replaceTrack(vadControlled.stream.getAudioTracks()[0])
+                                }
+                            }
+
+                            /*await session.connection.getSenders()[0]
+                                ?.replaceTrack(vadControlled.stream.getAudioTracks()[0])*/
+                        },
+                        onNoiseStop: async () => {
+                            console.log('Replace track with Original')
+
+                            if (vadTracksToPopulate && Object.keys(vadTracksToPopulate).length) {
+                                Object.keys(vadTracksToPopulate).forEach((sessionId) => {
+                                    const session = this.extendedCalls[sessionId]
+                                    if (!session) return
+
+                                    const sender = session.connection.getSenders()[0]
+
+                                    if (
+                                        sender &&
+                                        sender.track &&
+                                        sender.transport &&
+                                        sender.transport.state !== 'closed' &&
+                                        sender.transport.state !== 'failed'
+                                    ) {
+                                        const streamToSend =
+                                                connectTrackToStream(stream, vadTracksToPopulate[sessionId])
+                                        sender.replaceTrack(streamToSend.getAudioTracks()[0])
+                                    }
+                                })
+                            } else {
+                                const sender = callsInCurrentRoom[0].connection.getSenders()[0]
+
+                                if (
+                                    sender &&
+                                    sender.track &&
+                                    sender.transport &&
+                                    sender.transport.state !== 'closed' &&
+                                    sender.transport.state !== 'failed'
+                                ) {
+                                    sender.replaceTrack(stream.getAudioTracks()[0])
+                                }
+                            }
+
+                            //await sender.replaceTrack(stream.getAudioTracks()[0])
+                        },
+                    })
+                }
+            },
+            onSpeechStart: () => {
+                if (isStale()) return
+
+                console.log('🎤 Speech started')
+                vadControlled.setSpeaking(true)
+
+                /*if (this.noiseReduction.mode === 'enabled') {
+                    session.connection.getSenders()[0]
+                        ?.replaceTrack(vadControlled.stream.getAudioTracks()[0])
+                }*/
+
+                this.vadSessionState.isSpeaking = true
+            },
+            onSpeechEnd: () => {
+                if (isStale()) return
+
+                console.log('🛑 Speech end')
+                vadControlled.setSpeaking(false)
+
+                /*if (this.noiseReduction.mode === 'enabled') {
+                    session.connection.getSenders()[0]
+                        ?.replaceTrack(vadControlled.stream.getAudioTracks()[0])
+                }*/
+
+                this.vadSessionState.isSpeaking = false
+            }
+        })
+
+        if (isStale()) {
+            try {
+                vadSession.pause()
+            } catch (error) {
+                this.context.logger?.error('[processVADForActiveStream] Error pausing stale vadSession:', error)
+            }
+            return
+        }
+
+        if (this.vadSession) {
+            this.vadSession.pause()
+            this.vadSession = null
+        }
+
+        this.vadSession = vadSession
+        vadSession.start()
+    }
+
+    private stopSessionVad () {
+        this.vadSessionGeneration++
+
+        if (this.vadSession) {
+            this.vadSession.pause()
+            this.vadSession = null
+        }
+
+        if (this.vadInterval) {
+            clearInterval(this.vadInterval)
+            this.vadInterval = null
+        }
+
+        if (this.vadMrsInterval) {
+            clearInterval(this.vadMrsInterval)
+            this.vadMrsInterval = null
+        }
+
+        if (this.vadSessionState) {
+            this.vadSessionState = {
+                currentMode: 'clean',
+                isSpeaking: false
+            }
+
+            this.context.emit('changeNoiseReductionState', false)
+        }
+    }
+
     private async roomReconfigure (roomId: number | undefined) {
         if (roomId === undefined) {
             return
@@ -728,101 +1264,335 @@ export class AudioModule {
 
         const callsInRoom = Object.values(this.extendedCalls).filter(call => call.roomId === roomId)
 
-        // Let`s take care on the audio output first and check if passed room is our selected room
-        if (this.currentActiveRoomId === roomId) {
-            callsInRoom.forEach(call => {
-                if (call.audioTag) {
+        const isHostRoom = this.currentActiveRoomId === roomId
+
+        console.log('[roomReconfigure] - Calls In Room:', callsInRoom)
+        this.context.logger?.log('[roomReconfigure] - Calls In Room:', callsInRoom)
+        callsInRoom.forEach((call, index) => {
+            if (call.audioTag) {
+                call.connection.getReceivers().forEach((receiver: RTCRtpReceiver) => {
+                    receiver.track.enabled = !call.localMuted
+                })
+
+                // Only unmute if this is the host's current room
+                if (isHostRoom) {
                     this.muteReconfigure(call)
-                    call.audioTag.muted = false
-                    this.updateCall(call)
                 }
-            })
-        } else {
-            callsInRoom.forEach(call => {
-                if (call.audioTag) {
-                    call.audioTag.muted = true
-                    this.updateCall(call)
-                }
-            })
+
+                const shouldMute = !isHostRoom
+                call.audioTag.muted = shouldMute
+
+                this.updateCall(call)
+            }
+        })
+
+        // Clean up empty rooms
+        if (callsInRoom.length === 0) {
+            const hasConferenceNodes = !!this.conferenceNodes[roomId]
+
+            if (hasConferenceNodes) {
+                await this.cleanupConferenceNodes(roomId)
+            }
+
+            console.log('[roomReconfigure] - Delete empty room', roomId)
+            this.context.logger?.log('[roomReconfigure] - Delete empty room', roomId)
+            this.deleteRoomIfEmpty(roomId)
+            return
         }
 
-        // Now let`s configure the sound we are sending for each active call on this room
-        if (callsInRoom.length === 0) {
-            this.deleteRoomIfEmpty(roomId)
-        } else if (callsInRoom.length === 1 && this.currentActiveRoomId !== roomId) {
-            if (!callsInRoom[0].isOnHold().local) {
-                await this.holdCall(callsInRoom[0].id, true)
-            }
-        } else if (callsInRoom.length === 1 && this.currentActiveRoomId === roomId) {
-            if (callsInRoom[0].isOnHold().local && callsInRoom[0]._automaticHold) {
-                await this.unholdCall(callsInRoom[0].id)
+        // Single call in non-active room - put on hold
+        if (callsInRoom.length === 1 && !isHostRoom) {
+            const call = callsInRoom[0]
+
+            const holdState = call.isOnHold()
+
+            if (!holdState.local) {
+                await this.holdCall(call._id, true)
             }
 
-            if (callsInRoom[0].connection && callsInRoom[0].connection?.getSenders()[0]) {
-                const processedStream = this.getActiveStream()
-                await callsInRoom[0].connection.getSenders()[0].replaceTrack(processedStream.getTracks()[0])
-                this.muteReconfigure(callsInRoom[0])
+            // Clean up any conference nodes
+            const hasConferenceNodes = !!this.conferenceNodes[roomId]
+            if (hasConferenceNodes) {
+                await this.cleanupConferenceNodes(roomId)
             }
-        } else if (callsInRoom.length > 1) {
+
+            return
+        }
+
+        // Single call in active room - unhold if needed and set up direct audio
+        if (callsInRoom.length === 1 && isHostRoom) {
+            const call = callsInRoom[0]
+
+            const holdState = call.isOnHold()
+
+            if (holdState.local && call._automaticHold) {
+                await this.unholdCall(call._id)
+            }
+
+            const senders = call.connection?.getSenders() || []
+            const firstSender = senders[0]
+
+            if (call.connection && firstSender) {
+                try {
+                    await this.setupActiveStream()
+                    const processedStream = this.activeStream
+
+                    if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
+                        console.log('[roomReconfigure] - Call processVAD from roomReconfigure')
+                        this.context.logger?.log('[roomReconfigure] - Call processVAD from roomReconfigure')
+                        this.processVADForActiveStream()
+                    }
+
+                    const tracks = processedStream.getTracks()
+
+                    await firstSender.replaceTrack(tracks[0])
+                    this.muteReconfigure(call)
+                } catch (error) {
+                    console.error(error)
+                }
+            }
+
+            // Clean up any conference nodes for single participant
+            const hasConferenceNodes = !!this.conferenceNodes[roomId]
+            if (hasConferenceNodes) {
+                await this.cleanupConferenceNodes(roomId)
+            }
+
+            return
+        }
+
+        // Multiple calls - set up conference
+        if (callsInRoom.length > 1) {
             await this.doConference(callsInRoom)
         }
     }
 
     private async doConference (sessions: Array<ICall>) {
-        /*await forEach(sessions, async (session: ICall) => {
-            if (session._localHold) {
-                await this.unholdCall(session._id)
+        console.log('[doConference] - In doConference, sessions:', sessions)
+        this.context.logger?.log('[doConference] - In doConference, sessions:', sessions)
+        if (sessions.length === 0) {
+            return
+        }
+
+        const roomId = sessions[0].roomId
+        const isHostRoom = this.currentActiveRoomId === roomId
+
+        // Validate all sessions have same room ID
+        const roomMismatch = sessions.find(s => s.roomId !== roomId)
+        if (roomMismatch) {
+            return
+        }
+
+        // Check AudioContext state before proceeding
+        let audioContext: AudioContext
+        try {
+            audioContext = await this.managedAudioContext.getContext()
+        } catch (error) {
+            console.error('[doConference] Failed to get AudioContext:', error)
+            this.context.logger?.error('[doConference] Failed to get AudioContext:', error)
+            return
+        }
+
+        const initialState = audioContext.state
+        if (initialState !== 'running') {
+            console.error(`[doConference] ERROR: AudioContext is not running! State: ${initialState}`)
+            this.context.logger?.error(`[doConference] ERROR: AudioContext is not running! State: ${initialState}`)
+            if (initialState === 'suspended' || initialState === 'interrupted') {
+                try {
+                    await audioContext.resume()
+                    const newState = audioContext.state
+                    if (newState !== 'running') {
+                        console.error(`[doConference] Failed to resume AudioContext, state: ${newState}`)
+                        this.context.logger?.error(`[doConference] Failed to resume AudioContext, state: ${newState}`)
+                        return
+                    }
+                } catch (error) {
+                    console.error('[doConference] Error resuming AudioContext:', error)
+                    this.context.logger?.error('[doConference] Error resuming AudioContext:', error)
+                    return
+                }
+            } else if (initialState === 'closed') {
+                console.error('[doConference] AudioContext is closed, cannot proceed')
+                this.context.logger?.error('[doConference] AudioContext is closed, cannot proceed')
+                return
+            } else {
+                return
             }
-        })*/
+        }
 
-        // Take all received tracks from the sessions you want to merge
-        const receivedTracks: Array<MediaStreamTrack> = []
+        // Clean up existing conference nodes for this room
+        await this.cleanupConferenceNodes(roomId)
 
-        sessions.forEach(session => {
-            if (session !== null && session !== undefined) {
-                session.connection.getReceivers().forEach((receiver: RTCRtpReceiver) => {
-                    receivedTracks.push(receiver.track)
+        // Initialize new conference nodes
+        this.conferenceNodes[roomId] = {
+            sources: new Map(),
+            destinations: new Map(),
+            gains: new Map()
+        }
+        const nodes = this.conferenceNodes[roomId]
+
+        // Create a map of all receiver tracks
+        const receiverTracks = new Map<string, MediaStreamTrack>()
+
+        console.log('[doConference] - Before sessions forEach, sessions:', sessions)
+        this.context.logger?.log('[doConference] - Before sessions forEach, sessions:', sessions)
+        sessions.forEach((session, sessionIndex) => {
+            console.log('[doConference] - In sessions forEach, iteration for', session._id)
+            this.context.logger?.log('[doConference] - In sessions forEach, iteration for', session._id)
+            if (session && session.connection) {
+                const receivers = session.connection.getReceivers()
+
+                console.log('[doConference] - Receivers list length for', session._id, receivers.length)
+                this.context.logger?.log('[doConference] - Receivers list length for', session._id, receivers.length)
+
+                receivers.forEach((receiver: RTCRtpReceiver, receiverIndex) => {
+                    receiver.track.enabled = !session.localMuted
+                    const trackId = receiver.track?.id
+                    const readyState = receiver.track?.readyState
+                    const kind = receiver.track?.kind
+                    const trackKey = `${session._id}-${trackId}`
+
+                    console.log('[doConference] - Gathering receiver tracks', session._id)
+                    console.log('[doConference] - Receiver track readyState', receiver.track.readyState)
+                    this.context.logger?.log('[doConference] - Gathering receiver tracks', session._id)
+                    this.context.logger?.log('[doConference] - Receiver track readyState', receiver.track.readyState)
+                    if (receiver.track && receiver.track.readyState === 'live') {
+                        console.log('[doConference] - Gathered receiver track', session._id)
+                        this.context.logger?.log('[doConference] - Gathered receiver track', session._id)
+                        receiverTracks.set(trackKey, receiver.track)
+                    }
                 })
+            } else {
+                console.log('[doConference] - No session or RTC connection, session:', session)
+                this.context.logger?.log('[doConference] - No session or RTC connection, session:', session)
             }
         })
 
-        // For each call we will build dedicated mix for all other calls
-        await forEach(sessions, async (session: ICall) => {
-            if (session === null || session === undefined) {
+        await this.setupActiveStream()
+
+        const tracksForVadSessions = {}
+
+        await forEach(sessions, async (session: ICall, sessionIndex) => {
+            if (!session || !session.connection) {
+                console.log('[doConference] - Return because of no session or connection, session:', session)
+                this.context.logger?.log('[doConference] - Return because of no session or connection, session:', session)
                 return
             }
 
-            // Use the Web Audio API to mix the received tracks
-            const allReceivedMediaStreams = new MediaStream()
             const mixedOutput = audioContext.createMediaStreamDestination()
+            const othersOnlyOutput = audioContext.createMediaStreamDestination()
+            nodes.destinations.set(session._id, mixedOutput)
+            nodes.destinations.set(`${session._id}-others`, othersOnlyOutput)
 
-            session.connection.getReceivers().forEach((receiver:  RTCRtpReceiver) => {
-                receivedTracks.forEach(track => {
-                    allReceivedMediaStreams.addTrack(receiver.track)
+            // Check if this session has any receiver tracks available
+            const sessionReceivers = session.connection.getReceivers()
+            const hasReceivers = sessionReceivers.length > 0
+            console.log(`[doConference] Session ${session._id} has ${sessionReceivers.length} receivers`)
+            this.context.logger?.log(`[doConference] Session ${session._id} has ${sessionReceivers.length} receivers`)
 
-                    if (receiver.track.id !== track.id) {
-                        const sourceStream = audioContext.createMediaStreamSource(new MediaStream([ track ]))
-                        sourceStream.connect(mixedOutput)
+            if (!hasReceivers) {
+                console.warn(`[doConference] Session ${session._id} has no receivers yet. Will re-configure when track arrives.`)
+                this.context.logger?.warn(`[doConference] Session ${session._id} has no receivers yet. Will re-configure when track arrives.`)
+                // Still create the mix destination so the session can send audio to others
+                // But don't try to add tracks from this session to others' mixes
+            }
+
+            receiverTracks.forEach((track, trackKey) => {
+                console.log('[doConference] - In forEach receiverTracks for', session._id)
+                this.context.logger?.log('[doConference] - In forEach receiverTracks for', session._id)
+                // Don't include the session's own received audio
+                if (!trackKey.startsWith(session._id)) {
+                    // Double-check track is still valid before creating audio nodes
+                    if (!track || track.readyState !== 'live') {
+                        console.warn(`[doConference] Skipping invalid track ${track?.id || 'unknown'} for session ${session._id}`)
+                        this.context.logger?.warn(`[doConference] Skipping invalid track ${track?.id || 'unknown'} for session ${session._id}`)
+                        return
                     }
-                })
+
+                    try {
+                        const source = audioContext.createMediaStreamSource(new MediaStream([ track ]))
+                        const gainNode = audioContext.createGain()
+                        const sourceKey = `${session._id}-${trackKey}`
+
+                        source.connect(gainNode)
+                        gainNode.connect(mixedOutput)
+                        gainNode.connect(othersOnlyOutput)
+                        console.log('[doConference] - In forEach connect track for', session._id)
+                        this.context.logger?.log('[doConference] - In forEach connect track for', session._id)
+
+                        // Store references for cleanup
+                        nodes.sources.set(sourceKey, source)
+                        nodes.gains.set(sourceKey, gainNode)
+                    } catch (error) {
+                        console.error(error)
+                    }
+                }
             })
 
-            if (sessions[0].roomId === this.currentActiveRoomId) {
-                // Mixing your voice with all the received audio
-                const processedStream = this.getActiveStream()
-                const sourceStream = audioContext.createMediaStreamSource(processedStream)
+            const othersOnlyTracks = othersOnlyOutput.stream.getTracks()
 
-                // stream.getTracks().forEach(track => track.enabled = !getters.isMuted) // TODO: Fix this
+            tracksForVadSessions[session._id] = othersOnlyTracks[0]
 
-                sourceStream.connect(mixedOutput)
-            }
+            if (isHostRoom && this.activeStreamValue) {
 
-            if (session.connection?.getSenders()[0]) {
-                //mixedOutput.stream.getTracks().forEach(track => track.enabled = !getters.isMuted) // Uncomment to mute all callers on mute
-                await session.connection.getSenders()[0].replaceTrack(mixedOutput.stream.getTracks()[0])
-                this.muteReconfigure(session)
+                try {
+                    //await this.setupActiveStream()
+                    const processedStream = this.activeStream
+
+                    const localSource = audioContext.createMediaStreamSource(processedStream)
+                    const localGain = audioContext.createGain()
+                    const localKey = `${session._id}-local`
+
+                    localSource.connect(localGain)
+                    localGain.connect(mixedOutput)
+
+                    nodes.sources.set(localKey, localSource)
+                    nodes.gains.set(localKey, localGain)
+                } catch (error) {
+                    console.error(error)
+                }
+            } else if (isHostRoom) {
+                console.error(`Host room but no activeStreamValue - skipping host microphone for session ${session._id}`)
+                this.context.logger?.error(`Host room but no activeStreamValue - skipping host microphone for session ${session._id}`)
+            } /*else {
+                session.connection.getReceivers().forEach((receiver: RTCRtpReceiver) => {
+                    receiver.track.enabled = false
+                })
+            }*/
+
+            const senders = session.connection.getSenders()
+            const sender = senders[0]
+            const mixedTracks = mixedOutput.stream.getTracks()
+
+            if (sender && mixedTracks[0]) {
+                try {
+                    console.log('[doConference] - Final replaceTrack for', session._id)
+                    this.context.logger?.log('[doConference] - Final replaceTrack for', session._id)
+                    console.log('RIGHT 2 initial replace for ', session._id)
+                    await sender.replaceTrack(mixedTracks[0])
+
+                    // IMPORTANT: Only unmute if host is in this room
+                    /*if (isHostRoom) {
+                        console.log(`[doConference] Applying mute reconfigure for session ${session._id} (host room)`)
+                        this.muteReconfigure(session)
+                    } else {
+                        console.log(`[doConference] Muting session ${session._id} (not host room)`)
+                        // Mute the outgoing audio for rooms where host is not present
+                        session.mute({ audio: true })
+                    }*/
+                    this.muteReconfigure(session)
+
+                } catch (error) {
+                    console.error(error)
+                }
             }
         })
+
+        if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
+            console.log('[doConference] - Call processVAD from doConference')
+            this.context.logger?.log('[doConference] - Call processVAD from doConference')
+            this.processVADForActiveStream(tracksForVadSessions)
+        }
     }
 
     private processCallerMute (callId: string, value: boolean) {
@@ -834,7 +1604,6 @@ export class AudioModule {
                 receiver.track.enabled = !value
             })
             this.updateCall(call)
-            //this.roomReconfigure(call.roomId)
         }
     }
 
@@ -857,6 +1626,278 @@ export class AudioModule {
             })
         } else if (call._status !== 8) {
             call.terminate()
+        }
+    }
+
+    /**
+     * Handle SIP response for ringback tone logic
+     * Called from onTransportData when 100/180/183 responses are received
+     * Can be called with either session ID or call_id from SIP message
+     * @param identifier - The call/session ID or SIP call_id
+     * @param statusCode - SIP status code (100, 180, or 183)
+     */
+    public handleSipResponseForRingback (identifier: string, statusCode: number) {
+        let callId: string | null = null
+
+        if (this.extendedCalls[identifier]) {
+            callId = identifier
+        } else {
+            const matchingCall = Object.values(this.extendedCalls).find((call: ICall) => {
+                return call.id === identifier || call._id === identifier ||
+                       (call.id && call.id.includes(identifier)) ||
+                       (call._id && call._id.includes(identifier))
+            })
+            if (matchingCall) {
+                callId = matchingCall.id
+            }
+        }
+
+        if (!callId) {
+            this.context.logger?.warn(`[handleSipResponseForRingback] Could not find session for identifier ${identifier}, status ${statusCode}`)
+            return
+        }
+
+        const call = this.extendedCalls[callId]
+        if (!call) {
+            this.context.logger?.warn(`[handleSipResponseForRingback] Call not found in extendedCalls for ${callId}`)
+            return
+        }
+
+        if (call.direction !== 'outgoing') {
+            return
+        }
+
+        if (call._is_confirmed) {
+            this.context.logger?.log(`[handleSipResponseForRingback] Call ${callId} is already confirmed, skipping ringback tone`)
+            return
+        }
+
+        // Start the call duration timer on the first provisional response we see from the wire (100/180/183).
+        if (!this.timeIntervals[callId]) {
+            this.startCallTimer(callId)
+        }
+
+        if (statusCode === SIP_STATUS_CODE.TRYING || statusCode === SIP_STATUS_CODE.RINGING) {
+            if (this.ringbackTimers[callId]) {
+                return
+            }
+
+            // Mark that we haven't received 183 yet
+            this.ringbackSessionProgressReceived[callId] = false
+
+            this.ringbackTimers[callId] = setTimeout(() => {
+                const currentCall = this.extendedCalls[callId]
+                if (currentCall && !currentCall._is_confirmed && !this.ringbackSessionProgressReceived[callId]) {
+                    this.startLocalRingbackTone(callId)
+                    this.context.logger?.log(`[handleSipResponseForRingback] Started local ringback tone for call ${callId} after 2 seconds without 183`)
+                } else if (currentCall && currentCall._is_confirmed) {
+                    this.context.logger?.log(`[handleSipResponseForRingback] Call ${callId} was confirmed during 2-second wait, skipping ringback tone`)
+                }
+
+                delete this.ringbackTimers[callId]
+            }, 2000)
+
+            this.context.logger?.log(`[handleSipResponseForRingback] Started 2-second timer for call ${callId} after receiving ${statusCode}`)
+        }
+
+        // Handle 183 Session Progress - stop timer and ringback if playing
+        if (statusCode === SIP_STATUS_CODE.SESSION_PROGRESS) {
+            this.ringbackSessionProgressReceived[callId] = true
+
+            if (this.ringbackTimers[callId]) {
+                clearTimeout(this.ringbackTimers[callId])
+                delete this.ringbackTimers[callId]
+                this.context.logger?.log(`[handleSipResponseForRingback] Cancelled ringback timer for call ${callId} - 183 received`)
+            }
+
+            this.stopLocalRingbackTone(callId)
+            this.context.logger?.log(`[handleSipResponseForRingback] Stopped local ringback tone for call ${callId} - 183 received with SDP`)
+        }
+    }
+
+    /**
+     * Start playing a local ringback tone (beep sound) for a session
+     * Standard ringback tone pattern: 440Hz + 480Hz, 1 second on, 3 seconds off
+     */
+    private async startLocalRingbackTone (sessionId: string) {
+        // Don't start if already playing
+        if (this.ringbackAudioContexts[sessionId]) {
+            return
+        }
+
+        try {
+            const audioContext = await this.managedAudioContext.getContext()
+
+            const oscillator1 = audioContext.createOscillator()
+            const oscillator2 = audioContext.createOscillator()
+            const gainNode = audioContext.createGain()
+
+            oscillator1.frequency.value = 440
+            oscillator2.frequency.value = 480
+            oscillator1.type = 'sine'
+            oscillator2.type = 'sine'
+
+            gainNode.gain.value = 0
+
+            oscillator1.connect(gainNode)
+            oscillator2.connect(gainNode)
+            gainNode.connect(audioContext.destination)
+
+            oscillator1.start()
+            oscillator2.start()
+
+            const ringbackData = {
+                context: audioContext,
+                oscillator1,
+                oscillator2,
+                gainNode,
+                intervalId: null as ReturnType<typeof setInterval> | null
+            }
+            this.ringbackAudioContexts[sessionId] = ringbackData
+
+            const playBeep = () => {
+                if (!this.ringbackAudioContexts[sessionId]) {
+                    return
+                }
+
+                const now = audioContext.currentTime
+                gainNode.gain.cancelScheduledValues(now)
+                gainNode.gain.setValueAtTime(0, now)
+                gainNode.gain.linearRampToValueAtTime(0.3, now + 0.05)
+
+                gainNode.gain.linearRampToValueAtTime(0, now + 1.0)
+            }
+
+            playBeep()
+
+            const intervalId = setInterval(() => {
+                if (!this.ringbackAudioContexts[sessionId]) {
+                    clearInterval(intervalId)
+                    return
+                }
+                playBeep()
+            }, 4000)
+
+            ringbackData.intervalId = intervalId
+            this.ringbackAudioContexts[sessionId] = ringbackData
+
+            this.context.logger?.log(`[startLocalRingbackTone] Started ringback tone for session ${sessionId}`)
+        } catch (error) {
+            this.context.logger?.error(`[startLocalRingbackTone] Error starting ringback tone for session ${sessionId}:`, error)
+            console.error(`[startLocalRingbackTone] Error starting ringback tone for session ${sessionId}:`, error)
+        }
+    }
+
+    /**
+     * Stop playing the local ringback tone for a session
+     */
+    private stopLocalRingbackTone (sessionId: string) {
+        const ringbackData = this.ringbackAudioContexts[sessionId]
+        if (!ringbackData) {
+            return
+        }
+
+        try {
+            if (ringbackData.intervalId) {
+                clearInterval(ringbackData.intervalId)
+            }
+
+            if (ringbackData.oscillator1) {
+                ringbackData.oscillator1.stop()
+            }
+            if (ringbackData.oscillator2) {
+                ringbackData.oscillator2.stop()
+            }
+
+            if (ringbackData.gainNode) {
+                ringbackData.gainNode.disconnect()
+            }
+
+            delete this.ringbackAudioContexts[sessionId]
+
+            this.context.logger?.log(`[stopLocalRingbackTone] Stopped ringback tone for session ${sessionId}`)
+        } catch (error) {
+            this.context.logger?.error(`[stopLocalRingbackTone] Error stopping ringback tone for session ${sessionId}:`, error)
+            console.error(`[stopLocalRingbackTone] Error stopping ringback tone for session ${sessionId}:`, error)
+            delete this.ringbackAudioContexts[sessionId]
+        }
+    }
+
+    /**
+     * Clean up ringback tone resources for a session
+     * Called when call ends, fails, or is confirmed
+     */
+    private cleanupRingbackTone (sessionId: string) {
+        if (this.ringbackTimers[sessionId]) {
+            clearTimeout(this.ringbackTimers[sessionId])
+            delete this.ringbackTimers[sessionId]
+        }
+
+        this.stopLocalRingbackTone(sessionId)
+
+        delete this.ringbackSessionProgressReceived[sessionId]
+    }
+
+    /**
+     * Play a hangup beep sound when a call is terminated
+     * Standard hangup beep: single tone, short duration (~200ms)
+     */
+    private async playHangupBeep () {
+        if (this.hangupBeepContext) {
+            return
+        }
+
+        try {
+            const audioContext = await this.managedAudioContext.getContext()
+
+            const oscillator = audioContext.createOscillator()
+            const gainNode = audioContext.createGain()
+
+            oscillator.frequency.value = 800
+            oscillator.type = 'sine'
+
+            gainNode.gain.value = 0
+
+            oscillator.connect(gainNode)
+            gainNode.connect(audioContext.destination)
+
+            this.hangupBeepContext = {
+                context: audioContext,
+                oscillator,
+                gainNode
+            }
+
+            oscillator.start()
+
+            const now = audioContext.currentTime
+            gainNode.gain.setValueAtTime(0, now)
+            gainNode.gain.linearRampToValueAtTime(0.3, now + 0.01)
+            gainNode.gain.setValueAtTime(0.3, now + 0.15)
+            gainNode.gain.linearRampToValueAtTime(0, now + 0.2)
+
+            oscillator.stop(now + 0.2)
+
+            setTimeout(() => {
+                if (this.hangupBeepContext) {
+                    try {
+                        if (this.hangupBeepContext.oscillator) {
+                            this.hangupBeepContext.oscillator.disconnect()
+                        }
+                        if (this.hangupBeepContext.gainNode) {
+                            this.hangupBeepContext.gainNode.disconnect()
+                        }
+                    } catch (error) {
+                        console.error('[playHangupBeep] Cleanup playing hangup beep error:', error)
+                    }
+                    this.hangupBeepContext = null
+                }
+            }, 250)
+
+            this.context.logger?.log('[playHangupBeep] Played hangup beep')
+        } catch (error) {
+            this.context.logger?.error('[playHangupBeep] Error playing hangup beep:', error)
+            console.error('[playHangupBeep] Error playing hangup beep:', error)
+            this.hangupBeepContext = null
         }
     }
 
@@ -1067,11 +2108,10 @@ export class AudioModule {
                 }
             })
         } else if (session.direction === 'outgoing') {
+            // Reset times when call is ANSWERED
             session.once('confirmed', () => {
                 this.startCallTimer(session.id)
             })
-
-            this.startCallTimer(session.id)
         }
 
         const call = session as ICall
@@ -1095,7 +2135,10 @@ export class AudioModule {
         this.addRoom(newRoomInfo)
 
         if (doAutoAnswer) {
-            this.answerCall(call._id)
+            // 250ms delay before answering to ensure proper timing between 180 Ringing and 200 OK
+            setTimeout(() => {
+                this.answerCall(call._id)
+            }, 250)
         }
     }
 
@@ -1118,25 +2161,22 @@ export class AudioModule {
 
     private activeCallListRemove (call: ICall) {
         const session = this.extendedCalls[call._id]
+        if (!session) return
+
         this.stopVUMeter('origin')
+        this.stopVUMeter(call._id)
 
-        // TODO: try without it
-        session.connection?.getSenders().forEach((sender) => {
-            sender.track.stop()
-        })
+        const callRoomId = session.roomId
 
-        const callRoomIdToConfigure = session.roomId
-
-        /*session.removeAllListeners()
-
-        if (session.connection) {
-            session.connection.close()
-        }*/
-
-        //this.extendedCalls[call._id] = null
-
+        // Clean up the call
         this.removeCall(call._id)
-        this.roomReconfigure(callRoomIdToConfigure)
+
+        // Reconfigure the room
+        this.roomReconfigure(callRoomId).then(() => {
+            // Additional cleanup if needed
+        }).catch(error => {
+            console.error('Error reconfiguring room after call removal:', error)
+        })
     }
 
 
@@ -1162,6 +2202,12 @@ export class AudioModule {
     private async newRTCSessionCallback (event: RTCSessionEvent) {
         const session = event.session as RTCSessionExtended
 
+        const initialRemotePartyIdHeader = session.direction === 'incoming'
+            ? event.request.getHeader('Remote-Party-ID')
+            : null
+        session._remote_party_display_name = parseRemotePartyIdDisplayName(initialRemotePartyIdHeader)
+        session._remote_party_uri_user = parseRemotePartyIdUriUser(initialRemotePartyIdHeader)
+
         if (this.shouldTerminateNewSession(event)) {
             session.terminate({
                 status_code: 486,
@@ -1186,6 +2232,29 @@ export class AudioModule {
                 session,
                 event
             })
+
+            // Play only for answered calls
+            if (session._is_confirmed) {
+                this.playHangupBeep()
+            }
+
+            if (session.connection) {
+                const connectionState = session.connection.connectionState
+
+                if (connectionState === 'closed' || connectionState === 'disconnected') {
+                    this.context.emit('connectionStateChange', {
+                        session,
+                        connectionState
+                    })
+                }
+            }
+
+            if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
+                this.stopSessionVad()
+            }
+
+            this.cleanupRingbackTone(session.id)
+
             const s = this.getActiveCalls[session.id]
 
             if (s) {
@@ -1223,6 +2292,23 @@ export class AudioModule {
                 event
             })
 
+            if (session.connection) {
+                const connectionState = session.connection.connectionState
+
+                if (connectionState === 'closed' || connectionState === 'disconnected') {
+                    this.context.emit('connectionStateChange', {
+                        session,
+                        connectionState
+                    })
+                }
+            }
+
+            if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
+                this.stopSessionVad()
+            }
+
+            this.cleanupRingbackTone(session.id)
+
             if (session.id === this.callAddingInProgress) {
                 this.callAddingInProgress = undefined
             }
@@ -1256,16 +2342,88 @@ export class AudioModule {
             })
             this.updateCall(session as ICall)
 
+            this.cleanupRingbackTone(session.id)
+
             if (session.id === this.callAddingInProgress) {
                 this.callAddingInProgress = undefined
             }
+        })
+
+        const handleRemotePartyIdRefresh = (event: ReInviteEvent) => {
+            if (this.refreshRemotePartyId(session, event.request)) {
+                this.updateCall(session as ICall)
+            }
+        }
+        session.on('reinvite', handleRemotePartyIdRefresh)
+        session.on('update', handleRemotePartyIdRefresh)
+
+        const setupConnectionListeners = (connection: RTCPeerConnection) => {
+            if (!connection) return
+
+            connection.addEventListener('connectionstatechange', (event) => {
+                this.context.emit('connectionStateChange', {
+                    session,
+                    connectionState: connection.connectionState
+                })
+                // TODO: Automatic conference reconfiguration on connection state change - uncomment if needed
+                /*const connectionState = connection.connectionState
+                // Re-configure conference if connection state changes and we're in a conference
+                // This ensures tracks are re-evaluated when connection recovers
+                if (session.roomId !== undefined) {
+                    const callsInRoom = Object.values(this.extendedCalls).filter(call => call.roomId === session.roomId)
+                    if (callsInRoom.length > 1) {
+                        console.log(`[ConnectionStateChange] Re-configuring conference for room ${session.roomId} due to connection state: ${connectionState}`)
+                        // Use setTimeout to avoid re-configuring during connection setup
+                        setTimeout(() => {
+                            this.roomReconfigure(session.roomId)
+                        }, 1000)
+                    }
+                }*/
+            })
+            // TODO: Track state monitoring - uncomment if needed for automatic track state monitoring
+            /*// Monitor track state changes
+            connection.addEventListener('track', (event: RTCTrackEvent) => {
+                const track = event.track
+
+                // Monitor track state changes
+                track.addEventListener('ended', () => {
+                    console.warn(`[TrackEnded] Track ${track.id} ended for session ${session.id}`)
+                    // Re-configure conference when a track ends
+                    if (session.roomId !== undefined) {
+                        const callsInRoom = Object.values(this.extendedCalls).filter(call => call.roomId === session.roomId)
+                        if (callsInRoom.length > 1) {
+                            console.log(`[TrackEnded] Re-configuring conference for room ${session.roomId}`)
+                            setTimeout(() => {
+                                this.roomReconfigure(session.roomId)
+                            }, 500)
+                        }
+                    }
+                })
+
+                // Monitor mute/unmute state changes
+                track.addEventListener('mute', () => {
+                    console.log(`[TrackMuted] Track ${track.id} muted for session ${session.id}`)
+                })
+
+                track.addEventListener('unmute', () => {
+                    console.log(`[TrackUnmuted] Track ${track.id} unmuted for session ${session.id}`)
+                })
+            })*/
+        }
+
+        if (session.connection) {
+            setupConnectionListeners(session.connection)
+        }
+
+        session.on('peerconnection', ({ peerconnection }: { peerconnection: RTCPeerConnection }) => {
+            setupConnectionListeners(peerconnection)
         })
 
         await this.setupCall(event)
 
         if (session.direction === 'outgoing') {
             const roomId = this.getActiveCalls[session.id].roomId
-            this.setActiveRoom(roomId)
+            await this.setActiveRoom(roomId)
         }
     }
 
@@ -1370,8 +2528,8 @@ export class AudioModule {
         metrics.startAllProbes()
     }
 
-    private setupVUMeter (stream: MediaStream, deviceId: string) {
-        this.VUMeter.start(stream, deviceId)
+    private async setupVUMeter (stream: MediaStream, deviceId: string) {
+        await this.VUMeter.start(await this.managedAudioContext.getContext(), stream, deviceId)
     }
 
     private stopVUMeter (deviceId: string) {
@@ -1379,39 +2537,109 @@ export class AudioModule {
     }
 
     async setupStream () {
-        const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
+        try {
+            const streamStart = Date.now()
+            const stream = await navigator.mediaDevices.getUserMedia(this.getUserMediaConstraints)
 
-        if (this.initialStreamValue) {
-            this.initialStreamValue.getTracks().forEach((track) => track.stop())
-            this.initialStreamValue = null
+            if (this.initialStreamValue) {
+                const tracksToStop = this.initialStreamValue.getTracks()
+                tracksToStop.forEach((track, index) => {
+                    track.stop()
+                })
+                this.initialStreamValue = null
+            }
+
+            this.initialStreamValue = stream
+        } catch (error) {
+            throw error
         }
-        this.initialStreamValue = stream
     }
 
     private async triggerAddStream (event: RTCTrackEvent, call: ICall) {
-        this.setIsMuted(this.muteWhenJoin || this.isMuted)
+        console.log(`[triggerAddStream] - For ${call._id}`)
+        this.context.logger?.log(`[triggerAddStream] - For ${call._id}`)
+        const muteState = this.muteWhenJoin || this.isMuted
+        this.setIsMuted(muteState)
 
         if (!this.initialStreamValue) {
             await this.setupStream()
         }
 
-        const processedStream = processAudioVolume(this.initialStreamValue, this.microphoneInputLevel * 2)
+        const audioContext = await this.managedAudioContext.getContext()
+
+        const processedStream = await processAudioVolume(audioContext, this.initialStreamValue, this.microphoneInputLevel * 2)
         const muteMicro = this.isMuted || this.muteWhenJoin
 
-        processedStream.getTracks().forEach(track => track.enabled = !muteMicro)
-        this.setActiveStream(processedStream)
-        await call.connection.getSenders()[0].replaceTrack(processedStream.getTracks()[0])
+        processedStream.getTracks().forEach((track) => {
+            track.enabled = !muteMicro
+        })
+
+        await this.setActiveStream(processedStream)
+
+        const senders = call.connection.getSenders()
+        const firstSender = senders[0]
+
+        await firstSender.replaceTrack(processedStream.getTracks()[0])
 
         const stream = new MediaStream([ event.track ])
 
-        syncStream(stream, call, this.selectedOutputDevice, this.speakerVolume)
-        this.setupVUMeter(stream, call._id)
+        const syncStreamNeeded = !Object.values(this.extendedCalls)
+            .find((session) => session.audioTag && session.audioTag.id === call._id)
+
+        if (syncStreamNeeded) {
+            syncStream(stream, call, this.selectedOutputDevice, this.speakerVolume)
+        }
+
+        // IMPORTANT: Check if we should hear this call
+        const shouldHearThisCall = call.roomId === this.currentActiveRoomId
+
+        if (call.audioTag) {
+            call.audioTag.muted = !shouldHearThisCall
+        }
+
+        await this.setupVUMeter(stream, call._id)
         this.getCallQuality(call)
         this.updateCall(call)
+
+        if (call.roomId !== undefined) {
+            const callsInRoom = Object.values(this.extendedCalls).filter(c => c.roomId === call.roomId)
+            if (callsInRoom.length > 1) {
+                console.log(`[triggerAddStream] Re-configuring conference for room ${call.roomId} - track received for call ${call._id}`)
+                this.context.logger?.log(`[triggerAddStream] Re-configuring conference for room ${call.roomId} - track received for call ${call._id}`)
+                // Use setTimeout to avoid blocking the track event handler
+                setTimeout(() => {
+                    this.roomReconfigure(call.roomId)
+                }, 100)
+            }
+        }
+
+        if ([ 'enabled', 'dynamic' ].includes(this.noiseReduction.mode)) {
+            //this.processVAD(call, processedStream)
+            this.processVADForActiveStream()
+        }
     }
 
     //@requireInitialization()
     public initCall (target: string, addToCurrentRoom: boolean, holdOtherCalls = false) {
+        /*console.log('SPECIAL CASE INIT CALL')
+        if (Object.values(this.extendedCalls).length >= 2) {
+            console.log('SPECIAL CASE !!!!!!!!!!!!!!!')
+
+            navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+                const track = stream.getAudioTracks()[0]
+                track.enabled = false
+
+                Object.values(this.extendedCalls).forEach((session) => {
+                    session.connection.getSenders().forEach((sender) => {
+                        sender.replaceTrack(track)
+                    })
+
+                    session.connection.getReceivers().forEach((receiver) => {
+                        receiver.track.enabled = false
+                    })
+                })
+            })
+        }*/
         //this.checkInitialized()
 
         if (target.length === 0) {
@@ -1467,22 +2695,18 @@ export class AudioModule {
     }
 
     private async processRoomChange ({ callId, roomId }: { callId: string, roomId: number }) {
-        const oldRoomId = this.extendedCalls[callId].roomId
-
-        this.extendedCalls[callId].roomId = roomId
-
         const call = this.extendedCalls[callId]
+        if (!call) {
+            return
+        }
+
+        const oldRoomId = call.roomId
+
+        call.roomId = roomId
+
         this.updateCall(call)
 
-        await this.setActiveRoom(roomId)
-
-        return Promise.all([
-            this.roomReconfigure(oldRoomId),
-            this.roomReconfigure(roomId)
-        ]).then(() => {
-            this.deleteRoomIfEmpty(oldRoomId)
-            this.deleteRoomIfEmpty(roomId)
-        })
+        await this.roomReconfigure(oldRoomId)
+        await this.roomReconfigure(roomId)
     }
-
 }

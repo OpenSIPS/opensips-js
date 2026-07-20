@@ -119,27 +119,33 @@ If you prefer using ES modules in the browser and your environment supports them
     import OpensipsJS from 'https://cdn.opensipsjs.org/opensipsjs/v0.1.1/opensips-js.es.js';\
 
     const opensipsJS = new OpensipsJS({
-      configuration: {
-        session_timers: false,
-        uri: 'sip:extension_user@domain',
-        // --- Use password or authorization_jwt to authorize
-        password: 'password',
-        // or
-        authorization_jwt: 'token',
-      },
-      socketInterfaces: ['wss://domain'],
-      pnExtraHeaders: {
-        'pn-provider': 'acme',
-        'pn-param': 'acme-param',
-        'pn-prid': 'ZH11Y4ZDJlMNzODE1NgKi0K>',
-      },
-      sipDomain: 'domain',
-      sipOptions: {
-        session_timers: false,
-        extraHeaders: ['X-Bar: bar'],
-        pcConfig: {},
-      },
-      modules: ['audio', 'video', 'msrp'],
+        configuration: {
+            session_timers: false,
+            noiseReductionOptions: {
+                mode: 'dynamic',
+                noiseThreshold: 0.004
+                checkEveryMs: 500
+                noiseCheckInterval: 2000
+            },
+            uri: 'sip:extension_user@domain',
+            // --- Use password or authorization_jwt to authorize
+            password: 'password',
+            // or
+            authorization_jwt: 'token',
+        },
+        socketInterfaces: ['wss://domain'],
+        pnExtraHeaders: {
+            'pn-provider': 'acme',
+            'pn-param': 'acme-param',
+            'pn-prid': 'ZH11Y4ZDJlMNzODE1NgKi0K>',
+        },
+        sipDomain: 'domain',
+        sipOptions: {
+            session_timers: false,
+            extraHeaders: ['X-Bar: bar'],
+            pcConfig: {},
+        },
+        modules: ['audio', 'video', 'msrp'],
     });
 
     // Use the modules as before
@@ -223,6 +229,7 @@ Also, there are next public fields on OpensipsJS instance:
 - `setSpeakerVolume(value: Number): void` - set volume of callers. Value should be in range from 0 to 1
 - `setDND(value: Boolean): void` - set the agent "Do not disturb" status
 - `setMetricsConfig(config: WebrtcMetricsConfigType): void` - set the metric config (used for audio quality indicator)
+- `setVADConfiguration(options: Partial<Omit<NoiseReductionOptions, 'vadModule'>>): void` - update noise reduction configuration at runtime. **Requires `vadModule` to be passed in the constructor, otherwise throws an error**
 
 ### Audio instance fields
 - `sipOptions: Object` - returns sip options
@@ -236,6 +243,127 @@ Also, there are next public fields on OpensipsJS instance:
 - `selectedOutputDevice: String` - returns current selected output device id
 - `isDND: Boolean` - returns if the agent is in "Do not disturb" status
 - `isMuted: Boolean` - returns if the agent is muted
+
+### Noise Reduction Options (VAD)
+
+**Important**: Voice Activity Detection (VAD) is an **optional feature** that requires installing an additional peer dependency. It is **NOT compatible with React Native**.
+
+#### Critical: VAD Module Must Be Passed to Constructor
+
+**If you plan to use noise reduction features (including `setVADConfiguration` in runtime), you MUST pass `vadModule` to the OpenSIPSJS constructor during initialization.**
+
+- ✅ **Required**: Pass `vadModule` in the constructor if you want to use noise reduction
+- ❌ **Will throw error**: Calling `setVADConfiguration()` without `vadModule` in the constructor will throw an error
+- ⚠️ **Cannot be changed later**: The `vadModule` cannot be set after initialization - it must be provided in the constructor
+
+#### For Web Applications (with VAD support)
+
+Install the VAD library:
+```bash
+npm install @ricky0123/vad-web
+# or
+yarn add @ricky0123/vad-web
+```
+
+Then import and inject it in your configuration **during initialization**:
+```javascript
+import OpenSIPSJS from 'opensips-js'
+import * as VAD from '@ricky0123/vad-web'
+
+const opensipsJS = new OpenSIPSJS({
+  configuration: {
+    // ... other configuration
+    noiseReductionOptions: {
+      mode: 'dynamic', // or 'enabled'
+      vadModule: VAD,  // ⚠️ REQUIRED: Must be passed here if you plan to use noise reduction
+      noiseThreshold: 0.004,
+      checkEveryMs: 500,
+      noiseCheckInterval: 2000
+    }
+  },
+  // ... rest of configuration
+})
+
+// ✅ Now you can use setVADConfiguration
+opensipsJS.audio.setVADConfiguration({
+  mode: 'enabled',
+  noiseThreshold: 0.005
+})
+```
+
+#### For Chrome MV3 Extensions
+
+Chrome Manifest V3 extensions block dynamic imports from external sources at the browser level. To use VAD in a Chrome MV3 extension, you must bundle the VAD assets locally.
+
+**1. Copy required files to your extension:**
+
+From `node_modules/@ricky0123/vad-web/dist/`:
+- `silero_vad_legacy.onnx`
+- `silero_vad_v5.onnx`
+- `vad.worklet.bundle.min.js`
+
+From `node_modules/onnxruntime-web/dist/`:
+- `ort-wasm-simd-threaded.mjs`
+- `ort-wasm-simd-threaded.wasm`
+
+Place them in your extension directory (e.g., `assets/vad/` and `assets/onnx/`).
+
+**Note**: The exact ONNX files needed may vary depending on browser capabilities. If you encounter loading errors, you may also need `ort-wasm-simd-threaded.jsep.wasm` or other variants from the `onnxruntime-web/dist/` folder.
+
+**2. Configure OpenSIPSJS with local paths:**
+
+```javascript
+import OpenSIPSJS from 'opensips-js'
+import * as VAD from '@ricky0123/vad-web'
+
+const opensipsJS = new OpenSIPSJS({
+  configuration: {
+    // ... other configuration
+    noiseReductionOptions: {
+      mode: 'dynamic',
+      vadModule: VAD,
+      // Point to locally bundled assets
+      baseAssetPath: browser.runtime.getURL('assets/vad/'),
+      onnxWASMBasePath: browser.runtime.getURL('assets/onnx/')
+    }
+  },
+  // ... rest of configuration
+})
+```
+
+**Note**: If your extension page is opened via `browser.windows.create()` or similar (extension's own context), you don't need `web_accessible_resources`. The extension can access its bundled files directly.
+
+#### For React Native Applications (VAD not supported)
+
+Simply omit the VAD module and disable noise reduction:
+```javascript
+import OpenSIPSJS from 'opensips-js'
+
+const opensipsJS = new OpenSIPSJS({
+  configuration: {
+    // ... other configuration
+    noiseReductionOptions: {
+      mode: 'disabled'  // or omit noiseReductionOptions entirely
+    }
+    // NO vadModule needed
+  },
+  // ... rest of configuration
+})
+```
+
+**See [VAD_USAGE.md](VAD_USAGE.md) and [EXAMPLES.md](EXAMPLES.md) for detailed usage examples.**
+
+#### Configuration Parameters
+
+| Parameter            | Type                             | Default                                                              | Description                                                                                                                                                                                                                                                                                      |
+|----------------------|----------------------------------|----------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `mode`               | `disabled \| enabled \| dynamic` | `disabled`                                                           | Noise reduction mode. **Note**: `enabled` and `dynamic` modes require `vadModule` to be provided                                                                                                                                                                                                 |
+| `vadConfig`          | `Partial<RealTimeVADOptions>`    | `{}`                                                                 | VAD configuration                                                                                                                                                                                                                                                                                |
+| `noiseThreshold`     | `number`                         | `0.004`                                                              | Noise threshold                                                                                                                                                                                                                                                                                  |
+| `noiseCheckInterval` | `number`                         | `2000`                                                               | The interval, used to check if we need to disable/enable outgoing audio every N-milliseconds                                                                                                                                                                                                     |
+| `checkEveryMs`       | `number`                         | `500`                                                                | The interval, used inside noiseCheckInterval loop, checks current noise state every N-milliseconds, to define the average noise level. Then on every noiseCheckInterval iteration, the values getting on checkEveryMs will be summed, then divided by it's number and compared to noiseThreshold |
+| `baseAssetPath`      | `string`                         | `https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.28/dist/`       | Base path for VAD web assets. For Chrome MV3 extensions, use local bundled path via `browser.runtime.getURL()`                                                                                                                                                                                   |
+| `onnxWASMBasePath`   | `string`                         | `https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/`          | Base path for ONNX runtime WASM files. For Chrome MV3 extensions, use local bundled path via `browser.runtime.getURL()`                                                                                                                                                                          |
 
 ## MSRP
 
