@@ -1,4 +1,4 @@
-import { ICall, StreamMediaType, MediaEvent, CustomLoggerType } from '@/types/rtc'
+import { ICall, StreamMediaType, CustomLoggerType } from '@/types/rtc'
 import { Writeable } from '@/types/generic'
 import { IMessage } from '@/types/msrp'
 
@@ -27,7 +27,9 @@ const CALL_KEYS_TO_INCLUDE: Array<ICallKey> = [
     //'originalStream',
     'localMuted',
     'autoAnswer',
-    'putOnHoldTimestamp'
+    'putOnHoldTimestamp',
+    '_remote_party_display_name',
+    '_remote_party_uri_user'
 ]
 type IMessageKey = keyof IMessage
 const MESSAGE_KEYS_TO_INCLUDE: Array<IMessageKey> = [
@@ -78,12 +80,11 @@ export function simplifyMessageObject (call: IMessage): IMessageSimplified {
     return simplified as IMessageSimplified
 }
 
-export function processAudioVolume (stream: MediaStream, volume: number) {
-    // volume should be in range from 0 to 2
-    const audioContext = new AudioContext()
+export async function processAudioVolume (audioContext: AudioContext, stream: MediaStream, volume: number): Promise<MediaStream> {
     const audioSource = audioContext.createMediaStreamSource(stream)
     const audioDestination = audioContext.createMediaStreamDestination()
     const gainNode = audioContext.createGain()
+
     audioSource.connect(gainNode)
     gainNode.connect(audioDestination)
     gainNode.gain.value = volume
@@ -92,19 +93,45 @@ export function processAudioVolume (stream: MediaStream, volume: number) {
 }
 
 export function syncStream (stream: MediaStream, call: ICall, outputDevice: string, volume: number) {
+    if (isMobile()) {
+        return
+    }
+
     const audio = document.createElement('audio') as StreamMediaType
 
     audio.id = call._id
     audio.className = 'audioTag'
     audio.srcObject = stream
 
-    if (!isMobile()) {
-        audio.setSinkId(outputDevice)
-        audio.volume = volume
-    }
+    audio.setSinkId(outputDevice)
+    audio.volume = volume
 
     audio.play()
     call.audioTag = audio
+}
+
+// Extracts the quoted display-name from a SIP `Remote-Party-ID` header value.
+// Example input:  "Test Extension" <sip:11@host>;party=calling;privacy=off
+// Returns:        "Test Extension"
+export function parseRemotePartyIdDisplayName (headerValue: string | null | undefined): string | null {
+    if (!headerValue) return null
+
+    const match = headerValue.match(/^\s*"((?:[^"\\]|\\.)*)"/)
+    if (!match) return null
+
+    return match[1].replace(/\\(.)/g, '$1')
+}
+
+// Extracts the user-part of the SIP URI from a `Remote-Party-ID` header value.
+// Example input:  "Test Extension" <sip:11@host>;party=called;privacy=off
+// Returns:        "11"
+export function parseRemotePartyIdUriUser (headerValue: string | null | undefined): string | null {
+    if (!headerValue) return null
+
+    const match = headerValue.match(/<?sips?:([^@>\s;]+)@/i)
+    if (!match) return null
+
+    return match[1]
 }
 
 export function isLoggerCompatible (logger: CustomLoggerType) {
@@ -118,5 +145,5 @@ export function isLoggerCompatible (logger: CustomLoggerType) {
 }
 
 export function isMobile () {
-    return /Mobi|Android|iPhone/i.test(navigator.userAgent)
+    return /Mobi|react-native|Android|iPhone/i.test(navigator.userAgent)
 }

@@ -1,6 +1,6 @@
 {
-  "name": "@voicenter-team/opensips-js",
-  "version": "1.0.133",
+  "name": "opensips-js",
+  "version": "0.1.46",
   "description": "The JS package for opensips",
   "default": "src/index.ts",
   "jsdelivr": "dist/opensips-js.iife.js",
@@ -31,17 +31,19 @@
     "npm": "please-use-yarn",
     "yarn": ">= 1.22.4"
   },
+  "precommit": "ts-check, lint",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/VoicenterTeam/opensips-js.git"
+    "url": "git+ssh://git@github.com/OpenSIPS/opensips-js.git"
   },
   "author": "Bohdan Konechnyi",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/VoicenterTeam/opensips-js/issues"
+    "url": "https://github.com/OpenSIPS/opensips-js/issues"
   },
-  "homepage": "https://github.com/VoicenterTeam/opensips-js#readme",
+  "homepage": "https://github.com/OpenSIPS/opensips-js#readme",
   "devDependencies": {
+    "@ricky0123/vad-web": "^0.0.29",
     "@opentelemetry/auto-instrumentations-node": "^0.59.0",
     "@opentelemetry/exporter-metrics-otlp-http": "^0.201.1",
     "@opentelemetry/exporter-prometheus": "^0.201.1",
@@ -60,7 +62,6 @@
     "@vitejs/plugin-vue": "^4.2.3",
     "@voicenter-team/aws-uploader": "^1.0.10",
     "@voicenter-team/eslint-config-ts": "^1.0.21",
-    "@voicenter-team/opensips-js-screen-share": "^0.0.2",
     "axios": "^1.9.0",
     "cors": "^2.8.5",
     "cross-env": "^7.0.3",
@@ -85,6 +86,7 @@
   },
   "dependencies": {
     "flat": "^6.0.1",
+    "@types/mime": "^3.0.1",
     "generate-unique-id": "^2.0.1",
     "jssip": "3.10.0",
     "konva": "^9.3.16",
@@ -93,6 +95,14 @@
     "p-iteration": "^1.1.8",
     "sdp-transform": "2.14.1",
     "uuid": "^10.0.0"
+  },
+  "peerDependencies": {
+    "@ricky0123/vad-web": "^0.0.28"
+  },
+  "peerDependenciesMeta": {
+    "@ricky0123/vad-web": {
+      "optional": true
+    }
   },
   "files": [
     "dist",

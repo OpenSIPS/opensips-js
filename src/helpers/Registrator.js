@@ -10,7 +10,7 @@ const MIN_REGISTER_EXPIRES = 10 // In seconds.
 
 export default class Registrator {
     constructor (ua, transport) {
-        // Force reg_id to 1.
+    // Force reg_id to 1.
         this._reg_id = 1
 
         this._ua = ua
@@ -36,31 +36,20 @@ export default class Registrator {
         // Contact header.
         this._contact = this._ua.contact.toString()
 
-        const symbolIndex = this._contact.indexOf('>')
-
-        if (symbolIndex !== -1) {
-            const newContact = this._contact.slice(0, symbolIndex) +
-                this._contact.slice(symbolIndex + 1, this._contact.length)
-
-            this._contact = newContact
-        }
-
-        this._extra_contact = ''
-
-        // Custom Contact header params for REGISTER and un-REGISTER.
-        this._extraContactParams = ''
-
         // Sip.ice media feature tag (RFC 5768).
-        this._extra_contact += ';+sip.ice'
+        this._contact += ';+sip.ice'
 
         // Custom headers for REGISTER and un-REGISTER.
         this._extraHeaders = []
 
+        // Custom Contact header params for REGISTER and un-REGISTER.
+        this._extraContactParams = ''
+
         // Contents of the sip.instance Contact header parameter.
         this._sipInstance = `"<urn:uuid:${this._ua.configuration.instance_id}>"`
 
-        this._extra_contact += `;reg-id=${this._reg_id}`
-        this._extra_contact += `;+sip.instance=${this._sipInstance}`
+        this._contact += `;reg-id=${this._reg_id}`
+        this._contact += `;+sip.instance=${this._sipInstance}`
     }
 
     get registered () {
@@ -95,26 +84,6 @@ export default class Registrator {
         }
     }
 
-    setExtraContactUriParams (extraContactParams) {
-        if (!(extraContactParams instanceof Object)) {
-            extraContactParams = {}
-        }
-
-        this._extraContactParams = ''
-
-        for (const param_key in extraContactParams) {
-            if (Object.prototype.hasOwnProperty.call(extraContactParams, param_key)) {
-                const param_value = extraContactParams[param_key]
-
-                this._extraContactParams += (`;${param_key}`)
-                if (param_value) {
-                    this._extraContactParams += (`=${param_value}`)
-                }
-            }
-        }
-        //this._extraContactParams += '>'
-    }
-
     register () {
         if (this._registering) {
             logger.debug('Register request in progress...')
@@ -125,12 +94,8 @@ export default class Registrator {
         const extraHeaders = this._extraHeaders.slice()
 
         extraHeaders.push(`Contact: \
-${this._contact}${this._extraContactParams}>${this._extra_contact};expires=${this._expires}`)
-        extraHeaders.push(`Expires: ${this._expires}`)
-
-        /*extraHeaders.push(`Contact: \
 ${this._contact};expires=${this._expires}${this._extraContactParams}`)
-        extraHeaders.push(`Expires: ${this._expires}`)*/
+        extraHeaders.push(`Expires: ${this._expires}`)
 
         const request = new SIPMessage.OutgoingRequest(
             JsSIP_C.REGISTER, this._registrar, this._ua, {
@@ -151,6 +116,7 @@ ${this._contact};expires=${this._expires}${this._extraContactParams}`)
                 this._cseq += 1
             },
             onReceiveResponse: (response) => {
+                console.log('register onReceiveResponse', response)
                 // Discard responses to older REGISTER/un-REGISTER requests.
                 if (response.cseq !== this._cseq) {
                     return
@@ -163,12 +129,14 @@ ${this._contact};expires=${this._expires}${this._extraContactParams}`)
                 }
 
                 switch (true) {
-                    case /^1[0-9]{2}$/.test(response.status_code): {
+                    case /^1[0-9]{2}$/.test(response.status_code):
+                    {
                         // Ignore provisional responses.
                         break
                     }
 
-                    case /^2[0-9]{2}$/.test(response.status_code): {
+                    case /^2[0-9]{2}$/.test(response.status_code):
+                    {
                         this._registering = false
 
                         if (!response.hasHeader('Contact')) {
@@ -184,7 +152,7 @@ ${this._contact};expires=${this._expires}${this._extraContactParams}`)
                         // Try to find a matching Contact using sip.instance and reg-id.
                         let contact = contacts.find((element) => (
                             (this._sipInstance === element.getParam('+sip.instance')) &&
-                            (this._reg_id === parseInt(element.getParam('reg-id')))
+              (this._reg_id === parseInt(element.getParam('reg-id')))
                         ))
 
                         // If no match was found using the sip.instance try comparing the URIs.
@@ -220,7 +188,7 @@ ${this._contact};expires=${this._expires}${this._extraContactParams}`)
 
                         const timeout = expires > 64
                             ? (expires * 1000 / 2) +
-                            Math.floor(((expires / 2) - 32) * 1000 * Math.random())
+                Math.floor(((expires / 2) - 32) * 1000 * Math.random())
                             : Math.floor(expires * 1000 / 2)
 
                         // Re-Register or emit an event before the expiration interval has elapsed.
@@ -253,7 +221,8 @@ ${this._contact};expires=${this._expires}${this._extraContactParams}`)
                     }
 
                     // Interval too brief RFC3261 10.2.8.
-                    case /^423$/.test(response.status_code): {
+                    case /^423$/.test(response.status_code):
+                    {
                         if (response.hasHeader('min-expires')) {
                             // Increase our registration interval to the suggested minimum.
                             this._expires = Number(response.getHeader('min-expires'))
@@ -272,7 +241,8 @@ ${this._contact};expires=${this._expires}${this._extraContactParams}`)
                         break
                     }
 
-                    default: {
+                    default:
+                    {
                         const cause = Utils.sipErrorCause(response.status_code)
 
                         this._registrationFailure(response, cause)
@@ -304,9 +274,8 @@ ${this._contact};expires=${this._expires}${this._extraContactParams}`)
 
         if (options.all) {
             extraHeaders.push(`Contact: *${this._extraContactParams}`)
-            //TODO: maybe here also needed ${this._extra_contact}
         } else {
-            extraHeaders.push(`Contact: ${this._contact}${this._extraContactParams}>${this._extra_contact};expires=0`)
+            extraHeaders.push(`Contact: ${this._contact};expires=0${this._extraContactParams}`)
         }
 
         extraHeaders.push('Expires: 0')
@@ -337,7 +306,8 @@ ${this._contact};expires=${this._expires}${this._extraContactParams}`)
                     case /^2[0-9]{2}$/.test(response.status_code):
                         this._unregistered(response)
                         break
-                    default: {
+                    default:
+                    {
                         const cause = Utils.sipErrorCause(response.status_code)
 
                         this._unregistered(response, cause)

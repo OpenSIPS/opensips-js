@@ -1,7 +1,7 @@
 import { UAEventMap } from 'jssip/lib/UA'
 
 import { IMessage, MSRPSessionExtended } from '@/types/msrp'
-import { ICall, RoomChangeEmitType, ICallStatus } from '@/types/rtc'
+import { ICall, RoomChangeEmitType, ICallStatus, RTCSessionExtended } from '@/types/rtc'
 import MSRPMessage from '@/lib/msrp/message'
 import { ITimeData } from '@/types/timer'
 import { IncomingMSRPSessionEvent, OutgoingMSRPSessionEvent } from '@/helpers/UA'
@@ -16,9 +16,15 @@ export type ChangeVolumeEventType = {
     volume: number
 }
 
+export type ConnectionStateChangeType = {
+    session: RTCSessionExtended,
+    connectionState: string
+}
+
 export type readyListener = (value: boolean) => void
 export type connectionListener = (value: boolean) => void
 export type reconnectionListener = (value: boolean) => void
+export type reconnectionAttemptsLimitListener = () => void
 export type changeActiveCallsListener = (event: { [key: string]: ICall }) => void
 export type changeActiveMessagesListener = (event: { [key: string]: IMessage }) => void
 export type TestEventListener = (event: { test: string }) => void
@@ -31,6 +37,7 @@ export type changeActiveOutputMediaDeviceListener = (event: string) => void
 export type changeAvailableDeviceListListener = (event: Array<MediaDeviceInfo>) => void
 export type changeMuteWhenJoinListener = (value: boolean) => void
 export type changeIsDNDListener = (value: boolean) => void
+export type changeIsCallWaitingListener = (value: boolean) => void
 export type changeIsMutedListener = (value: boolean) => void
 export type changeActiveStreamListener = (value: MediaStream) => void
 export type addRoomListener = (value: RoomChangeEmitType) => void
@@ -44,6 +51,8 @@ export type changeCallStatusListener = (event: { [key: string]: ICallStatus }) =
 export type changeCallTimeListener = (event: { [key: string]: ITimeData }) => void
 export type changeCallMetricsListener = (event: { [key: string]: any }) => void
 export type changeCallVolumeListener = (event: ChangeVolumeEventType) => void
+export type changeNoiseReductionStateListener = (event: boolean) => void
+export type connectionStateChangeListener = (event: ConnectionStateChangeType) => void
 export type conferenceStartListener = () => void
 export type conferenceEndListener = (sessionId) => void
 export type changeMainVideoStreamListener = (event: { name: string, event: MediaStream }) => void
@@ -60,6 +69,7 @@ export interface OpenSIPSEventMap extends UAEventMap {
     ready: readyListener
     connection: connectionListener
     reconnecting: reconnectionListener
+    reconnectionAttemptsLimitReached: reconnectionAttemptsLimitListener
     // JSSIP
     changeActiveCalls: changeActiveCallsListener
     changeActiveMessages: changeActiveMessagesListener
@@ -73,6 +83,7 @@ export interface OpenSIPSEventMap extends UAEventMap {
     changeAvailableDeviceList: changeAvailableDeviceListListener
     changeMuteWhenJoin: changeMuteWhenJoinListener
     changeIsDND: changeIsDNDListener
+    changeIsCallWaiting: changeIsCallWaitingListener
     changeIsMuted: changeIsMutedListener
     changeActiveStream: changeActiveStreamListener
     addRoom: addRoomListener
@@ -82,6 +93,8 @@ export interface OpenSIPSEventMap extends UAEventMap {
     changeCallTime: changeCallTimeListener
     changeCallMetrics: changeCallMetricsListener
     changeCallVolume: changeCallVolumeListener
+    changeNoiseReductionState: changeNoiseReductionStateListener
+    connectionStateChange: connectionStateChangeListener
     newMSRPMessage: MSRPMessageListener
     newMSRPSession: MSRPSessionListener
     // JANUS

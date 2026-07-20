@@ -81,6 +81,8 @@ export interface RTCSessionExtended extends RTCSession {
     _videoMuted: boolean
     _status: number
     _remote_identity: RemoteIdentityCallType
+    _remote_party_display_name: string | null
+    _remote_party_uri_user: string | null
     answer(options?: AnswerOptionsExtended): void
     init_icncoming(request: IncomingRequest): void
 }
@@ -113,6 +115,7 @@ export interface ICallStatus {
     isMoving: boolean
     isTransferring: boolean
     isMerging: boolean
+    isTransferred: boolean
 }
 
 export interface ICallStatusUpdate {
@@ -120,6 +123,7 @@ export interface ICallStatusUpdate {
     isMoving?: boolean
     isTransferring?: boolean
     isMerging?: boolean
+    isTransferred?: boolean
 }
 
 export type IRoomUpdate = Omit<IRoom, 'started'> & {
@@ -132,8 +136,55 @@ export type MSRPModuleName = typeof MODULES.MSRP
 
 export type Modules = AudioModuleName | VideoModuleName | MSRPModuleName
 
+export type OnTransportCallback = (parsed: object, message: string) => void
+
+export interface VADOptions {
+    model: 'v5' | 'legacy'
+    positiveSpeechThreshold: number
+    negativeSpeechThreshold: number
+    minSpeechFrames: number
+    preSpeechPadFrames: number
+}
+
+export interface VADSessionState {
+    isSpeaking: boolean
+    currentMode: 'clean' | 'noisy'
+}
+
+export type NoiseReductionMode = 'disabled' | 'enabled' | 'dynamic'
+
+export interface NoiseReductionOptions {
+    mode: NoiseReductionMode,
+    vadModule?: VADModule
+    vadConfig?: Partial<VADOptions>
+    noiseThreshold?: number
+    checkEveryMs?: number
+    noiseCheckInterval?: number
+    /**
+     * Base path for VAD web assets (silero model, worklet processor, etc.)
+     * Default: 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.28/dist/'
+     * For Chrome MV3 extensions, bundle assets locally and provide local path (e.g., 'chrome-extension://<id>/vad/')
+     */
+    baseAssetPath?: string
+    /**
+     * Base path for ONNX runtime WASM files
+     * Default: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/'
+     * For Chrome MV3 extensions, bundle ONNX WASM files locally and provide local path
+     */
+    onnxWASMBasePath?: string
+}
+
+export type NoiseReductionOptionsWithoutVadModule = Omit<NoiseReductionOptions, 'vadModule'>
+
+export interface VADModule {
+    MicVAD: any
+}
+
 type UAConfigurationExtended = UAConfiguration & {
+    reconnectionAttemptsLimit?: number
     overrideUserAgent?: (userAgent: string) => string
+    noiseReductionOptions?: NoiseReductionOptions
+    onTransportCallback?: OnTransportCallback
 }
 
 export type IOpenSIPSConfiguration = Omit<UAConfigurationExtended, 'sockets'>
@@ -149,6 +200,8 @@ export interface IOpenSIPSJSOptions {
     },
     modules: Array<Modules>
     pnExtraHeaders?: ExtraContactParams
+    msrpDomain?: string
+    msrpWs?: boolean
 }
 
 export interface TriggerListenerOptions {
