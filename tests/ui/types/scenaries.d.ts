@@ -22,11 +22,17 @@ export type TestScenarioEventActionType =
     | 'playSound'
     | 'sendDTMF'
     | 'transfer'
+    | 'roomTransfer'
+    | 'DND'
     | 'unregister'
     | 'ready'
     | 'incoming'
     | 'wait'
     | 'request'
+    | 'textToSpeech'
+    | 'startTranscription'
+    | 'stopTranscription'
+    | 'textChunk'
 
 export type TestScenarioEventActionTypeData = {
     payload?: TestScenarioEventActionTypeDataPayload
@@ -44,6 +50,7 @@ export type TestScenarioEventActionTypeDataPayload = {
     username?: string
     password?: string
     target?: string
+    text?: string
 }
 
 export type TResponseToContext = {

@@ -57,6 +57,10 @@ declare global {
         callMetrics: CallMetricsData
         scenarioName?: string
         scenarioId?: string
+        __latestRemoteAudioStream?: MediaStream
+        __remoteAudioRecorder?: MediaRecorder | null
+        __onRemoteAudioChunk?: (base64: string) => void
+        __hasActiveCall?: boolean
     }
 }
 
@@ -100,10 +104,25 @@ export class WebRTCMetricsCollector {
 
             window.callMetrics.startTime = Date.now()
 
+            // Capture the remote audio track for speech-to-text.
+            pc.addEventListener('track', (event: RTCTrackEvent) => {
+                try {
+                    if (event.track && event.track.kind === 'audio') {
+                        window.__latestRemoteAudioStream = (event.streams && event.streams[0])
+                            ? event.streams[0]
+                            : new MediaStream([ event.track ])
+                        console.log('[WebRTCMetricsCollector] Captured remote audio stream for STT')
+                    }
+                } catch (e) {
+                    console.error('[WebRTCMetricsCollector] Error capturing remote audio track:', e)
+                }
+            })
+
             pc.oniceconnectionstatechange = () => {
                 console.log('[WebRTCMetricsCollector] ICE Connection State:', pc.iceConnectionState)
                 if (pc.iceConnectionState === 'connected') {
                     window.callMetrics.connected = true
+                    window.__hasActiveCall = true
                     window.callMetrics.connectionTime = Date.now() - (window.callMetrics.startTime || Date.now())
                     console.log('[WebRTCMetricsCollector] WebRTC connection established', {
                         connectionTime: window.callMetrics.connectionTime
@@ -218,7 +237,10 @@ export class WebRTCMetricsCollector {
 
             pc.onconnectionstatechange = () => {
                 if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
+                    window.__hasActiveCall = false
                     clearInterval(statsInterval)
+                } else if (pc.connectionState === 'disconnected') {
+                    window.__hasActiveCall = false
                 }
             }
 

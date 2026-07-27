@@ -1,6 +1,8 @@
 import { Page } from 'playwright'
 
 export default class WindowMethodsWorker {
+    private remoteCaptureBound = false
+
     constructor (
         private readonly page: Page
     ) {}
@@ -175,6 +177,79 @@ export default class WindowMethodsWorker {
         } catch (error) {
             throw error
         }
+    }
+
+    /**
+     * Capture the remote party's audio track and stream it to Node as base64
+     * chunks. Relies on `window.__latestRemoteAudioStream` set in WebRTCMetricsCollector.
+     */
+    public async startRemoteAudioCapture (
+        onChunk: (base64Chunk: string) => void | Promise<void>,
+        timesliceMs = 2000
+    ): Promise<void> {
+        if (!this.remoteCaptureBound) {
+            await this.page.exposeFunction(
+                '__onRemoteAudioChunk',
+                (base64: string) => onChunk(base64)
+            )
+            this.remoteCaptureBound = true
+        }
+
+        const captureScript = `
+            (function(timeslice) {
+                if (!window.__latestRemoteAudioStream) {
+                    throw new Error('No remote audio stream available yet. Start transcription after the call is connected.');
+                }
+
+                var mimeType = 'audio/webm;codecs=opus';
+                if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported && !MediaRecorder.isTypeSupported(mimeType)) {
+                    mimeType = '';
+                }
+
+                var recorder = mimeType
+                    ? new MediaRecorder(window.__latestRemoteAudioStream, { mimeType: mimeType })
+                    : new MediaRecorder(window.__latestRemoteAudioStream);
+
+                recorder.ondataavailable = function(event) {
+                    if (!event.data || event.data.size === 0) {
+                        return;
+                    }
+                    var reader = new FileReader();
+                    reader.onloadend = function() {
+                        var result = String(reader.result || '');
+                        var base64 = result.indexOf(',') !== -1 ? result.split(',')[1] : '';
+                        if (base64 && window.__onRemoteAudioChunk) {
+                            window.__onRemoteAudioChunk(base64);
+                        }
+                    };
+                    reader.readAsDataURL(event.data);
+                };
+
+                window.__remoteAudioRecorder = recorder;
+                recorder.start(timeslice);
+                console.log('=== REMOTE AUDIO CAPTURE STARTED ===');
+            })(${timesliceMs});
+        `
+
+        await this.page.evaluate(captureScript)
+    }
+
+    public async stopRemoteAudioCapture (): Promise<void> {
+        const stopScript = `
+            (function() {
+                if (window.__remoteAudioRecorder) {
+                    try {
+                        window.__remoteAudioRecorder.stop();
+                    } catch (e) {
+                        console.error('Error stopping remote audio recorder:', e);
+                    }
+                    window.__remoteAudioRecorder = null;
+                    console.log('=== REMOTE AUDIO CAPTURE STOPPED ===');
+                }
+            })();
+        `
+
+        await this.page.evaluate(stopScript)
     }
 
     public async cleanup (): Promise<void> {

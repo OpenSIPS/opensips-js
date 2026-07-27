@@ -30,11 +30,15 @@ import {
     ActionResponse,
     ActionType,
     RoomTransferAction,
+    TextToSpeechAction,
+    StartTranscriptionAction,
+    StopTranscriptionAction,
     isActionError,
 } from '../types/actions'
 
 import { expect } from '@playwright/test'
 import QrynClient from './QrynClient'
+import { BaseSpeechProvider } from './speech/BaseSpeechProvider'
 
 /**
  * TestExecutor - Handles the execution of test actions
@@ -62,13 +66,16 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
     private addCallToCurrentRoomCheckbox: Locator
 
 
+    private isTranscribing = false
+
     constructor (
         private readonly scenarioId: string,
         private readonly scenarioName: string,
         private readonly pageWebSocketWorker: PageWebSocketWorker,
         private readonly windowMethodsWorker: WindowMethodsWorker,
         public readonly page: Page,
-        public readonly browser: Browser
+        public readonly browser: Browser,
+        private readonly speechProvider?: BaseSpeechProvider
     ) {
         this.qrynClient = new QrynClient('ActionsExecutor', scenarioName, scenarioId)
     }
@@ -606,6 +613,125 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
             return {
                 success: false,
                 error: message
+            }
+        }
+    }
+
+    public async textToSpeech (data: GetActionPayload<TextToSpeechAction>): Promise<GetActionResponse<TextToSpeechAction>> {
+        await this.qrynClient.log('Executing textToSpeech action', { text: data.text })
+
+        if (!this.speechProvider) {
+            return {
+                success: false,
+                error: 'No speech provider configured. Pass one to run() to use textToSpeech.'
+            }
+        }
+
+        const hasActiveCall = await this.page.evaluate(() => Boolean(window.__hasActiveCall))
+        if (!hasActiveCall) {
+            await this.qrynClient.warn(
+                'textToSpeech called without an active call; synthesized audio will not be transmitted to any remote party',
+                { text: data.text }
+            )
+        }
+
+        try {
+            const result = await this.speechProvider.textToSpeech(data.text)
+
+            const base64Data = Buffer.isBuffer(result.audio)
+                ? result.audio.toString('base64')
+                : result.audio
+            const mimeType = result.mimeType || 'audio/mpeg'
+            const dataUrl = `data:${mimeType};base64,${base64Data}`
+
+            const startTime = Date.now()
+            await this.windowMethodsWorker.playClip(dataUrl)
+            const duration = Date.now() - startTime
+
+            await this.qrynClient.log('textToSpeech played successfully', { duration })
+
+            return {
+                success: true,
+                duration
+            }
+        } catch (error) {
+            await this.qrynClient.error('Error during textToSpeech', {
+                error: error instanceof Error ? error.message : String(error)
+            })
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : 'Unknown error during textToSpeech'
+            }
+        }
+    }
+
+    public async startTranscription (): Promise<GetActionResponse<StartTranscriptionAction>> {
+        await this.qrynClient.log('Executing startTranscription action')
+
+        if (!this.speechProvider) {
+            return {
+                success: false,
+                error: 'No speech provider configured. Pass one to run() to use startTranscription.'
+            }
+        }
+
+        try {
+            await this.speechProvider.startRecording()
+
+            await this.windowMethodsWorker.startRemoteAudioCapture(async (base64Chunk) => {
+                try {
+                    await this.speechProvider!.writeAudioChunk(Buffer.from(base64Chunk, 'base64'))
+                } catch (error) {
+                    await this.qrynClient.error('Error forwarding audio chunk to provider', {
+                        error: error instanceof Error ? error.message : String(error)
+                    })
+                }
+            })
+
+            this.isTranscribing = true
+
+            return {
+                success: true
+            }
+        } catch (error) {
+            await this.qrynClient.error('Error during startTranscription', {
+                error: error instanceof Error ? error.message : String(error)
+            })
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : 'Unknown error during startTranscription'
+            }
+        }
+    }
+
+    public async stopTranscription (): Promise<GetActionResponse<StopTranscriptionAction>> {
+        await this.qrynClient.log('Executing stopTranscription action')
+
+        if (!this.speechProvider) {
+            return {
+                success: false,
+                error: 'No speech provider configured. Pass one to run() to use stopTranscription.'
+            }
+        }
+
+        try {
+            if (this.isTranscribing) {
+                await this.windowMethodsWorker.stopRemoteAudioCapture()
+                this.isTranscribing = false
+            }
+
+            await this.speechProvider.stopRecording()
+
+            return {
+                success: true
+            }
+        } catch (error) {
+            await this.qrynClient.error('Error during stopTranscription', {
+                error: error instanceof Error ? error.message : String(error)
+            })
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : 'Unknown error during stopTranscription'
             }
         }
     }

@@ -26,8 +26,12 @@ import {
 import { TestScenario } from '../types/intex'
 import { EventListener, EventListenerData, EventType } from '../types/events'
 import QrynClient from './QrynClient'
+import { BaseSpeechProvider } from './speech/BaseSpeechProvider'
 
 const SCENARIO_THAT_TRIGGERED_EVENT_KEY = 'SCENARIO_THAT_TRIGGERED_EVENT_KEY' as const
+
+// Events whose handler is reused for every emission instead of consumed once.
+const REPEATABLE_EVENTS: ReadonlySet<string> = new Set([ 'textChunk' ])
 
 export default class TestExecutor {
     private pageWebSocketWorker!: PageWebSocketWorker
@@ -45,7 +49,8 @@ export default class TestExecutor {
     constructor (
         private readonly scenarioId: string,
         private readonly scenarioName: string,
-        private readonly scenarioManager: ScenarioManager
+        private readonly scenarioManager: ScenarioManager,
+        private readonly speechProvider?: BaseSpeechProvider
     ) {
         this.telemetryService = new TelemetryService(scenarioId, scenarioName)
         this.qrynClient = new QrynClient('TestExecutor', scenarioName, scenarioId)
@@ -250,6 +255,15 @@ export default class TestExecutor {
                     break
                 case 'request':
                     result = await this.actionsExecutor.request(this.buildPayload('request', action))
+                    break
+                case 'textToSpeech':
+                    result = await this.actionsExecutor.textToSpeech(this.buildPayload('textToSpeech', action))
+                    break
+                case 'startTranscription':
+                    result = await this.actionsExecutor.startTranscription()
+                    break
+                case 'stopTranscription':
+                    result = await this.actionsExecutor.stopTranscription()
                     break
                 default:
                     // TypeScript will ensure this case never happens
@@ -483,8 +497,17 @@ export default class TestExecutor {
                 this.pageWebSocketWorker,
                 this.windowMethodsWorker,
                 this.page,
-                this.browser
+                this.browser,
+                this.speechProvider
             )
+
+            if (this.speechProvider) {
+                this.speechProvider._bindTranscriptSink((text) => {
+                    const chunk = { text, timestamp: Date.now() }
+                    this.scenarioManager.updateContext({ textChunk: chunk })
+                    void this.triggerSharedEventListener('textChunk', chunk as EventListenerData<'textChunk'>)
+                })
+            }
 
             await this.page.goto(`http://localhost:${env.PORT}`)
 
@@ -541,11 +564,14 @@ export default class TestExecutor {
                         return
                     }
 
-                    const currentIndex = eventCounter[eventName]
+                    const isRepeatable = REPEATABLE_EVENTS.has(eventName)
+                    const currentIndex = isRepeatable ? 0 : eventCounter[eventName]
                     const actions = handlers[currentIndex]
 
                     if (actions) {
-                        eventCounter[eventName]++
+                        if (!isRepeatable) {
+                            eventCounter[eventName]++
+                        }
 
                         // Start event span for detailed tracing
                         const eventSpan = this.telemetryService.startEventSpan(eventName, eventData)

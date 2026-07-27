@@ -7,6 +7,7 @@ import SendDtmfDataForm from '~/components/data/payload/SendDtmfDataForm.vue'
 import TransferDataForm from '~/components/data/payload/TransferDataForm.vue'
 import RequestDataForm from '~/components/data/payload/RequestDataForm.vue'
 import RoomTransferForm from '~/components/data/payload/RoomTransferForm.vue'
+import TextToSpeechDataForm from '~/components/data/payload/TextToSpeechDataForm.vue'
 
 export const EVENT_ACTIONS: Record<string, TestScenarioEventActionType> = {
     ANSWER: 'answer',
@@ -24,7 +25,11 @@ export const EVENT_ACTIONS: Record<string, TestScenarioEventActionType> = {
     INCOMING: 'incoming',
     WAIT: 'wait',
     REQUEST: 'request',
-    DND: 'DND'
+    DND: 'DND',
+    TEXT_TO_SPEECH: 'textToSpeech',
+    START_TRANSCRIPTION: 'startTranscription',
+    STOP_TRANSCRIPTION: 'stopTranscription',
+    TEXT_CHUNK: 'textChunk'
 } as const
 
 export const DIAL_ACTION = {
@@ -83,6 +88,18 @@ export const DND_ACTION = {
     label: 'DND',
     value: EVENT_ACTIONS.DND
 }
+export const TEXT_TO_SPEECH_ACTION = {
+    label: 'Text To Speech',
+    value: EVENT_ACTIONS.TEXT_TO_SPEECH
+}
+export const START_TRANSCRIPTION_ACTION = {
+    label: 'Start Transcription',
+    value: EVENT_ACTIONS.START_TRANSCRIPTION
+}
+export const STOP_TRANSCRIPTION_ACTION = {
+    label: 'Stop Transcription',
+    value: EVENT_ACTIONS.STOP_TRANSCRIPTION
+}
 
 export const ScenarioActionsMap: TScenarioActionsMap = {
     [EVENT_ACTIONS.REGISTER]: {
@@ -126,11 +143,62 @@ export const ScenarioActionsMap: TScenarioActionsMap = {
                 ...PLAY_SOUND_ACTION
             },
             {
+                ...TEXT_TO_SPEECH_ACTION
+            },
+            {
+                ...START_TRANSCRIPTION_ACTION
+            },
+            {
                 ...HANGUP_ACTION
             },
             {
                 ...REQUEST_ACTION
             }
+        ]
+    },
+    [EVENT_ACTIONS.TEXT_TO_SPEECH]: {
+        key: EVENT_ACTIONS.TEXT_TO_SPEECH,
+        label: 'Text To Speech',
+        actions: [
+            { ...WAIT_ACTION },
+            { ...REQUEST_ACTION },
+            { ...TEXT_TO_SPEECH_ACTION },
+            { ...START_TRANSCRIPTION_ACTION },
+            { ...STOP_TRANSCRIPTION_ACTION },
+            { ...HANGUP_ACTION }
+        ]
+    },
+    [EVENT_ACTIONS.START_TRANSCRIPTION]: {
+        key: EVENT_ACTIONS.START_TRANSCRIPTION,
+        label: 'Start Transcription',
+        actions: [
+            { ...WAIT_ACTION },
+            { ...REQUEST_ACTION },
+            { ...TEXT_TO_SPEECH_ACTION },
+            { ...STOP_TRANSCRIPTION_ACTION }
+        ]
+    },
+    [EVENT_ACTIONS.STOP_TRANSCRIPTION]: {
+        key: EVENT_ACTIONS.STOP_TRANSCRIPTION,
+        label: 'Stop Transcription',
+        actions: [
+            { ...WAIT_ACTION },
+            { ...REQUEST_ACTION },
+            { ...TEXT_TO_SPEECH_ACTION },
+            { ...HANGUP_ACTION },
+            { ...UNREGISTER_ACTION }
+        ]
+    },
+    [EVENT_ACTIONS.TEXT_CHUNK]: {
+        key: EVENT_ACTIONS.TEXT_CHUNK,
+        label: 'Text Chunk (transcript)',
+        actions: [
+            { ...TEXT_TO_SPEECH_ACTION },
+            { ...SEND_DTMF_ACTION },
+            { ...WAIT_ACTION },
+            { ...REQUEST_ACTION },
+            { ...HANGUP_ACTION },
+            { ...STOP_TRANSCRIPTION_ACTION }
         ]
     },
     [EVENT_ACTIONS.HOLD]: {
@@ -245,7 +313,10 @@ export const CustomAction = {
         { ...TRANSFER_ACTION },
         { ...ROOM_TRANSFER_ACTION },
         { ...UNREGISTER_ACTION },
-        { ...DND_ACTION }
+        { ...DND_ACTION },
+        { ...TEXT_TO_SPEECH_ACTION },
+        { ...START_TRANSCRIPTION_ACTION },
+        { ...STOP_TRANSCRIPTION_ACTION }
     ]
 }
 
@@ -257,7 +328,8 @@ export const PAYLOAD_COMPONENTS = {
     [EVENT_ACTIONS.SEND_DTMF]: SendDtmfDataForm,
     [EVENT_ACTIONS.TRANSFER]: TransferDataForm,
     [EVENT_ACTIONS.ROOMTRANSFER]: RoomTransferForm,
-    [EVENT_ACTIONS.REQUEST]: RequestDataForm
+    [EVENT_ACTIONS.REQUEST]: RequestDataForm,
+    [EVENT_ACTIONS.TEXT_TO_SPEECH]: TextToSpeechDataForm
 }
 
 export function isPayloadRequired (action: string) {

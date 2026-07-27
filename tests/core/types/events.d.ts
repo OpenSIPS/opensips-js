@@ -11,7 +11,7 @@ type AllowedActions <T extends ActionType> = T
 export interface EventsMap {
     register: AllowedActions<'dial' | 'wait' | 'request' | 'DND'>
     dial: AllowedActions<'request'>
-    answer: AllowedActions<'hold' | 'unhold' | 'wait' | 'playSound' | 'hangup' | 'request'>
+    answer: AllowedActions<'hold' | 'unhold' | 'wait' | 'playSound' | 'textToSpeech' | 'startTranscription' | 'hangup' | 'request'>
     hold: AllowedActions<'unhold' | 'wait' | 'request'>
     unhold: AllowedActions<'hold' | 'wait' | 'request'>
     hangup: AllowedActions<'unregister' | 'request'>
@@ -23,6 +23,11 @@ export interface EventsMap {
     unregister: AllowedActions<'wait' | 'request'>
     ready: AllowedActions<'register' | 'wait' | 'request' | 'dial'>
     incoming: AllowedActions<'answer' | 'wait' | 'request'>
+    textToSpeech: AllowedActions<'wait' | 'request' | 'hangup' | 'textToSpeech' | 'startTranscription' | 'stopTranscription'>
+    startTranscription: AllowedActions<'wait' | 'request' | 'textToSpeech' | 'stopTranscription'>
+    stopTranscription: AllowedActions<'wait' | 'request' | 'textToSpeech' | 'hangup' | 'unregister'>
+    // Repeatable event: the handler runs for every transcript chunk received.
+    textChunk: AllowedActions<'textToSpeech' | 'sendDTMF' | 'wait' | 'request' | 'hangup' | 'stopTranscription'>
     [customEvent: string]: AllowedActions<ActionType>
 }
 export type EventType = keyof EventsMap

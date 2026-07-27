@@ -5,6 +5,7 @@ import {
 
 import TestExecutor from './TestExecutor'
 import QrynClient from './QrynClient'
+import { SpeechProviderInput, resolveSpeechProvider } from './speech/BaseSpeechProvider'
 
 /**
  * ScenarioManager - Manages the execution of multiple test scenarios
@@ -17,7 +18,8 @@ export default class ScenarioManager {
 
     constructor (
         private readonly scenarios: TestScenarios,
-        private readonly testContext: TestContext
+        private readonly testContext: TestContext,
+        private readonly speechProvider?: SpeechProviderInput
     ) {
         this.scenarios = scenarios
         this.testContext = testContext
@@ -49,7 +51,8 @@ export default class ScenarioManager {
             const executor = new TestExecutor(
                 scenarioId,
                 this.scenarios[i].name,
-                this
+                this,
+                resolveSpeechProvider(this.speechProvider)
             )
             this.executors.push(executor)
         }

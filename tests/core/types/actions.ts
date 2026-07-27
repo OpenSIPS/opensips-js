@@ -307,6 +307,41 @@ export type RequestAction = Action<
     RequestActionSuccessResponse
 >
 
+/* Text To Speech */
+interface TextToSpeechActionPayload {
+    text: string
+}
+interface TextToSpeechActionSuccessResponse extends BaseActionSuccessResponse {
+    success: true
+    duration: number
+}
+export type TextToSpeechAction = Action<
+    'textToSpeech',
+    TextToSpeechActionPayload,
+    TextToSpeechActionSuccessResponse
+>
+
+/* Start Transcription */
+interface StartTranscriptionActionSuccessResponse extends BaseActionSuccessResponse {
+    success: true
+}
+export type StartTranscriptionAction = Action<
+    'startTranscription',
+    undefined,
+    StartTranscriptionActionSuccessResponse
+>
+
+/* Stop Transcription */
+interface StopTranscriptionActionSuccessResponse extends BaseActionSuccessResponse {
+    success: true
+    transcript?: string
+}
+export type StopTranscriptionAction = Action<
+    'stopTranscription',
+    undefined,
+    StopTranscriptionActionSuccessResponse
+>
+
 /****************/
 /* Helper types */
 /****************/
@@ -335,6 +370,9 @@ export interface ActionsMap {
     unregister: UnregisterAction
     request: RequestAction
     DND: DNDAction
+    textToSpeech: TextToSpeechAction
+    startTranscription: StartTranscriptionAction
+    stopTranscription: StopTranscriptionAction
 }
 
 export type ActionsExecutorImplements = {

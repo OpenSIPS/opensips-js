@@ -1,0 +1,216 @@
+[
+  {
+    "name": "customer",
+    "actions": [
+      {
+        "event": "ready",
+        "actions": [
+          {
+            "type": "request",
+            "data": {
+              "payload": {
+                "url": "https://loginapi.voicenter.com/Auth/Login/Voicenter/Chrome",
+                "options": {
+                  "method": "POST",
+                  "headers": {
+                    "Content-Type": "application/json"
+                  },
+                  "data": {
+                    "email": "{{CALLER.API.EMAIL}}",
+                    "password": "{{CALLER.API.PASSWORD}}"
+                  }
+                }
+              },
+              "responseToContext": {
+                "setToContext": true,
+                "contextKeyToSet": "caller_login_api_response"
+              },
+              "waitUntil": [
+                {
+                  "event": "callee_registered"
+                }
+              ]
+            }
+          },
+          {
+            "type": "request",
+            "data": {
+              "payload": {
+                "url": "https://loginapi.voicenter.com/Application/GetSettings",
+                "options": {
+                  "method": "GET",
+                  "headers": {
+                    "Authorization": "Bearer {{caller_login_api_response.response.Data.AccessToken}}"
+                  }
+                }
+              },
+              "responseToContext": {
+                "setToContext": true,
+                "contextKeyToSet": "caller_get_settings_api_response"
+              }
+            }
+          },
+          {
+            "type": "register",
+            "data": {
+              "payload": {
+                "sip_domain": "{{caller_get_settings_api_response.response.WebRTCData.domain}}",
+                "username": "{{caller_get_settings_api_response.response.WebRTCData.extension_user}}",
+                "password": "{{caller_get_settings_api_response.response.WebRTCData.extension_pass}}"
+              },
+              "customSharedEvent": "caller_registered"
+            }
+          },
+          {
+            "type": "dial",
+            "data": {
+              "payload": {
+                "target": "36"
+              },
+              "customSharedEvent": "call_initiated"
+            }
+          }
+        ]
+      },
+      {
+        "event": "callee_listening",
+        "actions": [
+          {
+            "type": "startTranscription",
+            "data": {
+              "customSharedEvent": "caller_listening"
+            }
+          },
+          {
+            "type": "textToSpeech",
+            "data": {
+              "payload": {
+                "text": "Hello representative. This is an automated text to speech test message from the customer."
+              },
+              "customSharedEvent": "customer_spoke"
+            }
+          },
+          {
+            "type": "wait",
+            "data": {
+              "payload": {
+                "time": 12000
+              }
+            }
+          },
+          {
+            "type": "stopTranscription"
+          },
+          {
+            "type": "hangup",
+            "data": {
+              "customSharedEvent": "customer_done"
+            }
+          },
+          {
+            "type": "unregister"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "representative",
+    "actions": [
+      {
+        "event": "ready",
+        "actions": [
+          {
+            "type": "request",
+            "data": {
+              "payload": {
+                "url": "https://loginapi.voicenter.com/Auth/Login/Voicenter/Chrome",
+                "options": {
+                  "method": "POST",
+                  "headers": {
+                    "Content-Type": "application/json"
+                  },
+                  "data": {
+                    "email": "{{CALLEE.API.EMAIL}}",
+                    "password": "{{CALLEE.API.PASSWORD}}"
+                  }
+                }
+              },
+              "responseToContext": {
+                "setToContext": true,
+                "contextKeyToSet": "callee_login_api_response"
+              }
+            }
+          },
+          {
+            "type": "request",
+            "data": {
+              "payload": {
+                "url": "https://loginapi.voicenter.com/Application/GetSettings",
+                "options": {
+                  "method": "GET",
+                  "headers": {
+                    "Authorization": "Bearer {{callee_login_api_response.response.Data.AccessToken}}"
+                  }
+                }
+              },
+              "responseToContext": {
+                "setToContext": true,
+                "contextKeyToSet": "callee_get_settings_api_response"
+              }
+            }
+          },
+          {
+            "type": "register",
+            "data": {
+              "payload": {
+                "sip_domain": "{{callee_get_settings_api_response.response.WebRTCData.domain}}",
+                "username": "{{callee_get_settings_api_response.response.WebRTCData.extension_user}}",
+                "password": "{{callee_get_settings_api_response.response.WebRTCData.extension_pass}}"
+              },
+              "customSharedEvent": "callee_registered"
+            }
+          }
+        ]
+      },
+      {
+        "event": "incoming",
+        "actions": [
+          {
+            "type": "answer"
+          },
+          {
+            "type": "startTranscription",
+            "data": {
+              "customSharedEvent": "callee_listening"
+            }
+          }
+        ]
+      },
+      {
+        "event": "textChunk",
+        "actions": [
+          {
+            "type": "textToSpeech",
+            "data": {
+              "payload": {
+                "text": "{{textChunk.text}}"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "event": "customer_done",
+        "actions": [
+          {
+            "type": "stopTranscription"
+          },
+          {
+            "type": "unregister"
+          }
+        ]
+      }
+    ]
+  }
+]

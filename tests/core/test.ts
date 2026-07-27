@@ -8,7 +8,17 @@ async function runTest () {
     await qrynClient.log('Starting test execution')
     try {
         const testRunner = new CallTestScenarios()
-        await testRunner.run()
+
+        // Wire an optional speech provider (TTS/STT) when configured.
+        // Loaded dynamically so scenarios without speech don't require the provider deps.
+        let speechProvider
+        if (process.env.SONIOX_API_KEY) {
+            const { SonioxSpeechProvider } = await import('../providers/soniox/SonioxSpeechProvider')
+            speechProvider = new SonioxSpeechProvider({ apiKey: process.env.SONIOX_API_KEY })
+            await qrynClient.log('Speech provider enabled: Soniox')
+        }
+
+        await testRunner.run(speechProvider)
         await qrynClient.log('Test execution completed successfully')
     } catch (error) {
         // await logger.error('Test execution failed', {

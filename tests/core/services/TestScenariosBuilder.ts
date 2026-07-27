@@ -27,6 +27,12 @@ import ScenarioManager from './ScenarioManager'
 import { SendDTMFAction } from '../types/actions'
 import { GetActionDefinition } from '../types/actions'
 import { TransferAction } from '../types/actions'
+import {
+    TextToSpeechAction,
+    StartTranscriptionAction,
+    StopTranscriptionAction
+} from '../types/actions'
+import { SpeechProviderInput } from './speech/BaseSpeechProvider'
 
 import env from '../env'
 
@@ -34,6 +40,8 @@ import env from '../env'
  * Base class for defining test scenarios
  */
 export default abstract class TestScenariosBuilder implements ActionsScenariosBuilderImplements {
+    protected speechProvider?: SpeechProviderInput
+
     public register (data: GetActionData<RegisterAction>): GetActionDefinition<RegisterAction> {
         return {
             type: 'register',
@@ -118,6 +126,27 @@ export default abstract class TestScenariosBuilder implements ActionsScenariosBu
         }
     }
 
+    public textToSpeech (data: GetActionData<TextToSpeechAction>): GetActionDefinition<TextToSpeechAction> {
+        return {
+            type: 'textToSpeech',
+            data
+        }
+    }
+
+    public startTranscription (data: GetActionData<StartTranscriptionAction>): GetActionDefinition<StartTranscriptionAction> {
+        return {
+            type: 'startTranscription',
+            data
+        }
+    }
+
+    public stopTranscription (data: GetActionData<StopTranscriptionAction>): GetActionDefinition<StopTranscriptionAction> {
+        return {
+            type: 'stopTranscription',
+            data
+        }
+    }
+
     protected on<E extends keyof EventsMap> (
         event: E,
         actions: readonly ActionsPerEvent<E>[]
@@ -148,7 +177,7 @@ export default abstract class TestScenariosBuilder implements ActionsScenariosBu
     abstract init(): Promise<TestScenarios>
 
     // Method to execute the scenarios
-    async run (): Promise<void> {
+    async run (speechProvider?: SpeechProviderInput): Promise<void> {
         const scenarios = await this.init()
         const initialContext = this.getInitialContext()
 
@@ -157,7 +186,8 @@ export default abstract class TestScenariosBuilder implements ActionsScenariosBu
             {
                 ...this.getEnvContext(),
                 ...initialContext
-            }
+            },
+            speechProvider ?? this.speechProvider
         )
         await manager.runScenarios()
     }
