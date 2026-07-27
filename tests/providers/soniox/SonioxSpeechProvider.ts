@@ -19,6 +19,7 @@ export interface SonioxProviderOptions {
     sttModel?: string
     ttsModel?: string
     ttsVoice?: string
+    ttsLanguage?: string
     sttAudioFormat?: string
     realtimeUrl?: string
     ttsUrl?: string
@@ -39,7 +40,7 @@ interface SonioxRealtimeMessage {
 }
 
 const DEFAULT_STT_WS_URL = 'wss://stt-rt.soniox.com/transcribe-websocket'
-const DEFAULT_TTS_URL = 'https://api.soniox.com/v1/tts'
+const DEFAULT_TTS_URL = 'https://tts-rt.soniox.com/tts'
 
 export class SonioxSpeechProvider extends BaseSpeechProvider {
     private readonly options: Required<SonioxProviderOptions>
@@ -58,8 +59,9 @@ export class SonioxSpeechProvider extends BaseSpeechProvider {
         this.options = {
             apiKey: options.apiKey,
             sttModel: options.sttModel ?? 'stt-rt-v5',
-            ttsModel: options.ttsModel ?? 'tts-1',
+            ttsModel: options.ttsModel ?? 'tts-rt-v1',
             ttsVoice: options.ttsVoice ?? 'Adrian',
+            ttsLanguage: options.ttsLanguage ?? 'en',
             sttAudioFormat: options.sttAudioFormat ?? 'auto',
             realtimeUrl: options.realtimeUrl ?? DEFAULT_STT_WS_URL,
             ttsUrl: options.ttsUrl ?? DEFAULT_TTS_URL,
@@ -76,6 +78,7 @@ export class SonioxSpeechProvider extends BaseSpeechProvider {
             },
             body: JSON.stringify({
                 model: this.options.ttsModel,
+                language: this.options.ttsLanguage,
                 voice: this.options.ttsVoice,
                 text,
                 audio_format: this.options.ttsAudioFormat
@@ -113,6 +116,11 @@ export class SonioxSpeechProvider extends BaseSpeechProvider {
                 }))
 
                 this.isConfigured = true
+                console.log('[SonioxSpeechProvider] STT socket open, config sent', {
+                    model: this.options.sttModel,
+                    audioFormat: this.options.sttAudioFormat,
+                    pendingChunks: this.pendingAudio.length
+                })
 
                 for (const chunk of this.pendingAudio) {
                     socket.send(chunk)
@@ -148,24 +156,43 @@ export class SonioxSpeechProvider extends BaseSpeechProvider {
     }
 
     public async stopRecording (): Promise<void> {
-        if (!this.socket) {
+        const socket = this.socket
+        if (!socket) {
             return
         }
 
-        // Soniox signals "end of audio" with an empty string frame.
-        if (this.socket.readyState === WebSocket.OPEN) {
-            this.socket.send('')
+        if (socket.readyState === WebSocket.OPEN) {
+            socket.send('')
         }
 
         await new Promise<void>((resolve) => {
-            if (!this.socket) {
+            let settled = false
+            const finish = (): void => {
+                if (settled) {
+                    return
+                }
+                settled = true
+                socket.off('message', onFinished)
                 resolve()
-                return
             }
-            this.socket.once('close', () => resolve())
-            this.socket.close()
+            const onFinished = (raw: WebSocket.RawData): void => {
+                try {
+                    const message: SonioxRealtimeMessage = JSON.parse(raw.toString())
+                    if (message.finished) {
+                        finish()
+                    }
+                } catch {
+                    // ignore non-JSON frames
+                }
+            }
+            socket.on('message', onFinished)
+            socket.once('close', finish)
+            setTimeout(finish, 5000)
         })
 
+        if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+            this.socket.close()
+        }
         this.socket = null
         this.isConfigured = false
         this.pendingAudio = []
@@ -181,7 +208,7 @@ export class SonioxSpeechProvider extends BaseSpeechProvider {
         }
 
         if (message.error_message) {
-            console.error('[SonioxSpeechProvider] Real-time error:', message.error_message)
+            console.error('[SonioxSpeechProvider] Real-time error:', message.error_code, message.error_message)
             return
         }
 
@@ -189,11 +216,25 @@ export class SonioxSpeechProvider extends BaseSpeechProvider {
             return
         }
 
-        const text = message.tokens.map(token => token.text).join('')
-        if (!text) {
-            return
-        }
+        // Emit every chunk the STT stream yields. Soniox marks committed tokens
+        // with `is_final`; we forward finalized and interim text separately with the
+        // `isFinal` flag so consumers can decide how to use them. Filtering to only
+        // final results is intentionally NOT done here — this is a generic provider.
+        const finalText = message.tokens
+            .filter(token => token.is_final)
+            .map(token => token.text)
+            .join('')
+        const interimText = message.tokens
+            .filter(token => !token.is_final)
+            .map(token => token.text)
+            .join('')
 
-        this.emitTranscript(text)
+        if (finalText) {
+            console.log('[SonioxSpeechProvider] Transcript chunk (final)', { text: finalText })
+            this.emitTranscript(finalText, true)
+        }
+        if (interimText) {
+            this.emitTranscript(interimText, false)
+        }
     }
 }

@@ -76,16 +76,10 @@
         "event": "callee_listening",
         "actions": [
           {
-            "type": "startTranscription",
-            "data": {
-              "customSharedEvent": "caller_listening"
-            }
-          },
-          {
             "type": "textToSpeech",
             "data": {
               "payload": {
-                "text": "Hello representative. This is an automated text to speech test message from the customer."
+                "text": "Hello, I am participant 1"
               },
               "customSharedEvent": "customer_spoke"
             }
@@ -93,18 +87,15 @@
           {
             "type": "wait",
             "data": {
+              "waitUntil": [
+                {
+                  "event": "callEnded",
+                  "timeout": 30000
+                }
+              ],
               "payload": {
-                "time": 12000
+                "time": 1000
               }
-            }
-          },
-          {
-            "type": "stopTranscription"
-          },
-          {
-            "type": "hangup",
-            "data": {
-              "customSharedEvent": "customer_done"
             }
           },
           {
@@ -184,27 +175,39 @@
             "data": {
               "customSharedEvent": "callee_listening"
             }
-          }
-        ]
-      },
-      {
-        "event": "textChunk",
-        "actions": [
+          },
+          {
+            "type": "wait",
+            "data": {
+              "waitUntil": [
+                {
+                  "event": "textChunk",
+                  "timeout": 20000
+                },
+                {
+                  "event": "customer_spoke",
+                  "timeout": 20000
+                }
+              ],
+              "payload": {
+                "time": 3000
+              }
+            }
+          },
+          {
+            "type": "stopTranscription"
+          },
           {
             "type": "textToSpeech",
             "data": {
               "payload": {
-                "text": "{{textChunk.text}}"
-              }
+                "text": "Participant one said: '{{transcript}}'"
+              },
+              "customSharedEvent": "representative_replied"
             }
-          }
-        ]
-      },
-      {
-        "event": "customer_done",
-        "actions": [
+          },
           {
-            "type": "stopTranscription"
+            "type": "hangup"
           },
           {
             "type": "unregister"

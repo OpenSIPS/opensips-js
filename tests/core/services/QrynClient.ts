@@ -13,23 +13,30 @@ export interface LogEntry {
     metadata?: Record<string, any>
 }
 
-const qrynMetricClient = new SourceQrynClient({
-    baseUrl: env.GIGAPIPE.METRICS.url,
-    auth: {
-        username: env.GIGAPIPE.METRICS.username,
-        password: env.GIGAPIPE.METRICS.password,
-    },
-    timeout: 10000,
-})
+const metricsConfig = env.GIGAPIPE?.METRICS ?? env.GIGAPIPE?.DEFAULT
+const logsConfig = env.GIGAPIPE?.LOGS ?? env.GIGAPIPE?.DEFAULT
 
-const qrynLokiClient = new SourceQrynClient({
-    baseUrl: env.GIGAPIPE.LOGS.url,
-    auth: {
-        username: env.GIGAPIPE.LOGS.username,
-        password: env.GIGAPIPE.LOGS.password,
-    },
-    timeout: 10000,
-})
+const qrynMetricClient = metricsConfig
+    ? new SourceQrynClient({
+        baseUrl: metricsConfig.url,
+        auth: {
+            username: metricsConfig.username,
+            password: metricsConfig.password,
+        },
+        timeout: 10000,
+    })
+    : null
+
+const qrynLokiClient = logsConfig
+    ? new SourceQrynClient({
+        baseUrl: logsConfig.url,
+        auth: {
+            username: logsConfig.username,
+            password: logsConfig.password,
+        },
+        timeout: 10000,
+    })
+    : null
 
 export default class QrynClient {
     constructor (
@@ -43,12 +50,14 @@ export default class QrynClient {
     }
 
     public sendLogsToQryn (streams: Stream[]) {
-        qrynLokiClient.loki.push(streams, { orgId: env.GIGAPIPE.LOGS.OrgID }).catch((err) => console.log('Loki push error: ', err.message))
+        if (!qrynLokiClient || !logsConfig) return
+        qrynLokiClient.loki.push(streams, { orgId: logsConfig.OrgID }).catch((err) => console.log('Loki push error: ', err.message))
     }
 
     public sendMetricsToQryn (metrics: Metric[]) {
+        if (!qrynMetricClient || !metricsConfig) return
         qrynMetricClient.prom.push(metrics, {
-            orgId: env.GIGAPIPE.METRICS.OrgID
+            orgId: metricsConfig.OrgID
         }).catch(error => {
             console.log('Metrics push error: ', error.message)
         })

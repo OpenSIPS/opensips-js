@@ -9,7 +9,7 @@ export interface TextToSpeechResult {
     mimeType?: string
 }
 
-type TranscriptSink = (text: string) => void
+type TranscriptSink = (text: string, isFinal?: boolean) => void
 
 export abstract class BaseSpeechProvider {
     private _sink?: TranscriptSink
@@ -19,10 +19,15 @@ export abstract class BaseSpeechProvider {
         this._sink = sink
     }
 
-    /** Call this with the recognized text whenever the STT library yields it. */
-    protected emitTranscript (text: string): void {
+    /**
+     * Call this with the recognized text whenever the STT library yields it.
+     * Emit every chunk (both interim and final); pass `isFinal` when the library
+     * distinguishes them so consumers can decide what to do. Deciding to keep only
+     * final chunks is a consumer concern, not the provider's.
+     */
+    protected emitTranscript (text: string, isFinal?: boolean): void {
         if (this._sink) {
-            this._sink(text)
+            this._sink(text, isFinal)
         }
     }
 

@@ -502,8 +502,12 @@ export default class TestExecutor {
             )
 
             if (this.speechProvider) {
-                this.speechProvider._bindTranscriptSink((text) => {
-                    const chunk = { text, timestamp: Date.now() }
+                this.speechProvider._bindTranscriptSink((text, isFinal) => {
+                    const chunk = { text, isFinal: Boolean(isFinal), timestamp: Date.now() }
+                    if (isFinal) {
+                        const previousTranscript = (this.scenarioManager.getContext().transcript as string | undefined) ?? ''
+                        this.scenarioManager.updateContext({ transcript: (previousTranscript + text).trim() })
+                    }
                     this.scenarioManager.updateContext({ textChunk: chunk })
                     void this.triggerSharedEventListener('textChunk', chunk as EventListenerData<'textChunk'>)
                 })

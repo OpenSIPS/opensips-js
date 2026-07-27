@@ -236,7 +236,12 @@ export class WebRTCMetricsCollector {
             )
 
             pc.onconnectionstatechange = () => {
-                if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
+                if (pc.connectionState === 'connected') {
+                    // Restore the flag on (re)connect. 'disconnected' is often a
+                    // transient, recoverable state, so a prior blip must not leave
+                    // the call permanently marked inactive.
+                    window.__hasActiveCall = true
+                } else if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
                     window.__hasActiveCall = false
                     clearInterval(statsInterval)
                 } else if (pc.connectionState === 'disconnected') {

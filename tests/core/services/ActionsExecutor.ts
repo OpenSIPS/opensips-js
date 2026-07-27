@@ -627,14 +627,6 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
             }
         }
 
-        const hasActiveCall = await this.page.evaluate(() => Boolean(window.__hasActiveCall))
-        if (!hasActiveCall) {
-            await this.qrynClient.warn(
-                'textToSpeech called without an active call; synthesized audio will not be transmitted to any remote party',
-                { text: data.text }
-            )
-        }
-
         try {
             const result = await this.speechProvider.textToSpeech(data.text)
 
@@ -643,6 +635,16 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                 : result.audio
             const mimeType = result.mimeType || 'audio/mpeg'
             const dataUrl = `data:${mimeType};base64,${base64Data}`
+
+            // Check for an active call right before transmitting (not before
+            // synthesis, which can take seconds during which the call connects).
+            const hasActiveCall = await this.page.evaluate(() => Boolean(window.__hasActiveCall))
+            if (!hasActiveCall) {
+                await this.qrynClient.warn(
+                    'textToSpeech synthesized audio, but there is no active call; it will not be transmitted to any remote party',
+                    { text: data.text }
+                )
+            }
 
             const startTime = Date.now()
             await this.windowMethodsWorker.playClip(dataUrl)
