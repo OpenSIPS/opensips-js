@@ -7,7 +7,15 @@ async function runTest () {
 
     await qrynClient.log('Starting test execution')
     try {
-        const testRunner = new CallTestScenarios()
+
+        // Uncomment to run the JSON sample
+        /* const testRunner: CallTestScenarios = new CallTestScenarios()
+        await qrynClient.log('Scenario source: JSON sample') */
+
+        // Uncomment to run the JS sample
+        const { default: TtsSttJsScenario } = await import('./samples/js/tts-stt.scenario')
+        const testRunner: InstanceType<typeof TtsSttJsScenario> = new TtsSttJsScenario()
+        await qrynClient.log('Scenario source: JS builder (tts-stt.scenario.ts)')
 
         // Wire an optional speech provider (TTS/STT) when configured.
         // Loaded dynamically so scenarios without speech don't require the provider deps.
