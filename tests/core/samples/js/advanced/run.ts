@@ -1,0 +1,33 @@
+import QrynClient from '../../../services/QrynClient'
+import AiVoiceBotScenario from './ai-voice-bot.scenario'
+import { AiVoiceBotProvider } from './AiVoiceBotProvider'
+
+async function run (): Promise<void> {
+    const qrynClient = new QrynClient('AdvancedTestRunner')
+    await qrynClient.log('Starting advanced AI voice-bot test')
+
+    const sonioxApiKey = process.env.SONIOX_API_KEY
+    const anthropicApiKey = process.env.ANTHROPIC_API_KEY
+
+    if (!sonioxApiKey) {
+        throw new Error('SONIOX_API_KEY is required (set it in the root .env)')
+    }
+    if (!anthropicApiKey) {
+        throw new Error('ANTHROPIC_API_KEY is required (set it in the root .env)')
+    }
+
+    const scenario = new AiVoiceBotScenario()
+
+    const speechProvider = () => new AiVoiceBotProvider({ sonioxApiKey, anthropicApiKey })
+
+    await scenario.run(speechProvider)
+
+    await qrynClient.log('Call is live; conversation runs until the remote party hangs up')
+}
+
+run().catch((error) => {
+    console.error(
+        '[advanced] fatal error:',
+        error instanceof Error ? error.message : error
+    )
+})

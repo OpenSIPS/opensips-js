@@ -1,0 +1,16 @@
+{
+  "name": "tts-playground",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.mjs",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.24",
+    "ai": "^7.0.42",
+    "dotenv": "^17.4.2"
+  }
+}

@@ -20,6 +20,7 @@
     "docs-publish": "yarn docs-genereate && node scripts/upload-doc.js",
     "docs-genereate": "yarn build && yarn demo-build && cd docs && yarn && yarn run generate && cd ..",
     "run-test": "tsx tests/core/test.ts",
+    "run-test-advanced": "tsx tests/core/samples/js/advanced/run.ts",
     "debug-server": "node debug-server.js",
     "run-test-debug": "cp .env.debug .env && tsx tests2/test.ts",
     "ts-check": "tsc --noEmit",
