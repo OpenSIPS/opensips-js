@@ -65,12 +65,6 @@ export default class AiVoiceBotScenario extends TestScenariosBuilder {
                     this.startTranscription({ customSharedEvent: 'bot_listening' })
                 ] as never),
 
-                this.on('textChunk', [
-                    this.textToSpeech({
-                        payload: { text: '{{{textChunk.text}}}' }
-                    })
-                ]),
-
                 this.on('callEnded', [
                     this.stopTranscription({}),
                     this.unregister({})

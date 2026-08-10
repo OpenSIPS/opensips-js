@@ -502,6 +502,8 @@ export default class TestExecutor {
             )
 
             if (this.speechProvider) {
+                this.speechProvider._bindPage(this.page)
+
                 this.speechProvider._bindTranscriptSink((text, isFinal) => {
                     const chunk = { text, isFinal: Boolean(isFinal), timestamp: Date.now() }
                     if (isFinal) {
@@ -510,6 +512,15 @@ export default class TestExecutor {
                     }
                     this.scenarioManager.updateContext({ textChunk: chunk })
                     void this.triggerSharedEventListener('textChunk', chunk as EventListenerData<'textChunk'>)
+                })
+
+                // Let the provider drive framework actions (e.g. an LLM deciding to
+                // hang up or transfer). Reuses the normal executeAction path so the
+                // action goes through the same switch, expectations and events.
+                this.speechProvider._bindActionRunner(async (action) => {
+                    await this.executeAction(
+                        action as GetActionDefinition<ActionByActionType<ActionType>>
+                    )
                 })
             }
 

@@ -17,11 +17,6 @@ async function runTest () {
         const testRunner: InstanceType<typeof TtsSttJsScenario> = new TtsSttJsScenario()
         await qrynClient.log('Scenario source: JS builder (tts-stt.scenario.ts)')
 
-        // Wire an optional speech provider (TTS/STT) when configured.
-        // Loaded dynamically so scenarios without speech don't require the provider deps.
-        // Pass a FACTORY (not a single instance) so each scenario gets its own
-        // provider (separate STT socket + transcript sink); a shared instance would
-        // route transcripts to the wrong scenario and mix both audio streams.
         let speechProvider
         if (process.env.SONIOX_API_KEY) {
             const apiKey = process.env.SONIOX_API_KEY

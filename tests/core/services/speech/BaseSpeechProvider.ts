@@ -1,8 +1,4 @@
-/**
- * Contract that TTS/STT providers implement. The framework owns the WebRTC
- * plumbing; a provider only bridges audio to/from a speech library of its choice.
- * Developers extend this class and pass an instance (or factory) to `run()`.
- */
+import type { Page } from 'playwright'
 
 export interface TextToSpeechResult {
     audio: Buffer | string
@@ -11,19 +7,48 @@ export interface TextToSpeechResult {
 
 type TranscriptSink = (text: string, isFinal?: boolean) => void
 
+export interface RunnableAction {
+    type: string
+    data?: {
+        payload?: Record<string, unknown>
+    }
+}
+
+type ActionRunner = (action: RunnableAction) => Promise<void>
+
 export abstract class BaseSpeechProvider {
     private _sink?: TranscriptSink
+    private _actionRunner?: ActionRunner
+
+    /**
+     * @internal Bound by the framework: the Playwright page of this scenario.
+     * Lets a provider drive browser-side helpers (e.g. ConnectionImpairment) that
+     * manipulate the in-page WebRTC/Web Audio graph.
+     */
+    protected page?: Page
 
     /** @internal Bound by the framework to receive transcript text. */
     public _bindTranscriptSink (sink: TranscriptSink): void {
         this._sink = sink
     }
 
+    /** @internal Bound by the framework so a provider can access its page. */
+    public _bindPage (page: Page): void {
+        this.page = page
+    }
+
+    public _bindActionRunner (runner: ActionRunner): void {
+        this._actionRunner = runner
+    }
+
+    protected async runAction (action: RunnableAction): Promise<void> {
+        if (this._actionRunner) {
+            await this._actionRunner(action)
+        }
+    }
+
     /**
-     * Call this with the recognized text whenever the STT library yields it.
-     * Emit every chunk (both interim and final); pass `isFinal` when the library
-     * distinguishes them so consumers can decide what to do. Deciding to keep only
-     * final chunks is a consumer concern, not the provider's.
+     * Call this with the recognized text.
      */
     protected emitTranscript (text: string, isFinal?: boolean): void {
         if (this._sink) {

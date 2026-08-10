@@ -1,0 +1,36 @@
+{
+  "hangup": {
+    "description": "End the current call. Use this when the caller clearly says goodbye or wants to finish the conversation.",
+    "params": {}
+  },
+  "transfer": {
+    "description": "Transfer the current call to another extension or phone number.",
+    "params": {
+      "target": "string — the extension or phone number to transfer the call to"
+    }
+  },
+  "hold": {
+    "description": "Put the caller on hold (pause the audio for the remote party).",
+    "params": {}
+  },
+  "unhold": {
+    "description": "Resume a call that is currently on hold.",
+    "params": {}
+  },
+  "sendDTMF": {
+    "description": "Send DTMF keypad tones into the call (for navigating IVR menus, entering codes, etc.).",
+    "params": {
+      "dtmf": "string — the digits to send, e.g. '123#'"
+    }
+  },
+  "wait": {
+    "description": "Pause silently for a period of time before doing anything else.",
+    "params": {
+      "time": "number — how long to wait, in milliseconds"
+    }
+  },
+  "dnd": {
+    "description": "Enable Do Not Disturb mode for this agent.",
+    "params": {}
+  }
+}

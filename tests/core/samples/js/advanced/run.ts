@@ -10,15 +10,24 @@ async function run (): Promise<void> {
     const anthropicApiKey = process.env.ANTHROPIC_API_KEY
 
     if (!sonioxApiKey) {
-        throw new Error('SONIOX_API_KEY is required (set it in the root .env)')
+        throw new Error('SONIOX_API_KEY is required')
     }
     if (!anthropicApiKey) {
-        throw new Error('ANTHROPIC_API_KEY is required (set it in the root .env)')
+        throw new Error('ANTHROPIC_API_KEY is required')
     }
 
     const scenario = new AiVoiceBotScenario()
 
-    const speechProvider = () => new AiVoiceBotProvider({ sonioxApiKey, anthropicApiKey })
+    const speechProvider = () => new AiVoiceBotProvider({
+        sonioxApiKey,
+        anthropicApiKey,
+        // Degrade the audio (what the bot hears)
+        impairment: {
+            volume: 1,     // (0 = silence, 1 = original)
+            noise: 0.9,      // background noise (0 = none, 1 = very loud)
+            packetLoss: 0   // ~10% of ~40ms blocks dropped (0 = none, 1 = constant)
+        }
+    })
 
     await scenario.run(speechProvider)
 
