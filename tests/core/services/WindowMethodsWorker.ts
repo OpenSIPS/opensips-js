@@ -105,6 +105,28 @@ export default class WindowMethodsWorker {
                             console.log('Audio element created (works without real audio hardware)');
 
                             var audioSource = null;
+                            var settled = false;
+
+                            function finish() {
+                                if (settled) { return; }
+                                settled = true;
+                                if (audioSource) {
+                                    try { audioSource.disconnect(); } catch (e) {}
+                                }
+                                if (window.__currentClipAudio === audio) {
+                                    window.__currentClipAudio = null;
+                                    window.__stopCurrentClip = null;
+                                }
+                                resolve();
+                            }
+
+                            // Allow the current TTS clip to be interrupted (barge-in).
+                            window.__currentClipAudio = audio;
+                            window.__stopCurrentClip = function() {
+                                console.log('>>> AUDIO INTERRUPTED (barge-in) <<<');
+                                try { audio.pause(); } catch (e) {}
+                                finish();
+                            };
 
                             function connectAudio() {
                                 if (!audioSource && audio.readyState >= 1) {
@@ -141,10 +163,7 @@ export default class WindowMethodsWorker {
 
                             audio.addEventListener('ended', function() {
                                 console.log('>>> AUDIO FINISHED <<<');
-                                if (audioSource) {
-                                    audioSource.disconnect();
-                                }
-                                resolve();
+                                finish();
                             });
 
                             audio.addEventListener('error', function(e) {
@@ -185,7 +204,7 @@ export default class WindowMethodsWorker {
      */
     public async startRemoteAudioCapture (
         onChunk: (base64Chunk: string) => void | Promise<void>,
-        timesliceMs = 2000
+        timesliceMs = 250
     ): Promise<void> {
         if (!this.remoteCaptureBound) {
             await this.page.exposeFunction(

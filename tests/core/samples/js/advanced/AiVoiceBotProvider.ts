@@ -10,6 +10,22 @@ import { ConnectionImpairment } from '../../../services/ConnectionImpairment'
 import { SonioxSpeechProvider } from '../../../../providers/soniox/SonioxSpeechProvider'
 import actionsSchema from './actions-schema.json'
 
+declare global {
+    interface Window {
+        __stopCurrentClip?: (() => void) | null
+    }
+}
+
+export interface BargeInOptions {
+    // Allow the caller to interrupt the bot while it is speaking.
+    enabled?: boolean
+    // How long (ms) of sustained, non-echo caller speech confirms an interruption.
+    confirmMs?: number
+    // Window (ms) after the bot stops speaking during which we still treat matching
+    // transcripts as our own echo (protects against speakerphone loopback).
+    echoTailMs?: number
+}
+
 export interface ImpairmentProfile {
     // 0.0 = silence, 1.0 = original volume.
     volume?: number
@@ -17,6 +33,8 @@ export interface ImpairmentProfile {
     noise?: number
     // 0.0 = no loss, 1.0 = constant dropouts.
     packetLoss?: number
+    // TEMP: also degrade the outgoing TTS (what the caller hears) for testing. Remove later.
+    impairBothDirections?: boolean
 }
 
 export interface AiVoiceBotProviderOptions {
@@ -28,11 +46,13 @@ export interface AiVoiceBotProviderOptions {
     ttsVoice?: string
     silenceMs?: number
     impairment?: ImpairmentProfile
+    bargeIn?: BargeInOptions
 }
 
 const DEFAULT_MODEL = 'claude-haiku-4-5'
 const DEFAULT_SILENCE_MS = 2000
-const LISTEN_TAIL_MS = 800
+const DEFAULT_BARGE_IN_CONFIRM_MS = 400
+const DEFAULT_ECHO_TAIL_MS = 600
 
 // Precise validation for the action the LLM returns
 const agentActionSchema = z.discriminatedUnion('actionType', [
@@ -96,8 +116,21 @@ export class AiVoiceBotProvider extends BaseSpeechProvider {
     private finalMessage = ''
     private silenceTimer: ReturnType<typeof setTimeout> | null = null
     private isThinking = false
-    private muted = false
+    private isSpeaking = false
     private terminated = false
+
+    // Barge-in state
+    private readonly bargeInEnabled: boolean
+    private readonly bargeInConfirmMs: number
+    private readonly echoTailMs: number
+    private currentUtterance = ''
+    private speakingEndedAt = 0
+    private abortController: AbortController | null = null
+    private interrupted = false
+    private bargeStartTs = 0
+    private bargeTokenCount = 0
+    private bargeText = ''
+    private bargeTimer: ReturnType<typeof setTimeout> | null = null
 
     private readonly impairmentProfile?: ImpairmentProfile
     private impairment: ConnectionImpairment | null = null
@@ -116,6 +149,10 @@ export class AiVoiceBotProvider extends BaseSpeechProvider {
         this.silenceMs = options.silenceMs ?? DEFAULT_SILENCE_MS
         this.anthropicApiKey = options.anthropicApiKey
         this.impairmentProfile = options.impairment
+
+        this.bargeInEnabled = options.bargeIn?.enabled ?? true
+        this.bargeInConfirmMs = options.bargeIn?.confirmMs ?? DEFAULT_BARGE_IN_CONFIRM_MS
+        this.echoTailMs = options.bargeIn?.echoTailMs ?? DEFAULT_ECHO_TAIL_MS
 
         this.systemPrompt = options.systemPrompt ?? buildProtocolPrompt()
 
@@ -139,6 +176,12 @@ export class AiVoiceBotProvider extends BaseSpeechProvider {
             this.impairment = new ConnectionImpairment(this.page)
             await this.impairment.install()
 
+            // TEMP: also degrade outgoing TTS so degradation is audible on the phone.
+            if (this.impairmentProfile.impairBothDirections) {
+                const baseGain = await this.impairment.installOutgoing()
+                console.log('[AiVoiceBotProvider] outgoing impairment installed, baseGain =', baseGain)
+            }
+
             if (this.impairmentProfile.volume !== undefined) {
                 await this.impairment.setVolume(this.impairmentProfile.volume)
             }
@@ -147,6 +190,11 @@ export class AiVoiceBotProvider extends BaseSpeechProvider {
             }
             if (this.impairmentProfile.packetLoss !== undefined) {
                 await this.impairment.setPacketLoss(this.impairmentProfile.packetLoss)
+            }
+
+            if (this.impairmentProfile.impairBothDirections) {
+                const state = await this.impairment.readOutgoingState()
+                console.log('[AiVoiceBotProvider] outgoing impairment state after profile:', state)
             }
         }
 
@@ -163,8 +211,13 @@ export class AiVoiceBotProvider extends BaseSpeechProvider {
             clearTimeout(this.silenceTimer)
             this.silenceTimer = null
         }
+        this.resetBargeState()
+        this.abortController?.abort()
         if (this.impairment) {
             await this.impairment.clear()
+            if (this.impairmentProfile?.impairBothDirections) {
+                await this.impairment.clearOutgoing()
+            }
             this.impairment = null
         }
         await this.soniox.stopRecording()
@@ -183,13 +236,107 @@ export class AiVoiceBotProvider extends BaseSpeechProvider {
     }
 
     private onCallerSpeech (text: string, isFinal: boolean): void {
-        if (this.muted || this.isThinking || this.terminated) {
+        if (this.terminated) {
             return
         }
+
+        const now = Date.now()
+        const inEchoWindow = this.isSpeaking || (now - this.speakingEndedAt) < this.echoTailMs
+
+        // Drop the bot's own voice looping back through the caller's device.
+        if (inEchoWindow && this.isLikelyEcho(text)) {
+            console.log('[AiVoiceBotProvider] Ignored as self-echo:', text)
+            return
+        }
+
+        const isBotBusy = this.isSpeaking || this.isThinking
+
+        if (isBotBusy) {
+            if (!this.bargeInEnabled) {
+                return
+            }
+            this.registerBargeInSpeech(text, isFinal, now)
+            return
+        }
+
+        // Idle: normal turn accumulation.
         if (isFinal) {
             this.finalMessage += text
         }
         this.runSilenceTimer()
+    }
+
+    private registerBargeInSpeech (text: string, isFinal: boolean, now: number): void {
+        if (this.normalizeText(text).length === 0) {
+            return
+        }
+
+        if (this.bargeStartTs === 0) {
+            this.bargeStartTs = now
+            this.bargeTimer = setTimeout(() => {
+                void this.triggerBargeIn()
+            }, this.bargeInConfirmMs)
+        }
+
+        this.bargeTokenCount += 1
+        if (isFinal) {
+            this.bargeText += text
+        }
+    }
+
+    private async triggerBargeIn (): Promise<void> {
+        this.bargeTimer = null
+
+        // Require sustained speech (not a single echo blip) before interrupting.
+        if (!this.isSpeaking && !this.isThinking) {
+            this.resetBargeState()
+            return
+        }
+        if (this.bargeTokenCount < 2) {
+            this.resetBargeState()
+            return
+        }
+
+        console.log('[AiVoiceBotProvider] Barge-in detected; interrupting the bot')
+        this.interrupted = true
+
+        // 1. Cancel the in-flight LLM generation (if any).
+        this.abortController?.abort()
+
+        // 2. Stop the current TTS playback immediately.
+        await this.stopSpeaking()
+
+        // 3. Carry the caller's interrupting words into the next turn.
+        const carried = this.bargeText.trim()
+        this.resetBargeState()
+        this.finalMessage = carried
+        if (carried) {
+            this.runSilenceTimer()
+        }
+    }
+
+    private resetBargeState (): void {
+        if (this.bargeTimer) {
+            clearTimeout(this.bargeTimer)
+            this.bargeTimer = null
+        }
+        this.bargeStartTs = 0
+        this.bargeTokenCount = 0
+        this.bargeText = ''
+    }
+
+    private async stopSpeaking (): Promise<void> {
+        if (!this.page) {
+            return
+        }
+        try {
+            await this.page.evaluate(() => window.__stopCurrentClip?.())
+        } catch (error) {
+            console.error(
+                '[AiVoiceBotProvider] failed to stop TTS:',
+                error instanceof Error ? error.message : error
+            )
+        }
     }
 
     private runSilenceTimer (): void {
@@ -204,7 +351,7 @@ export class AiVoiceBotProvider extends BaseSpeechProvider {
     private async finalizeTurn (): Promise<void> {
         this.silenceTimer = null
 
-        if (this.isThinking || this.terminated) {
+        if (this.isThinking || this.isSpeaking || this.terminated) {
             return
         }
 
@@ -214,8 +361,10 @@ export class AiVoiceBotProvider extends BaseSpeechProvider {
         }
 
         this.finalMessage = ''
-        this.muted = true
+        this.currentUtterance = ''
+        this.interrupted = false
         this.isThinking = true
+        this.abortController = new AbortController()
 
         try {
             this.history.push({ role: 'user', content: callerText })
@@ -227,22 +376,58 @@ export class AiVoiceBotProvider extends BaseSpeechProvider {
                 model: this.modelFactory!(this.model),
                 system: this.systemPrompt,
                 schema: responseEnvelopeSchema,
-                messages: this.history
+                messages: this.history,
+                abortSignal: this.abortController.signal
             })
 
+            this.isThinking = false
             await this.applyEnvelope(object as ResponseEnvelope)
         } catch (error) {
-            console.error(
-                '[AiVoiceBotProvider] turn failed:',
-                error instanceof Error ? error.message : error
-            )
+            if (!this.interrupted) {
+                console.error(
+                    '[AiVoiceBotProvider] turn failed:',
+                    error instanceof Error ? error.message : error
+                )
+            }
         } finally {
             this.isThinking = false
-            // Keep muted for a short tail so we don't transcribe the end of our own reply.
-            await this.delay(LISTEN_TAIL_MS)
-            this.finalMessage = ''
-            this.muted = false
+            this.isSpeaking = false
+            this.speakingEndedAt = Date.now()
+            this.abortController = null
         }
+    }
+
+    private isLikelyEcho (text: string): boolean {
+        const words = this.normalizeText(text).split(' ').filter(Boolean)
+        if (words.length === 0) {
+            return true
+        }
+        if (!this.currentUtterance) {
+            return false
+        }
+
+        // Real echo reproduces the bot's words in order, so require a shared
+        // 3-word sequence rather than a loose bag-of-words overlap (which falsely
+        // flags common short phrases like "can you hear me now" as our own voice).
+        const haystack = ` ${this.currentUtterance} `
+        if (words.length < 3) {
+            return haystack.includes(` ${words.join(' ')} `)
+        }
+        for (let i = 0; i <= words.length - 3; i++) {
+            const shingle = `${words[i]} ${words[i + 1]} ${words[i + 2]}`
+            if (haystack.includes(` ${shingle} `)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private normalizeText (text: string): string {
+        return text
+            .toLowerCase()
+            .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
     }
 
     private async applyEnvelope (envelope: ResponseEnvelope): Promise<void> {
@@ -250,9 +435,9 @@ export class AiVoiceBotProvider extends BaseSpeechProvider {
             const raw = typeof envelope.content === 'string' ? envelope.content : ''
             const spoken = this.sanitizeSpeech(raw)
             if (spoken) {
-                this.history.push({ role: 'assistant', content: spoken })
                 console.log('[AiVoiceBotProvider] AI reply:', spoken)
                 await this.speak(spoken)
+                this.recordAssistant(spoken)
             }
             return
         }
@@ -269,18 +454,32 @@ export class AiVoiceBotProvider extends BaseSpeechProvider {
 
         const pre = this.sanitizeSpeech(envelope.preActionSpeech ?? '')
         const post = this.sanitizeSpeech(envelope.postActionSpeech ?? '')
-        const summary = pre || post || `(performed ${parsed.data.actionType})`
-        this.history.push({ role: 'assistant', content: summary })
         console.log('[AiVoiceBotProvider] AI action:', parsed.data, { pre, post })
 
         if (pre) {
             await this.speak(pre)
         }
 
+        // If the caller interrupted during the pre-action speech, abandon the action.
+        if (this.interrupted) {
+            this.recordAssistant(pre || `(about to ${parsed.data.actionType})`)
+            return
+        }
+
         await this.executeAgentAction(parsed.data)
 
-        if (post && !this.terminated) {
+        if (post && !this.terminated && !this.interrupted) {
             await this.speak(post)
+        }
+
+        this.recordAssistant(pre || post || `(performed ${parsed.data.actionType})`)
+    }
+
+    private recordAssistant (content: string): void {
+        const note = this.interrupted ? ' (interrupted by caller)' : ''
+        const text = (content + note).trim()
+        if (text) {
+            this.history.push({ role: 'assistant', content: text })
         }
     }
 
@@ -328,11 +527,23 @@ export class AiVoiceBotProvider extends BaseSpeechProvider {
     }
 
     private async speak (text: string): Promise<void> {
-        if (!text) {
+        if (!text || this.interrupted || this.terminated) {
             return
         }
 
-        await this.runAction({ type: 'textToSpeech', data: { payload: { text } } })
+        this.isSpeaking = true
+        const normalized = this.normalizeText(text)
+        const combined = `${this.currentUtterance} ${normalized}`.trim().split(' ')
+        // Keep only a recent window so a long reply doesn't accumulate every common
+        // word and start swallowing genuine interruptions as "echo".
+        this.currentUtterance = combined.slice(-40).join(' ')
+
+        try {
+            await this.runAction({ type: 'textToSpeech', data: { payload: { text } } })
+        } finally {
+            this.isSpeaking = false
+            this.speakingEndedAt = Date.now()
+        }
     }
 
     private sanitizeSpeech (text: string): string {
@@ -342,9 +553,5 @@ export class AiVoiceBotProvider extends BaseSpeechProvider {
             .replace(/\s+/g, ' ')
             .replace(/"/g, "'")
             .trim()
-    }
-
-    private delay (ms: number): Promise<void> {
-        return new Promise((resolve) => setTimeout(resolve, ms))
     }
 }

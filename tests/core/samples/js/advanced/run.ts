@@ -23,9 +23,10 @@ async function run (): Promise<void> {
         anthropicApiKey,
         // Degrade the audio (what the bot hears)
         impairment: {
-            volume: 1,     // (0 = silence, 1 = original)
-            noise: 0.9,      // background noise (0 = none, 1 = very loud)
-            packetLoss: 0   // ~10% of ~40ms blocks dropped (0 = none, 1 = constant)
+            volume: 0.9,      // (0 = silence, 1 = original)
+            noise: 0.02,      // background noise (0 = none, 1 = very loud)
+            packetLoss: 0.15,  // ~15% of ~40ms blocks dropped (0 = none, 1 = constant)
+            impairBothDirections: false // impair both directions of the call
         }
     })
 
