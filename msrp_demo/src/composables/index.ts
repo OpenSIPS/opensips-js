@@ -331,10 +331,10 @@ export const vsipAPI: VsipAPI = {
             return new Promise<OpenSIPSJS>((resolve, reject) => {
                 try {
                     const configuration: IOpenSIPSConfiguration = {
-                        ...opensipsConfiguration,
                         session_timers: false,
                         uri: `sip:${connectOptions.username}@${connectOptions.domain}`,
-                        password: connectOptions.password
+                        password: connectOptions.password,
+                        ...opensipsConfiguration,
                     }
 
                     currentUserUri = `sip:${connectOptions.username}@${connectOptions.domain}`
@@ -357,11 +357,6 @@ export const vsipAPI: VsipAPI = {
                         configuration,
                         socketInterfaces: [ `wss://${connectOptions.domain}` ],
                         sipDomain: `${connectOptions.domain}`,
-                        sipOptions: {
-                            session_timers: false,
-                            extraHeaders: [ 'X-Bar: bar' ],
-                            pcConfig: {}
-                        },
                         modules: connectOptions.modules,
                         pnExtraHeaders,
                         ...additionalOptions
