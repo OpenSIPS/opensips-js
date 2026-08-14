@@ -213,7 +213,7 @@ export class MSRPModule {
         }
 
         if (this.extendedSession._status !== 8) {
-            this.extendedSession.terminate()
+            this.extendedSession.terminate({ userTerminated: true })
         }
     }
 
@@ -260,7 +260,7 @@ export class MSRPModule {
                 session,
                 event
             })
-            if (this.extendedSession?._id === session._id) {
+            if (this.extendedSession?._id === session._id && session._userTerminated) {
                 this.clearMSRPSession()
             }
         })
@@ -272,7 +272,7 @@ export class MSRPModule {
                 event
             })
 
-            if (this.extendedSession?._id === session._id) {
+            if (this.extendedSession?._id === session._id && session._userTerminated) {
                 this.clearMSRPSession()
             }
         })
@@ -359,7 +359,6 @@ export class MSRPModule {
             return true
         } catch (err) {
             console.error('safeSendMSRP error:', err)
-            this.clearMSRPSession()
             return false
         }
     }

@@ -41,6 +41,7 @@ export interface MSRPSessionExtended extends MSRPSession {
     _late_sdp: string
     _status: number
     _remote_identity: string
+    _userTerminated?: boolean
     target_addr: Array<string>
     answer(options?: any): void
     _init_incomeing(): void

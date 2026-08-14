@@ -81,6 +81,16 @@ export class MSRPSession extends EventEmitter{
         }
 
         this._msrpKeepAliveTimer = null
+
+        this._reconnectScheduled = false
+        this._reconnectInProgress = false
+        this._reconnectTimer = null
+        this._userTerminated = false
+        this._reconnectInterval = (this._ua.options && this._ua.options.msrpReconnectInterval) || 12000
+
+        this._awaitingKeepAlivePong = false
+        this._keepAlivePongTimer = null
+        this._keepAlivePongTimeout = (this._ua.options && this._ua.options.msrpKeepAlivePongTimeout) || 8000
     }
 
     /**
@@ -118,7 +128,7 @@ export class MSRPSession extends EventEmitter{
         }
         this._connection.onclose = (event) => {
             console.log('close', event)
-            this.onclose()
+            this.onclose(event)
         }
         this._connection.onmessage = (msg) => {
             console.log('msg', msg)
@@ -223,6 +233,7 @@ export class MSRPSession extends EventEmitter{
                     this._status = C.STATUS_CONFIRMED
                     this.target_addr = response.sdp.media[0].invalid[1].value.replaceAll('path:', '').split(' ').reverse()
                     this.status = 'active'
+                    this._onReconnected()
                     this.emit('active')
                     this.emit('confirmed')
                 }
@@ -234,6 +245,17 @@ export class MSRPSession extends EventEmitter{
 
     terminate (options = {}) {
         // clearInterval(this._msrpKeepAliveTimer)
+
+        const isPermanentClose =
+            options.userTerminated === true ||
+            (!options.status_code && this._ua && this._ua.activeConnection === false)
+
+        if (isPermanentClose) {
+            this._userTerminated = true
+            this._reconnectScheduled = false
+            clearTimeout(this._reconnectTimer)
+            this._reconnectTimer = null
+        }
 
         const cause = options.cause || JsSIP_C.causes.BYE
         const extraHeaders = Utils.cloneArray(options.extraHeaders)
@@ -379,6 +401,8 @@ export class MSRPSession extends EventEmitter{
     }
 
     onmessage (msg) {
+        this._markSocketAlive()
+
         const msgObj = new Message(msg.data)
         if (this.status === 'auth' && msgObj.code === 401) {
             const _challenge = this.parseAuth(msgObj.getHeader('WWW-Authenticate'))
@@ -417,8 +441,136 @@ export class MSRPSession extends EventEmitter{
         }
     }
 
-    onclose () {
-        console.log('close')
+    onclose (event) {
+        console.log('close', event && event.code)
+
+        if (this._userTerminated) {
+            return
+        }
+
+        if (this._reconnectScheduled) {
+            return
+        }
+
+        this._scheduleReconnect()
+    }
+
+    _scheduleReconnect () {
+        if (this._userTerminated || this._reconnectScheduled) {
+            return
+        }
+
+        this._reconnectScheduled = true
+        clearTimeout(this._reconnectTimer)
+        this._reconnectTimer = setTimeout(() => {
+            this._reconnectAttempt()
+        }, this._reconnectInterval)
+
+        this.emit('reconnecting')
+    }
+
+    _reconnectAttempt () {
+        if (this._userTerminated) {
+            return
+        }
+
+        this._reconnectScheduled = false
+
+        console.log('MSRP socket: attempting to reconnect...')
+
+        this._resetForReconnect()
+        this._reconnectInProgress = true
+        this.connect(this.target)
+    }
+
+    _resetForReconnect () {
+        if (this._connection) {
+            this._connection.onopen = null
+            this._connection.onclose = null
+            this._connection.onmessage = null
+            this._connection.onerror = null
+            try {
+                this._connection.close()
+            } catch (error) {
+                console.log('reset | error closing old MSRP socket:', error)
+            }
+        }
+
+        for (const timer in this._timers) {
+            if (Object.prototype.hasOwnProperty.call(this._timers, timer)) {
+                clearTimeout(this._timers[timer])
+            }
+        }
+
+        clearTimeout(this._sessionTimers.timer)
+        this._sessionTimers.running = false
+        clearTimeout(this._keepAlivePongTimer)
+        this._keepAlivePongTimer = null
+        this._awaitingKeepAlivePong = false
+
+        if (this._dialog) {
+            try {
+                this._dialog.terminate()
+            } catch (error) {
+                console.log('reset | error terminating dialog:', error)
+            }
+            this._dialog = null
+        }
+
+        for (const dialog in this._earlyDialogs) {
+            if (Object.prototype.hasOwnProperty.call(this._earlyDialogs, dialog)) {
+                try {
+                    this._earlyDialogs[dialog].terminate()
+                } catch (error) {
+                    console.log('reset | error terminating early dialog:', error)
+                }
+                delete this._earlyDialogs[dialog]
+            }
+        }
+
+        this.my_addr = []
+        this.target_addr = []
+
+        this._request = null
+        this._from_tag = null
+        this._to_tag = null
+
+        this.status = 'new'
+        this._status = C.STATUS_NULL
+    }
+
+    _onReconnected () {
+        this._reconnectScheduled = false
+        this._reconnectInProgress = false
+        clearTimeout(this._reconnectTimer)
+        this._reconnectTimer = null
+    }
+
+    _markSocketAlive () {
+        this._awaitingKeepAlivePong = false
+        clearTimeout(this._keepAlivePongTimer)
+        this._keepAlivePongTimer = null
+    }
+
+    _startKeepAlivePongTimer () {
+        this._awaitingKeepAlivePong = true
+        clearTimeout(this._keepAlivePongTimer)
+        this._keepAlivePongTimer = setTimeout(() => {
+            if (this._awaitingKeepAlivePong) {
+                this._onKeepAliveFailure('no keep-alive reply within timeout')
+            }
+        }, this._keepAlivePongTimeout)
+    }
+
+    _onKeepAliveFailure (reason) {
+        this._markSocketAlive()
+
+        if (this._userTerminated || this._reconnectScheduled) {
+            return
+        }
+
+        console.warn('MSRP keep-alive failure detected:', reason)
+        this._scheduleReconnect()
     }
 
     onopen () {
@@ -942,6 +1094,10 @@ export class MSRPSession extends EventEmitter{
     }
 
     _newMSRPSession (originator, request) {
+        if (this._reconnectInProgress) {
+            return
+        }
+
         this._ua.newMSRPSession(this, {
             originator,
             session: this,
@@ -1027,13 +1183,23 @@ export class MSRPSession extends EventEmitter{
         clearTimeout(this._sessionTimers.timer)
 
         this._sessionTimers.timer = setTimeout(() => {
-            if (this._connection.readyState === WebSocket.OPEN) {
+            if (this._userTerminated || this._reconnectScheduled) {
+                return
+            }
+
+            if (this._connection && this._connection.readyState === WebSocket.OPEN) {
                 try {
                     this._sendKeepAlive()
                     console.log('Session timer: sending MSRP keep-alive')
+                    this._startKeepAlivePongTimer()
                 } catch (err) {
                     console.error('Failed to send keep-alive:', err)
+                    this._onKeepAliveFailure('keep-alive send threw')
+                    return
                 }
+            } else {
+                this._onKeepAliveFailure('socket not open on keep-alive tick')
+                return
             }
 
             this._sessionTimers.running = false

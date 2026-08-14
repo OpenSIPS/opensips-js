@@ -210,6 +210,7 @@ export interface IOpenSIPSJSOptions {
     pnExtraHeaders?: ExtraContactParams
     msrpDomain?: string
     msrpWs?: boolean
+    msrpReconnectInterval?: number
 }
 
 export interface TriggerListenerOptions {
