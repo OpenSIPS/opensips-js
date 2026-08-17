@@ -1559,3 +1559,49 @@ export {
     BaseProcessStreamPlugin,
     BaseNewStreamPlugin
 }
+
+export type {
+    IMessage,
+    MSRPSessionExtended,
+    TriggerMSRPListenerOptions,
+    ListenerEventType,
+    MSRPMemberRole,
+    MSRPMembership,
+    MSRPMessageStatus,
+    MSRPConversationState,
+    MSRPUploadResult
+} from '@/types/msrp'
+
+export { MSRP_EVT } from '@/modules/msrp'
+
+export type {
+    MSRPConversationRef,
+    MSRPReactionAction,
+    MSRPSendMessageOptions
+} from '@/modules/msrp'
+
+export type {
+    OpenSIPSEventMap,
+    ListenerCallbackFnType,
+    MSRPMessageEventType,
+    ChangeVolumeEventType,
+    ConnectionStateChangeType
+} from '@/types/listeners'
+
+export type {
+    ICall,
+    IRoom,
+    ICallStatus,
+    IOpenSIPSConfiguration,
+    IOpenSIPSJSOptions,
+    NoiseReductionOptions,
+    NoiseReductionOptionsWithoutVadModule,
+    NoiseReductionMode,
+    CustomLoggerType
+} from '@/types/rtc'
+
+// Call-timer payload
+export type { ITimeData } from '@/types/timer'
+
+// WebRTC metrics config (accepted by OpenSIPSJS options)
+export type { WebrtcMetricsConfigType } from '@/types/webrtcmetrics'

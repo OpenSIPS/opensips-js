@@ -1,6 +1,11 @@
 import { UAEventMap } from 'jssip/lib/UA'
 
-import { IMessage, MSRPSessionExtended } from '@/types/msrp'
+import {
+    IMessage,
+    MSRPSessionExtended,
+    MSRPConversationState,
+    MSRPMessageStatus
+} from '@/types/msrp'
 import { ICall, RoomChangeEmitType, ICallStatus, RTCSessionExtended } from '@/types/rtc'
 import MSRPMessage from '@/lib/msrp/message'
 import { ITimeData } from '@/types/timer'
@@ -30,7 +35,7 @@ export type changeActiveMessagesListener = (event: { [key: string]: IMessage }) 
 export type TestEventListener = (event: { test: string }) => void
 export type ActiveRoomListener = (event: number | undefined) => void
 export type CallAddingProgressListener = (callId: string | undefined) => void
-export type MSRPInitializingListener = (sessionId: string | undefined) => void
+export type MSRPInitializingListener = (value: boolean) => void
 export type RoomDeletedListener = (roomId: number) => void
 export type changeActiveInputMediaDeviceListener = (event: string) => void
 export type changeActiveOutputMediaDeviceListener = (event: string) => void
@@ -65,6 +70,66 @@ export type memberHangupListener = (event: object) => void
 export type changeAudioStateListener = (state: boolean) => void
 export type changeVideoStateListener = (state: boolean) => void
 
+/* MSRP event listeners */
+export type changeMsrpSessionListener = (session: IMessage | null) => void
+export type msrpSyncCompletedListener = (payload: {
+    conversations: { [key: string]: MSRPConversationState }
+    messagesByConversation: { [key: string]: any[] }
+}) => void
+export type msrpConversationCreatedListener = (payload: {
+    conversation: MSRPConversationState
+}) => void
+export type msrpConversationRemovedListener = (payload: {
+    conversation_id?: number
+}) => void
+export type msrpConversationUpdatedListener = (payload: {
+    conversation_id?: number
+    patch: Partial<MSRPConversationState>
+}) => void
+export type msrpMessageAddedListener = (payload: {
+    conversation_id?: number
+    message: any
+}) => void
+export type msrpReceiptChangedListener = (payload: {
+    conversation_id?: number
+    eventId: string
+    status: MSRPMessageStatus
+    updatedAt: number
+}) => void
+export type msrpReactionChangedListener = (payload: {
+    conversation_id?: number
+    eventId: string
+    emoji: string
+    action: 'add' | 'remove'
+    sender: string
+    updatedAt: number
+}) => void
+export type msrpTypingListener = (payload: {
+    conversation_id?: number
+    sender: string
+    isTyping: boolean
+}) => void
+export type msrpMessageEditedListener = (payload: {
+    conversation_id?: number
+    eventId: string
+    newContent: any
+    editEvent: any
+    updatedAt: number
+}) => void
+export type msrpMessageDeletedListener = (payload: {
+    conversation_id?: number
+    eventId: string
+    deletedBy: string
+    updatedAt: number
+}) => void
+export type msrpPresenceListener = (payload: {
+    conversation_id?: number
+    sender: string
+    presence: string | null
+    lastActiveAt: number | null
+    updatedAt: number
+}) => void
+
 export interface OpenSIPSEventMap extends UAEventMap {
     ready: readyListener
     connection: connectionListener
@@ -97,6 +162,19 @@ export interface OpenSIPSEventMap extends UAEventMap {
     connectionStateChange: connectionStateChangeListener
     newMSRPMessage: MSRPMessageListener
     newMSRPSession: MSRPSessionListener
+    // MSRP events listeners
+    changeMsrpSession: changeMsrpSessionListener
+    msrpSyncCompleted: msrpSyncCompletedListener
+    msrpConversationCreated: msrpConversationCreatedListener
+    msrpConversationRemoved: msrpConversationRemovedListener
+    msrpConversationUpdated: msrpConversationUpdatedListener
+    msrpMessageAdded: msrpMessageAddedListener
+    msrpReceiptChanged: msrpReceiptChangedListener
+    msrpReactionChanged: msrpReactionChangedListener
+    msrpTyping: msrpTypingListener
+    msrpMessageEdited: msrpMessageEditedListener
+    msrpMessageDeleted: msrpMessageDeletedListener
+    msrpPresence: msrpPresenceListener
     // JANUS
     conferenceStart: conferenceStartListener
     conferenceEnd: conferenceEndListener

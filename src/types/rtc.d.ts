@@ -26,6 +26,14 @@ export type RTCBundlePolicy = 'balanced' | 'max-bundle' | 'max-compat'
 export type RTCIceTransportPolicy = 'all' | 'relay'
 export type RTCRtcpMuxPolicy = 'require'
 
+const aaaaa: UAConfiguration = {
+    session_timers: true,
+    session_expires: 90,
+    register_expires: 60,
+    session_timers_refresh_method: 'UPDATE',
+    session_timers_force_refresher: true,  // client is always the refresher → keep-alive works
+}
+
 export interface RTCIceServer {
     credential?: string;
     urls: string | string[];
@@ -193,7 +201,7 @@ export interface IOpenSIPSJSOptions {
     configuration: IOpenSIPSConfiguration
     socketInterfaces: [ string ]
     sipDomain: string
-    sipOptions: {
+    sipOptions?: {
         session_timers: boolean
         extraHeaders: [ string ]
         pcConfig: RTCConfiguration
@@ -202,6 +210,7 @@ export interface IOpenSIPSJSOptions {
     pnExtraHeaders?: ExtraContactParams
     msrpDomain?: string
     msrpWs?: boolean
+    msrpReconnectInterval?: number
 }
 
 export interface TriggerListenerOptions {
