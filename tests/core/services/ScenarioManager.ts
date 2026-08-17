@@ -17,8 +17,8 @@ export default class ScenarioManager {
     private qrynClient = new QrynClient('ScenarioManager')
 
     constructor (
-        private readonly scenarios: TestScenarios,
-        private readonly testContext: TestContext,
+        scenarios: TestScenarios,
+        testContext: TestContext,
         private readonly speechProvider?: SpeechProviderInput
     ) {
         this.scenarios = scenarios

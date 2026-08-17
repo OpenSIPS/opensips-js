@@ -113,7 +113,7 @@
         "event": "sounduser3_done",
         "actions": [
           {
-            "type": "roomTransfer",
+            "type": "changeRoom",
             "data": {
               "payload": {
                 "fromRoom": "2",

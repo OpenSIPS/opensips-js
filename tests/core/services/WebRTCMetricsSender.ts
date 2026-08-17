@@ -174,7 +174,7 @@ export class WebRTCMetricsSender {
         } catch (error) {
             await this.qrynClient.error('Failed to send WebRTC metrics to qryn', {
                 error: error instanceof Error ? error.message : String(error),
-                url: this.qrynClient.getEffectiveConfig?.url
+                url: (this.qrynClient as unknown as { getEffectiveConfig?: { url?: string } }).getEffectiveConfig?.url
             })
         }
     }

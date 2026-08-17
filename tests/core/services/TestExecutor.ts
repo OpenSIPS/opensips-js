@@ -84,7 +84,7 @@ export default class TestExecutor {
         data: EventListenerData<E>
     ): Promise<void> {
         await this.qrynClient.log(`Triggering shared event: ${eventName}`, { eventName })
-        await this.eventBus.triggerEvent(eventName, data)
+        await this.eventBus.triggerEvent<any>(eventName, data)
     }
 
     private shouldReactToEvent <E extends keyof ActionsResponseMap> (eventData: ActionsResponseMap[E]): boolean {
@@ -244,8 +244,8 @@ export default class TestExecutor {
                 case 'transfer':
                     result = await this.actionsExecutor.transfer(this.buildPayload('transfer', action))
                     break
-                case 'roomTransfer':
-                    result = await this.actionsExecutor.roomTransfer(this.buildPayload('roomTransfer', action))
+                case 'changeRoom':
+                    result = await this.actionsExecutor.changeRoom(this.buildPayload('changeRoom', action))
                     break
                 case 'DND':
                     result = await this.actionsExecutor.DND()

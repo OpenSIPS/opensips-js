@@ -254,23 +254,23 @@ export type TransferAction = Action<
     TransferActionSuccessResponse
 >
 
-/* Room Transfer */
-interface RoomTransferActionPayload {
+/* Change Room */
+interface ChangeRoomActionPayload {
     fromRoom: number
     toRoom: number
 }
 
-interface RoomTransferActionSuccessResponse extends BaseActionSuccessResponse {
+interface ChangeRoomActionSuccessResponse extends BaseActionSuccessResponse {
     success: true
     fromRoom: number
     toRoom: number
     transferId: string
 }
 
-export type RoomTransferAction = Action<
-    'roomTransfer',
-    RoomTransferActionPayload,
-    RoomTransferActionSuccessResponse
+export type ChangeRoomAction = Action<
+    'changeRoom',
+    ChangeRoomActionPayload,
+    ChangeRoomActionSuccessResponse
 >
 /* DND */
 interface DNDActionSuccessResponse extends BaseActionSuccessResponse {
@@ -367,6 +367,7 @@ export interface ActionsMap {
     hangup: HangupAction
     sendDTMF: SendDTMFAction
     transfer: TransferAction
+    changeRoom: ChangeRoomAction
     unregister: UnregisterAction
     request: RequestAction
     DND: DNDAction

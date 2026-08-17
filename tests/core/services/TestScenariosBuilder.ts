@@ -27,6 +27,8 @@ import ScenarioManager from './ScenarioManager'
 import { SendDTMFAction } from '../types/actions'
 import { GetActionDefinition } from '../types/actions'
 import { TransferAction } from '../types/actions'
+import { ChangeRoomAction } from '../types/actions'
+import { DNDAction } from '../types/actions'
 import {
     TextToSpeechAction,
     StartTranscriptionAction,
@@ -115,6 +117,20 @@ export default abstract class TestScenariosBuilder implements ActionsScenariosBu
     public transfer (data: GetActionData<TransferAction>): GetActionDefinition<TransferAction> {
         return {
             type: 'transfer',
+            data
+        }
+    }
+
+    public changeRoom (data: GetActionData<ChangeRoomAction>): GetActionDefinition<ChangeRoomAction> {
+        return {
+            type: 'changeRoom',
+            data
+        }
+    }
+
+    public DND (data: GetActionData<DNDAction>): GetActionDefinition<DNDAction> {
+        return {
+            type: 'DND',
             data
         }
     }

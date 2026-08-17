@@ -26,10 +26,11 @@ import {
     DNDAction,
     RequestAction,
     BaseActionSuccessResponse,
+    BaseActionExpectation,
     Expectation,
     ActionResponse,
     ActionType,
-    RoomTransferAction,
+    ChangeRoomAction,
     TextToSpeechAction,
     StartTranscriptionAction,
     StopTranscriptionAction,
@@ -144,7 +145,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                                 // Check properties if specified
                                 if (expectation.properties) {
                                     if (isActionError(result)) {
-                                        expectationMet = expectation.properties.success === false
+                                        expectationMet = (expectation.properties as Record<string, unknown>).success === false
                                     } else {
                                         // For success responses, check all properties
                                         expectationMet = Object.entries(expectation.properties).every(
@@ -180,12 +181,14 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                             }
                             break
 
-                        default:
+                        default: {
+                            const unknownExpectation = expectation as BaseActionExpectation
                             await this.qrynClient.error('Unknown expectation type', {
-                                type: expectation.type,
-                                description: expectation.description
+                                type: unknownExpectation.type,
+                                description: unknownExpectation.description
                             })
                             expectationMet = false
+                        }
                     }
 
                     // If any expectation in AND group fails, the group fails
@@ -315,8 +318,8 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         }
     }
 
-    public async roomTransfer (data: GetActionPayload<RoomTransferAction>): Promise<GetActionResponse<RoomTransferAction>> {
-        await this.qrynClient.log('Executing room transfer action', { data })
+    public async changeRoom (data: GetActionPayload<ChangeRoomAction>): Promise<GetActionResponse<ChangeRoomAction>> {
+        await this.qrynClient.log('Executing change room action', { data })
 
         const roomSelector = this.page.locator(`#room-${data.fromRoom} [data-test="room-select"]`)
 

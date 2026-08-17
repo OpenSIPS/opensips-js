@@ -61,6 +61,7 @@ declare global {
         __remoteAudioRecorder?: MediaRecorder | null
         __onRemoteAudioChunk?: (base64: string) => void
         __hasActiveCall?: boolean
+        WebRTCMetricsCollector?: typeof WebRTCMetricsCollector
     }
 }
 
@@ -98,7 +99,7 @@ export class WebRTCMetricsCollector {
         const origRTCPeerConnection = window.RTCPeerConnection
         const metricsIntervalMS = this.METRICS_INTERVAL
 
-        window.RTCPeerConnection = function (...args) {
+        const patchedRTCPeerConnection = function (...args) {
             console.log('[WebRTCMetricsCollector] Creating new RTCPeerConnection')
             const pc = new origRTCPeerConnection(...args)
 
@@ -250,8 +251,10 @@ export class WebRTCMetricsCollector {
             }
 
             return pc
-        }
-        
+        } as unknown as typeof window.RTCPeerConnection
+
+        window.RTCPeerConnection = patchedRTCPeerConnection
+
         console.log('[WebRTCMetricsCollector] WebRTC metrics collection initialized')
     }
 }

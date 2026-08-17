@@ -18,7 +18,7 @@ export default class EventBus {
             this.eventListeners.set(eventName, [])
         }
 
-        this.eventListeners.get(eventName).push(listener)
+        this.eventListeners.get(eventName).push(listener as unknown as EventListener<any>)
     }
 
     public removeEventListener <E extends EventType> (eventName: E, listener: EventListener<E>): void {
@@ -26,7 +26,7 @@ export default class EventBus {
 
         if (!listeners) return
 
-        const index = listeners.indexOf(listener)
+        const index = listeners.indexOf(listener as unknown as EventListener<any>)
 
         if (index !== -1) {
             listeners.splice(index, 1)
@@ -54,18 +54,18 @@ export default class EventBus {
         timeout?: number
     ): Promise<EventListenerData<E>> {
         return new Promise((resolve, reject) => {
-            const listener: EventListener<E> = (name, data) => {
+            const listener: EventListener<any> = (name, data) => {
                 if (name === eventName && additionalCheck(name, data)) {
-                    this.removeEventListener(eventName, listener)
+                    this.removeEventListener<any>(eventName, listener)
                     resolve(data)
                 }
             }
 
-            this.addEventListener<E>(eventName, listener)
+            this.addEventListener<any>(eventName, listener)
 
             if (timeout) {
                 setTimeout(() => {
-                    this.removeEventListener(eventName, listener)
+                    this.removeEventListener<any>(eventName, listener)
                     reject(new Error(`Timeout waiting for event ${eventName}`))
                 }, timeout)
             }

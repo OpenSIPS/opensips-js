@@ -24,6 +24,7 @@
     "debug-server": "node debug-server.js",
     "run-test-debug": "cp .env.debug .env && tsx tests2/test.ts",
     "ts-check": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tests/tsconfig.json",
     "lint": "eslint . --ext .js,.jsx,.cjs,.mjs,.ts --fix --ignore-path .gitignore",
     "lint:tests-ui": "eslint tests/ui --ext .js,.jsx,.ts,.tsx,.vue"
   },
@@ -32,7 +33,7 @@
     "npm": "please-use-yarn",
     "yarn": ">= 1.22.4"
   },
-  "precommit": "ts-check, lint",
+  "precommit": "ts-check, typecheck, lint",
   "repository": {
     "type": "git",
     "url": "git+ssh://git@github.com/OpenSIPS/opensips-js.git"
