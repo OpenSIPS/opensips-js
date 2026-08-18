@@ -214,7 +214,7 @@ Also, there are next public fields on OpensipsJS instance:
 - `unholdCall(callId: String): Promise<void>` - unhold a call
 - `terminateCall(callId: String): void` - terminate call
 - `moveCall(callId: String, roomId: Number): Promise<void>` - Same as callChangeRoom. Move call to the specific room
-- `transferCall(callId: String, target: String): void` - transfer call to target
+- `transferCall(callId: String, target: String, options?: { extraHeaders?: string[] }): void` - transfer call to target. Optional `extraHeaders` are appended to the outgoing REFER (or the 302 redirect for not-yet-confirmed calls)
 - `mergeCall(roomId: Number): void` - merge calls in specific room. Works only for rooms with 2 calls inside
 - `mergeCallByIds(firstCallId: string, secondCallId: string): void` - merge 2 calls by their ids
 - `answerCall(callId: String): void` - answer a call

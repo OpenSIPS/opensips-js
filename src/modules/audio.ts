@@ -2,6 +2,7 @@ import {
     ICall,
     ICallStatus,
     ICallStatusUpdate,
+    ITransferOptions,
     IntervalType,
     IRoom,
     IRoomUpdate,
@@ -1901,12 +1902,13 @@ export class AudioModule {
         }
     }
 
-    public transferCall (callId: string, target: string) {
+    public transferCall (callId: string, target: string, options: ITransferOptions = {}) {
         if (target.toString().length === 0) {
             return new Error('Target must be passed')
         }
 
         const call = this.extendedCalls[callId]
+        const extraHeaders = options.extraHeaders ?? []
 
         if (!call._is_confirmed && !call._is_canceled) {
             const redirectTarget = `sip:${target}@${this.context.sipDomain}`
@@ -1914,7 +1916,7 @@ export class AudioModule {
             call.terminate({
                 status_code: 302,
                 reason_phrase: 'Moved Temporarily',
-                extraHeaders: [ `Contact: ${redirectTarget}` ]
+                extraHeaders: [ `Contact: ${redirectTarget}`, ...extraHeaders ]
             })
 
             return
@@ -1927,6 +1929,7 @@ export class AudioModule {
         })
 
         call.refer(`sip:${target}@${this.context.sipDomain}`, {
+            extraHeaders,
             eventHandlers: {
                 requestSucceeded: () => {
                     this.updateCallStatus({

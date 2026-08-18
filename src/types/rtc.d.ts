@@ -134,6 +134,10 @@ export interface ICallStatusUpdate {
     isTransferred?: boolean
 }
 
+export interface ITransferOptions {
+    extraHeaders?: string[]
+}
+
 export type IRoomUpdate = Omit<IRoom, 'started'> & {
     started?: Date
 }
