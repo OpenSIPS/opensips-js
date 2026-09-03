@@ -1,4 +1,11 @@
 import { Page } from 'playwright'
+import { z } from 'zod'
+
+import type { ClipPlaybackResult } from '../session/types'
+
+const clipPlaybackResultSchema = z.object({
+    status: z.enum([ 'completed', 'interrupted' ]),
+})
 
 export default class WindowMethodsWorker {
     private remoteCaptureBound = false
@@ -7,11 +14,10 @@ export default class WindowMethodsWorker {
         private readonly page: Page
     ) {}
 
-    public async implementPlayClipMethod (): Promise<void> {
-        try {
-            // Use string evaluation since TypeScript version doesn't work
-            const initScript = `
-                (function() {
+    public async implementPlayClipMethod (monitorOutgoingAudio = false): Promise<void> {
+        // Use string evaluation since TypeScript version doesn't work
+        const initScript = `
+                (function(monitorOutgoingAudio) {
                     console.log('=== INITIALIZING AUDIO SYSTEM FOR HEADLESS/SERVER ===');
 
                     // Create audio context
@@ -19,13 +25,22 @@ export default class WindowMethodsWorker {
 
                     // Create the controllable stream destination
                     window.mediaStreamDestination = window.audioContext.createMediaStreamDestination();
+                    window.__monitorOutgoingAudio = monitorOutgoingAudio;
 
-                    // Create gain node with high volume
-                    window.gainNode = window.audioContext.createGain();
-                    window.gainNode.gain.value = 5.0;
-                    window.gainNode.connect(window.mediaStreamDestination);
+                    // Outgoing speech bus: volume / packet-loss apply here; gain is 1:1 with manifest.
+                    window.speechInputGain = window.audioContext.createGain();
+                    window.speechInputGain.gain.value = 1.0;
+                    window.speechInputGain.connect(window.mediaStreamDestination);
 
-                    console.log('Audio nodes created - gain value:', window.gainNode.gain.value);
+                    if (monitorOutgoingAudio) {
+                        // Duplicate the outgoing voice to the local speakers so an
+                        // operator can hear what the remote party hears. The real
+                        // microphone is never captured, so this cannot echo back.
+                        window.speechInputGain.connect(window.audioContext.destination);
+                        console.log('=== OUTGOING AUDIO MONITOR ENABLED (local speakers) ===');
+                    }
+
+                    console.log('Audio nodes created - speechInputGain:', window.speechInputGain.gain.value);
 
                     // Store original getUserMedia
                     window.originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
@@ -76,20 +91,14 @@ export default class WindowMethodsWorker {
 
                     window.audioSystemReady = true;
                     console.log('=== HEADLESS-COMPATIBLE AUDIO SYSTEM READY ===');
-                })();
+                })(${JSON.stringify(monitorOutgoingAudio)});
             `
 
-            await this.page.evaluate(initScript)
-
-        } catch (error) {
-            throw error
-        }
+        await this.page.evaluate(initScript)
     }
 
-    public async playClip (url: string): Promise<void> {
-        try {
-            // String evaluation to avoid transpilation issues
-            const audioScript = `
+    public async playClip (url: string): Promise<ClipPlaybackResult> {
+        const audioScript = `
                 (function(audioUrl) {
                     console.log('=== PLAYING AUDIO FOR WEBRTC (HEADLESS COMPATIBLE) ===');
 
@@ -102,12 +111,10 @@ export default class WindowMethodsWorker {
                             var audio = new Audio(audioUrl);
                             audio.volume = 1.0;
 
-                            console.log('Audio element created (works without real audio hardware)');
-
                             var audioSource = null;
                             var settled = false;
 
-                            function finish() {
+                            function finish(status) {
                                 if (settled) { return; }
                                 settled = true;
                                 if (audioSource) {
@@ -117,29 +124,29 @@ export default class WindowMethodsWorker {
                                     window.__currentClipAudio = null;
                                     window.__stopCurrentClip = null;
                                 }
-                                resolve();
+                                resolve({ status: status });
                             }
 
-                            // Allow the current TTS clip to be interrupted (barge-in).
+                            // Only one clip may sound at a time: starting a new
+                            // clip interrupts whatever is still playing, so
+                            // overlapping audio is physically impossible.
+                            if (typeof window.__stopCurrentClip === 'function') {
+                                window.__stopCurrentClip();
+                            }
+
                             window.__currentClipAudio = audio;
                             window.__stopCurrentClip = function() {
+                                if (settled) { return; }
                                 console.log('>>> AUDIO INTERRUPTED (barge-in) <<<');
                                 try { audio.pause(); } catch (e) {}
-                                finish();
+                                finish('interrupted');
                             };
 
                             function connectAudio() {
                                 if (!audioSource && audio.readyState >= 1) {
                                     try {
-                                        console.log('>>> CONNECTING AUDIO TO WEBRTC STREAM <<<');
-
-                                        // This works even on headless servers
                                         audioSource = window.audioContext.createMediaElementSource(audio);
-                                        audioSource.connect(window.gainNode);
-
-                                        console.log('>>> AUDIO CONNECTED TO WEBRTC STREAM <<<');
-                                        console.log('This works on headless servers without real audio devices');
-
+                                        audioSource.connect(window.speechInputGain);
                                     } catch (error) {
                                         console.error('Connection error:', error);
                                         reject(error);
@@ -147,55 +154,178 @@ export default class WindowMethodsWorker {
                                 }
                             }
 
-                            audio.addEventListener('loadedmetadata', function() {
-                                console.log('Metadata loaded, duration:', audio.duration);
-                                connectAudio();
-                            });
-
-                            audio.addEventListener('canplay', function() {
-                                console.log('Can play');
-                                connectAudio();
-                            });
-
-                            audio.addEventListener('playing', function() {
-                                console.log('>>> AUDIO PLAYING TO WEBRTC STREAM <<<');
-                            });
-
+                            audio.addEventListener('loadedmetadata', connectAudio);
+                            audio.addEventListener('canplay', connectAudio);
                             audio.addEventListener('ended', function() {
-                                console.log('>>> AUDIO FINISHED <<<');
-                                finish();
+                                finish('completed');
                             });
-
                             audio.addEventListener('error', function(e) {
                                 console.error('Audio error:', e);
                                 reject(new Error('Audio playback failed'));
                             });
 
-                            // Set source and play
                             audio.src = audioUrl;
                             audio.load();
 
-                            audio.play().then(function() {
-                                console.log('Play started - routing to WebRTC (headless compatible)');
-                                connectAudio();
-                            }).catch(function(error) {
-                                console.error('Play failed:', error);
-                                reject(error);
-                            });
-
+                            audio.play().then(connectAudio).catch(reject);
                         } catch (error) {
-                            console.error('Error:', error);
                             reject(error);
                         }
                     });
-                })('${url.replace(/'/g, "\\'")}');
+                })('${url.replace(/'/g, '\\\'')}');
             `
 
-            await this.page.evaluate(audioScript)
+        const result = await this.page.evaluate(audioScript)
 
-        } catch (error) {
-            throw error
-        }
+        return clipPlaybackResultSchema.parse(result)
+    }
+
+    /**
+     * Streaming PCM playback (s16le mono): chunks are scheduled gaplessly on the
+     * outgoing audio graph as they arrive, so speech starts sounding within the
+     * first TTS chunk instead of after full synthesis. Integrates with
+     * window.__stopCurrentClip so only one clip/stream can sound at a time.
+     */
+    public async startStreamClip (clipId: string, sampleRate: number): Promise<void> {
+        const script = `
+            (function(id, sampleRate) {
+                if (!window.audioSystemReady) {
+                    throw new Error('Audio system not ready');
+                }
+
+                if (typeof window.__stopCurrentClip === 'function') {
+                    window.__stopCurrentClip();
+                }
+
+                window.__streamClips = window.__streamClips || {};
+
+                var state = {
+                    sampleRate: sampleRate,
+                    nextTime: 0,
+                    activeSources: [],
+                    ended: false,
+                    settled: false,
+                    status: null,
+                    resolvers: []
+                };
+
+                state.settle = function(status) {
+                    if (state.settled) { return; }
+                    state.settled = true;
+                    state.status = status;
+                    state.activeSources.forEach(function(src) {
+                        try { src.stop(); } catch (e) {}
+                    });
+                    state.activeSources = [];
+                    if (window.__stopCurrentClip === state.stopFn) {
+                        window.__stopCurrentClip = null;
+                    }
+                    state.resolvers.forEach(function(resolve) { resolve({ status: status }); });
+                    state.resolvers = [];
+                };
+                state.stopFn = function() {
+                    console.log('>>> STREAM CLIP INTERRUPTED (barge-in) <<<');
+                    state.settle('interrupted');
+                };
+
+                window.__streamClips[id] = state;
+                window.__stopCurrentClip = state.stopFn;
+            })(${JSON.stringify(clipId)}, ${JSON.stringify(sampleRate)});
+        `
+        await this.page.evaluate(script)
+    }
+
+    public async appendStreamClipChunk (clipId: string, base64Pcm: string): Promise<void> {
+        const script = `
+            (function(id, base64) {
+                var state = window.__streamClips && window.__streamClips[id];
+                if (!state || state.settled) { return; }
+
+                var binary = atob(base64);
+                var sampleCount = Math.floor(binary.length / 2);
+                if (sampleCount === 0) { return; }
+
+                var float32 = new Float32Array(sampleCount);
+                for (var i = 0; i < sampleCount; i++) {
+                    var value = (binary.charCodeAt(i * 2 + 1) << 8) | binary.charCodeAt(i * 2);
+                    if (value >= 32768) { value -= 65536; }
+                    float32[i] = value / 32768;
+                }
+
+                var ctx = window.audioContext;
+                var buffer = ctx.createBuffer(1, sampleCount, state.sampleRate);
+                buffer.copyToChannel(float32, 0);
+
+                var source = ctx.createBufferSource();
+                source.buffer = buffer;
+                source.connect(window.speechInputGain);
+
+                var startAt = Math.max(ctx.currentTime + 0.05, state.nextTime);
+                source.start(startAt);
+                state.nextTime = startAt + buffer.duration;
+                state.activeSources.push(source);
+
+                source.onended = function() {
+                    var index = state.activeSources.indexOf(source);
+                    if (index >= 0) { state.activeSources.splice(index, 1); }
+                    if (state.ended && state.activeSources.length === 0) {
+                        state.settle('completed');
+                    }
+                };
+            })(${JSON.stringify(clipId)}, ${JSON.stringify(base64Pcm)});
+        `
+        await this.page.evaluate(script)
+    }
+
+    public async endStreamClip (clipId: string): Promise<void> {
+        const script = `
+            (function(id) {
+                var state = window.__streamClips && window.__streamClips[id];
+                if (!state || state.settled) { return; }
+                state.ended = true;
+                if (state.activeSources.length === 0) {
+                    state.settle('completed');
+                }
+            })(${JSON.stringify(clipId)});
+        `
+        await this.page.evaluate(script)
+    }
+
+    public async stopStreamClip (clipId: string): Promise<void> {
+        const script = `
+            (function(id) {
+                var state = window.__streamClips && window.__streamClips[id];
+                if (state && state.stopFn) {
+                    state.stopFn();
+                }
+            })(${JSON.stringify(clipId)});
+        `
+        await this.page.evaluate(script)
+    }
+
+    public async waitStreamClipDone (clipId: string): Promise<ClipPlaybackResult> {
+        const script = `
+            new Promise(function(resolve) {
+                var state = window.__streamClips && window.__streamClips[${JSON.stringify(clipId)}];
+                if (!state) { resolve({ status: 'interrupted' }); return; }
+                if (state.settled) { resolve({ status: state.status }); return; }
+                state.resolvers.push(resolve);
+            });
+        `
+        const result = await this.page.evaluate(script)
+
+        return clipPlaybackResultSchema.parse(result)
+    }
+
+    /** Interrupt the clip started by {@link playClip}. Idempotent in the browser. */
+    public async stopCurrentClip (): Promise<void> {
+        await this.page.evaluate(`
+            (function() {
+                if (typeof window.__stopCurrentClip === 'function') {
+                    window.__stopCurrentClip();
+                }
+            })();
+        `)
     }
 
     /**
@@ -272,7 +402,7 @@ export default class WindowMethodsWorker {
     }
 
     public async cleanup (): Promise<void> {
-            const cleanupScript = `
+        const cleanupScript = `
                 (function() {
                     if (window.originalGetUserMedia) {
                         navigator.mediaDevices.getUserMedia = window.originalGetUserMedia;
@@ -293,6 +423,6 @@ export default class WindowMethodsWorker {
                 })();
             `
 
-            await this.page.evaluate(cleanupScript)
+        await this.page.evaluate(cleanupScript)
     }
 }

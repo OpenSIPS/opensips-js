@@ -19,8 +19,7 @@ import {
     TestScenarios,
 } from '../types/intex'
 import {
-    ActionsPerEvent, EventHandler,
-    EventsMap, EventType
+    ActionsPerEvent, EventHandler, EventType
 } from '../types/events'
 
 import ScenarioManager from './ScenarioManager'
@@ -34,6 +33,7 @@ import {
     StartTranscriptionAction,
     StopTranscriptionAction
 } from '../types/actions'
+import { z } from 'zod'
 import { SpeechProviderInput } from './speech/BaseSpeechProvider'
 
 import env from '../env'
@@ -41,6 +41,9 @@ import env from '../env'
 /**
  * Base class for defining test scenarios
  */
+// env.PARAMETERS is untyped input — validated into a plain key/value context.
+const envContextSchema = z.record(z.string(), z.unknown())
+
 export default abstract class TestScenariosBuilder implements ActionsScenariosBuilderImplements {
     protected speechProvider?: SpeechProviderInput
 
@@ -163,7 +166,7 @@ export default abstract class TestScenariosBuilder implements ActionsScenariosBu
         }
     }
 
-    protected on<E extends keyof EventsMap> (
+    protected on<E extends EventType> (
         event: E,
         actions: readonly ActionsPerEvent<E>[]
     ): EventHandler<E> {
@@ -184,7 +187,11 @@ export default abstract class TestScenariosBuilder implements ActionsScenariosBu
     }
 
     getEnvContext (): TestContext {
-        return typeof env.PARAMETERS === 'string' ? JSON.parse(env.PARAMETERS) : env.PARAMETERS
+        const raw: unknown = typeof env.PARAMETERS === 'string'
+            ? JSON.parse(env.PARAMETERS)
+            : env.PARAMETERS
+
+        return envContextSchema.parse(raw ?? {})
     }
 
     abstract getInitialContext(): TestContext

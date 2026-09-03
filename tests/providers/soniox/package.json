@@ -6,7 +6,8 @@
   "type": "commonjs",
   "main": "SonioxSpeechProvider.ts",
   "scripts": {
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "smoke": "tsx smoke-offline.ts"
   },
   "dependencies": {
     "ws": "^8.18.0"

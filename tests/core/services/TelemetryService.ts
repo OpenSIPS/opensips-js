@@ -1,11 +1,7 @@
 import { NodeSDK } from '@opentelemetry/sdk-node'
-import { ConsoleSpanExporter } from '@opentelemetry/sdk-trace-node'
 import { ZipkinExporter } from '@opentelemetry/exporter-zipkin'
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node'
-import {
-    PeriodicExportingMetricReader,
-    ConsoleMetricExporter,
-} from '@opentelemetry/sdk-metrics'
+import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics'
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
 import { metrics, trace, context, Span, SpanStatusCode, Context, Meter, Tracer, SpanKind } from '@opentelemetry/api'
 import env from '../env'
@@ -16,8 +12,12 @@ export interface TelemetryEventAttributes {
     [key: string]: any
 }
 
+// The NodeSDK is process-global: one instance shared by every TelemetryService,
+// started lazily and shut down via TelemetryService.shutdownSdk() so exporters
+// (the 5s PeriodicExportingMetricReader) stop keeping the event loop alive.
+let sharedSdk: NodeSDK | null = null
+
 export class TelemetryService {
-    private sdkInitialized = false
     private meter: Meter
     private tracer: Tracer
     private eventCounter: any
@@ -52,7 +52,7 @@ export class TelemetryService {
     }
 
     private initializeSDK () {
-        if (this.sdkInitialized) return
+        if (sharedSdk) return
 
         const gigapipeConfig = env.GIGAPIPE
         const tracingConfig = gigapipeConfig?.TRACING || gigapipeConfig?.DEFAULT
@@ -90,7 +90,30 @@ export class TelemetryService {
 
         sdk.start()
 
-        this.sdkInitialized = true
+        sharedSdk = sdk
+    }
+
+    /**
+     * Flushes and stops the shared NodeSDK (exporters, metric reader). Must be
+     * called once after ALL scenarios/sessions in the process are done —
+     * otherwise the periodic metric exporter keeps the process alive (T1.3).
+     */
+    public static async shutdownSdk (): Promise<void> {
+        const sdk = sharedSdk
+        sharedSdk = null
+
+        if (!sdk) {
+            return
+        }
+
+        try {
+            await sdk.shutdown()
+        } catch (error) {
+            console.warn(
+                '[TelemetryService] SDK shutdown failed:',
+                error instanceof Error ? error.message : error
+            )
+        }
     }
 
     private createScenarioRootSpan (): void {

@@ -1,15 +1,11 @@
-import { Browser, chromium, Page } from 'playwright'
 import mustache from 'mustache'
 
-
-import PageWebSocketWorker from './PageWebSocketWorker'
-import EventBus from './EventBus'
-import ActionsExecutor from './ActionsExecutor'
-import WindowMethodsWorker from './WindowMethodsWorker'
+import SharedEventCoordinator from './SharedEventCoordinator'
 import ScenarioManager from './ScenarioManager'
 import { TelemetryService } from './TelemetryService'
-
-import env from '../env'
+import CallSession from '../session/CallSession'
+import { getDefaultExpectations } from '../session/defaultExpectations'
+import { isSessionLocalEvent } from '../session/sessionEvents'
 
 import {
     ActionsResponseMap,
@@ -21,42 +17,47 @@ import {
     ActionResponse,
     isActionSuccess,
     isActionError,
-    Expectation
 } from '../types/actions'
 import { TestScenario } from '../types/intex'
 import { EventListener, EventListenerData, EventType } from '../types/events'
 import QrynClient from './QrynClient'
-import { BaseSpeechProvider } from './speech/BaseSpeechProvider'
-
-const SCENARIO_THAT_TRIGGERED_EVENT_KEY = 'SCENARIO_THAT_TRIGGERED_EVENT_KEY' as const
+import { SpeechProvider } from './speech/BaseSpeechProvider'
+import { parseDeclarativePayload } from '../schema/actionPayloads.schema'
 
 // Events whose handler is reused for every emission instead of consumed once.
 const REPEATABLE_EVENTS: ReadonlySet<string> = new Set([ 'textChunk' ])
 
+type EventHandlerGroups = Record<
+    string,
+    ReadonlyArray<GetActionDefinition<ActionByActionType<keyof ActionsResponseMap>>>[]
+>
+
 export default class TestExecutor {
-    private pageWebSocketWorker!: PageWebSocketWorker
-    private actionsExecutor!: ActionsExecutor
-    private windowMethodsWorker!: WindowMethodsWorker
+    private callSession: CallSession | null = null
     private readonly telemetryService: TelemetryService
     private qrynClient: QrynClient
 
-    private readonly eventBus = EventBus.getInstance()
-    private scenarioCompleted = false // Add completion flag
+    private readonly sharedEvents: SharedEventCoordinator
+    private scenarioCompleted = false
 
-    public page!: Page
-    public browser!: Browser
+    private resolveCompletion: () => void = () => { /* replaced by the promise executor below */ }
+    private readonly completionPromise: Promise<void> = new Promise<void>((resolve) => {
+        this.resolveCompletion = resolve
+    })
 
     constructor (
         private readonly scenarioId: string,
         private readonly scenarioName: string,
         private readonly scenarioManager: ScenarioManager,
-        private readonly speechProvider?: BaseSpeechProvider
+        sharedEvents: SharedEventCoordinator,
+        private readonly speechProvider?: SpeechProvider
     ) {
+        this.sharedEvents = sharedEvents
         this.telemetryService = new TelemetryService(scenarioId, scenarioName)
         this.qrynClient = new QrynClient('TestExecutor', scenarioName, scenarioId)
     }
 
-    private addEventListener<E extends EventType> (
+    private addSharedEventListener<E extends EventType> (
         eventName: E,
         listener: EventListener<E>
     ): void {
@@ -66,17 +67,7 @@ export default class TestExecutor {
             }
         }
 
-        this.eventBus.addEventListener<E>(eventName, wrappedListener)
-    }
-
-    private async triggerLocalEventListener<E extends EventType> (
-        eventName: E,
-        data: EventListenerData<E>
-    ): Promise<void> {
-        await this.eventBus.triggerEvent(eventName, {
-            ...data,
-            [SCENARIO_THAT_TRIGGERED_EVENT_KEY]: this.scenarioId,
-        })
+        this.sharedEvents.addEventListener<E>(eventName, wrappedListener)
     }
 
     private async triggerSharedEventListener<E extends EventType> (
@@ -84,21 +75,14 @@ export default class TestExecutor {
         data: EventListenerData<E>
     ): Promise<void> {
         await this.qrynClient.log(`Triggering shared event: ${eventName}`, { eventName })
-        await this.eventBus.triggerEvent<any>(eventName, data)
+        await this.sharedEvents.triggerEvent<any>(eventName, data)
     }
 
-    private shouldReactToEvent <E extends keyof ActionsResponseMap> (eventData: ActionsResponseMap[E]): boolean {
-        return (
-            !(SCENARIO_THAT_TRIGGERED_EVENT_KEY in eventData) ||
-            eventData[SCENARIO_THAT_TRIGGERED_EVENT_KEY] === this.scenarioId
-        )
-    }
-
-    private buildPayload <T extends ActionType, Payload extends GetActionPayload<ActionByActionType<T>>> (
+    private buildPayload <T extends ActionType> (
         actionType: T,
         action: GetActionDefinition<ActionByActionType<T>>,
-    ): Payload {
-        let payload = action.data.payload
+    ): NonNullable<GetActionPayload<ActionByActionType<T>>> {
+        let payload: unknown = action.data?.payload
         const context = this.scenarioManager.getContext()
 
         if (payload && typeof payload === 'object') {
@@ -110,25 +94,94 @@ export default class TestExecutor {
                     )
                 )
             } catch (e) {
-                this.qrynClient.error('Error rendering payload', { error: e instanceof Error ? e.message : String(e) })
+                // A failed render must fail the action — validating the
+                // unrendered payload would let literal "{{var}}" strings pass.
+                const message = e instanceof Error ? e.message : String(e)
+                void this.qrynClient.error('Error rendering payload', { error: message })
+                throw new Error(`Failed to render payload template for action "${actionType}": ${message}`)
             }
         }
 
-        return payload as Payload
+        try {
+            return parseDeclarativePayload(actionType, payload)
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            throw new Error(`Invalid payload for action "${actionType}" after mustache render: ${message}`)
+        }
+    }
+
+    private createEventHandler (
+        eventName: string,
+        eventHandlers: EventHandlerGroups,
+        eventCounter: Record<string, number>
+    ): (eventData: unknown) => Promise<void> {
+        return async (eventData: unknown) => {
+            const isRepeatable = REPEATABLE_EVENTS.has(eventName)
+            const currentIndex = isRepeatable ? 0 : eventCounter[eventName]
+            const actions = eventHandlers[eventName][currentIndex]
+
+            if (!actions) {
+                return
+            }
+
+            if (!isRepeatable) {
+                eventCounter[eventName]++
+            }
+
+            const eventSpan = this.telemetryService.startEventSpan(eventName, eventData)
+
+            try {
+                await this.telemetryService.logEvent(`event_${eventName}`, 'success', {
+                    stage: 'triggered',
+                    eventIndex: currentIndex.toString(),
+                    actionsCount: actions.length.toString()
+                })
+
+                for (const action of actions) {
+                    await this.executeAction(action)
+                }
+
+                await this.telemetryService.logEvent(`event_${eventName}`, 'success', {
+                    stage: 'completed',
+                    eventIndex: currentIndex.toString(),
+                    actionsCount: actions.length.toString()
+                })
+
+                this.telemetryService.finishEventSpan(eventSpan, true, undefined, actions.length)
+            } catch (error) {
+                await this.qrynClient.error('Error handling event', {
+                    eventName,
+                    error: error instanceof Error ? error.message : String(error)
+                })
+
+                this.telemetryService.finishEventSpan(eventSpan, false, error, actions.length)
+                throw error
+            }
+        }
+    }
+
+    private getCallSession (): CallSession {
+        if (!this.callSession) {
+            throw new Error('CallSession is not initialized')
+        }
+
+        return this.callSession
     }
 
     private async executeAction<T extends ActionType> (
         action: GetActionDefinition<ActionByActionType<T>>,
     ): Promise<void> {
+        const session = this.getCallSession()
+
         await this.qrynClient.log(`Executing action: ${action.type}`, { actionType: action.type })
 
-        // Start telemetry tracking for this action
         await this.telemetryService.logTriggered(action.type, {
             actionData: JSON.stringify(action.data)
         })
 
         if (action.data && action.data.waitUntil && action.data.waitUntil.length) {
             const waitingForEventsNames = action.data.waitUntil.map(e => e.event).join(', ')
+
             await this.qrynClient.log(
                 `Waiting for events: ${waitingForEventsNames}`,
                 {
@@ -140,16 +193,21 @@ export default class TestExecutor {
             )
 
             try {
-                // Create promises for all events we need to wait for
-                const eventPromises = action.data.waitUntil.map(waitConfig =>
-                    this.eventBus.waitForEvent(
-                        waitConfig.event,
-                        (_, data) => this.shouldReactToEvent(data),
-                        waitConfig.timeout || 30000
-                    )
-                )
+                const eventPromises = action.data.waitUntil.map(waitConfig => {
+                    const eventName = String(waitConfig.event)
+                    const timeout = waitConfig.timeout || 30000
 
-                // Wait for all events to be received
+                    if (isSessionLocalEvent(eventName)) {
+                        return session.waitFor(eventName, timeout)
+                    }
+
+                    return this.sharedEvents.waitForEvent(
+                        waitConfig.event,
+                        () => true,
+                        timeout
+                    )
+                })
+
                 const results = await Promise.all(eventPromises)
 
                 await this.qrynClient.log(`All events received: ${waitingForEventsNames}`, {
@@ -170,14 +228,16 @@ export default class TestExecutor {
         }
 
         const triggerCustom = (result: ActionResponse<BaseActionSuccessResponse>) => {
-            if (action.data && action.data.customSharedEvent && isActionSuccess(result)) {
+            const customSharedEvent = action.data?.customSharedEvent
+
+            if (customSharedEvent && isActionSuccess(result)) {
                 const sharedData = {
                     ...result,
                     originScenario: this.scenarioId,
                     actionType: action.type
                 }
                 setTimeout(() => {
-                    this.triggerSharedEventListener(action.data.customSharedEvent!, sharedData)
+                    void this.triggerSharedEventListener(customSharedEvent, sharedData)
                 }, 0)
             }
         }
@@ -205,85 +265,80 @@ export default class TestExecutor {
             }
         }
 
-        // Start action span for ALL actions consistently
         const actionSpan = this.telemetryService.startActionSpan(action.type, action.data)
 
         try {
             const actionType = action.type
             let result: ActionResponse<BaseActionSuccessResponse>
 
-            // Execute the action with proper type safety
             switch (actionType) {
                 case 'register':
-                    result = await this.actionsExecutor.register(this.buildPayload('register', action))
+                    result = await session.registerRaw(this.buildPayload('register', action))
                     break
                 case 'dial':
-                    result = await this.actionsExecutor.dial(this.buildPayload('dial', action))
+                    result = await session.dialRaw(this.buildPayload('dial', action).target)
                     break
                 case 'answer':
-                    result = await this.actionsExecutor.answer()
+                    result = await session.answerRaw()
                     break
                 case 'wait':
-                    result = await this.actionsExecutor.wait(this.buildPayload('wait', action))
+                    result = await session.waitRaw(this.buildPayload('wait', action).time)
                     break
                 case 'hold':
-                    result = await this.actionsExecutor.hold()
+                    result = await session.holdRaw()
                     break
                 case 'unhold':
-                    result = await this.actionsExecutor.unhold()
+                    result = await session.unholdRaw()
                     break
                 case 'hangup':
-                    result = await this.actionsExecutor.hangup()
+                    result = await session.hangupRaw()
                     break
                 case 'playSound':
-                    result = await this.actionsExecutor.playSound(this.buildPayload('playSound', action))
+                    result = await session.playSoundRaw(this.buildPayload('playSound', action).sound)
                     break
                 case 'sendDTMF':
-                    result = await this.actionsExecutor.sendDTMF(this.buildPayload('sendDTMF', action))
+                    result = await session.sendDTMFRaw(this.buildPayload('sendDTMF', action).dtmf)
                     break
                 case 'transfer':
-                    result = await this.actionsExecutor.transfer(this.buildPayload('transfer', action))
+                    result = await session.transferRaw(this.buildPayload('transfer', action).target)
                     break
-                case 'changeRoom':
-                    result = await this.actionsExecutor.changeRoom(this.buildPayload('changeRoom', action))
+                case 'changeRoom': {
+                    const payload = this.buildPayload('changeRoom', action)
+                    result = await session.changeRoomRaw(payload.fromRoom, payload.toRoom)
                     break
+                }
                 case 'DND':
-                    result = await this.actionsExecutor.DND()
+                    result = await session.dndRaw()
                     break
                 case 'unregister':
-                    result = await this.actionsExecutor.unregister()
+                    result = await session.unregisterRaw()
                     break
                 case 'request':
-                    result = await this.actionsExecutor.request(this.buildPayload('request', action))
+                    result = await session.requestRaw(this.buildPayload('request', action))
                     break
                 case 'textToSpeech':
-                    result = await this.actionsExecutor.textToSpeech(this.buildPayload('textToSpeech', action))
+                    result = await session.textToSpeechRaw(this.buildPayload('textToSpeech', action).text)
                     break
                 case 'startTranscription':
-                    result = await this.actionsExecutor.startTranscription()
+                    result = await session.startTranscriptionRaw()
                     break
                 case 'stopTranscription':
-                    result = await this.actionsExecutor.stopTranscription()
+                    result = await session.stopTranscriptionRaw()
                     break
                 default:
-                    // TypeScript will ensure this case never happens
                     throw new Error(`Unknown action type: ${actionType}`)
             }
 
-            // Handle result consistently for all actions
             onResult(result)
 
-            // Get default expectations if no custom ones are provided
             let expectationsToCheck = action.data?.expect
 
             if (!expectationsToCheck || expectationsToCheck.length === 0) {
-                // Get default expectations based on action type
-                expectationsToCheck = this.getDefaultExpectations(actionType, result)
+                expectationsToCheck = getDefaultExpectations(actionType)
             }
 
-            // Check expectations if any exist (default or custom)
             if (expectationsToCheck && expectationsToCheck.length > 0) {
-                const expectationsResult = await this.actionsExecutor.checkExpectations(
+                const expectationsResult = await session.checkExpectations(
                     expectationsToCheck,
                     result,
                     actionType
@@ -296,20 +351,16 @@ export default class TestExecutor {
                         expectations: JSON.stringify(expectationsToCheck)
                     })
 
-                    // Log the error with detailed context
                     await this.telemetryService.logError(action.type, error, {
                         phase: 'expectations',
                         actionData: JSON.stringify(action.data),
                         errorMessage: error.message
                     })
 
-                    // Finish action span with error
                     this.telemetryService.finishActionSpan(actionSpan, false, error)
-
                     throw error
                 }
 
-                // Log that expectations passed
                 await this.qrynClient.log('Expectations passed', {
                     actionType,
                     expectationGroups: expectationsToCheck.length,
@@ -317,24 +368,20 @@ export default class TestExecutor {
                 })
             }
 
-            // Always trigger local event listener for actions that have corresponding events
             const actionsWithoutEvents: Array<ActionType> = [ 'wait' ]
 
             if (!actionsWithoutEvents.includes(actionType)) {
-                await this.triggerLocalEventListener(actionType, result)
+                session.emit(actionType, result)
             }
 
-            // Always trigger custom events if specified
             triggerCustom(result)
 
-            // Log successful completion with result details
             await this.telemetryService.logCompleted(action.type, {
                 success: result.success.toString(),
                 resultType: typeof result,
                 hasCustomEvent: !!action.data?.customSharedEvent
             })
 
-            // Finish action span with success
             this.telemetryService.finishActionSpan(actionSpan, true, undefined, result)
         } catch (error) {
             await this.qrynClient.error('Error executing action', {
@@ -342,170 +389,50 @@ export default class TestExecutor {
                 error: error instanceof Error ? error.message : String(error)
             })
 
-            // Log the error with detailed context
             await this.telemetryService.logError(action.type, error, {
                 phase: 'execution',
                 actionData: JSON.stringify(action.data),
                 errorMessage: error instanceof Error ? error.message : String(error)
             })
 
-            // Finish action span with error
             this.telemetryService.finishActionSpan(actionSpan, false, error)
-
             throw error
         }
     }
 
-    private getDefaultExpectations<T extends ActionType> (
-        actionType: T,
-        result: ActionResponse<BaseActionSuccessResponse>
-    ): Expectation<any>[][] {
-        // Only generate default expectations for success responses
-        if (!isActionSuccess(result)) {
-            return []
-        }
-
-        switch (actionType) {
-            case 'dial':
-                return [
-                    [
-                        {
-                            type: 'websocket',
-                            method: 'INVITE',
-                            status_code: 200,
-                            timeout: 10000,
-                            description: 'Default expectation: Should receive successful INVITE response'
-                        }
-                    ]
-                ]
-
-                /*   case 'answer':
-                return [
-                    [
-                        {
-                            type: 'websocket',
-                            method: 'ACK',
-                            timeout: 10000,
-                            description: 'Default expectation: Should receive ACK for answer'
-                        }
-                    ]
-                ]*/
-
-            case 'hold':
-            case 'unhold':
-                return [
-                    [
-                        {
-                            type: 'websocket',
-                            method: 'INVITE',
-                            status_code: 100,
-                            timeout: 10000,
-                            description: `Default expectation: Should receive INVITE for ${actionType}`
-                        }
-                    ]
-                ]
-
-            case 'hangup':
-                return [
-                    [
-                        {
-                            type: 'websocket',
-                            method: 'BYE',
-                            status_code: 200,
-                            timeout: 10000,
-                            description: 'Default expectation: Should receive successful BYE response'
-                        }
-                    ]
-                ]
-
-            case 'sendDTMF':
-                return [
-                    [
-                        {
-                            type: 'websocket',
-                            method: 'INFO',
-                            status_code: 200,
-                            timeout: 10000,
-                            description: 'Default expectation: Should receive successful INFO response for DTMF'
-                        }
-                    ]
-                ]
-
-            case 'transfer':
-                return [
-                    [
-                        {
-                            type: 'websocket',
-                            method: 'REFER',
-                            status_code: 202,
-                            timeout: 10000,
-                            description: 'Default expectation: Should receive successful REFER response'
-                        }
-                    ]
-                ]
-
-            default:
-                return []
-        }
-    }
-
-    private async start (): Promise<void> {
-        // Log scenario start
+    private async start (
+        sessionEventHandlers: EventHandlerGroups,
+        eventCounter: Record<string, number>
+    ): Promise<void> {
         await this.telemetryService.logTriggered('scenario_start')
 
         try {
-            this.browser = await chromium.launch({
-                headless: false,
-                args: [
-                    '--allow-file-access',
-                    '--autoplay-policy=no-user-gesture-required',
-                    '--disable-web-security',
-                    '--allow-running-insecure-content'
-                ],
-            })
-
-            const context = await this.browser.newContext({
-                permissions: [ 'microphone', 'camera' ]
-            })
-
-            this.page = await context.newPage()
-
-            this.windowMethodsWorker = new WindowMethodsWorker(this.page)
-
-            // Pass telemetry service to PageWebSocketWorker
-            this.pageWebSocketWorker = new PageWebSocketWorker(
-                this.page,
-                {
-                    INVITE: 'incoming',
-                    ACK: 'callConfirmed',
-                    CANCEL: 'callCancelled',
-                    BYE: 'callEnded',
-                    UPDATE: 'callUpdated',
-                    MESSAGE: 'messageReceived',
-                    OPTIONS: 'optionsReceived',
-                    REFER: 'callReferred',
-                    INFO: 'infoReceived',
-                    NOTIFY: 'notificationReceived',
+            const callSession = await CallSession.create({
+                scenarioId: this.scenarioId,
+                scenarioName: this.scenarioName,
+                speechProvider: this.speechProvider,
+                telemetryService: this.telemetryService,
+                skipReadyEmit: true,
+                onPageClose: () => {
+                    void this.markCompleted()
                 },
-                this.triggerLocalEventListener.bind(this),
-                this.telemetryService // Pass telemetry service
-            )
+            })
+            this.callSession = callSession
 
-            this.actionsExecutor = new ActionsExecutor(
-                this.scenarioId,
-                this.scenarioName,
-                this.pageWebSocketWorker,
-                this.windowMethodsWorker,
-                this.page,
-                this.browser,
-                this.speechProvider
-            )
+            for (const eventName in sessionEventHandlers) {
+                const handler = this.createEventHandler(eventName, sessionEventHandlers, eventCounter)
+                callSession.on(eventName, (eventData) => {
+                    void handler(eventData)
+                })
+            }
 
             if (this.speechProvider) {
-                this.speechProvider._bindPage(this.page)
-
-                this.speechProvider._bindTranscriptSink((text, isFinal) => {
-                    const chunk = { text, isFinal: Boolean(isFinal), timestamp: Date.now() }
+                this.speechProvider.onTranscript((text, isFinal) => {
+                    const chunk = {
+                        text,
+                        isFinal: Boolean(isFinal),
+                        timestamp: Date.now() 
+                    }
                     if (isFinal) {
                         const previousTranscript = (this.scenarioManager.getContext().transcript as string | undefined) ?? ''
                         this.scenarioManager.updateContext({ transcript: (previousTranscript + text).trim() })
@@ -513,25 +440,10 @@ export default class TestExecutor {
                     this.scenarioManager.updateContext({ textChunk: chunk })
                     void this.triggerSharedEventListener('textChunk', chunk as EventListenerData<'textChunk'>)
                 })
-
-                // Let the provider drive framework actions (e.g. an LLM deciding to
-                // hang up or transfer). Reuses the normal executeAction path so the
-                // action goes through the same switch, expectations and events.
-                this.speechProvider._bindActionRunner(async (action) => {
-                    await this.executeAction(
-                        action as GetActionDefinition<ActionByActionType<ActionType>>
-                    )
-                })
             }
 
-            await this.page.goto(`http://localhost:${env.PORT}`)
-
-            await this.windowMethodsWorker.implementPlayClipMethod()
-
-            // Log successful scenario start
             await this.telemetryService.logCompleted('scenario_start')
-
-            await this.triggerLocalEventListener('ready', { timestamp: Date.now() })
+            callSession.emitReady()
         } catch (error) {
             await this.telemetryService.logError('scenario_start', error)
             throw error
@@ -545,109 +457,74 @@ export default class TestExecutor {
         })
 
         try {
-            const eventCounter: Record<string, number> = {} // Changed to string to allow custom events
-            const eventHandlers: Record<string, GetActionDefinition<ActionByActionType<keyof ActionsResponseMap>>[][]> = {}
+            const eventCounter: Record<string, number> = {}
+            const sessionEventHandlers: EventHandlerGroups = {}
+            const allEventHandlers: EventHandlerGroups = {}
 
-            // Initialize all event handlers
             for (const { event, actions } of scenario.actions) {
-                if (!eventHandlers[event]) {
-                    eventHandlers[event] = []
+                if (!allEventHandlers[event]) {
+                    allEventHandlers[event] = []
                     eventCounter[event] = 0
                 }
-                eventHandlers[event].push(actions)
+                allEventHandlers[event].push(actions)
+
+                if (isSessionLocalEvent(event)) {
+                    sessionEventHandlers[event] = allEventHandlers[event]
+                }
+            }
+
+            for (const eventName in allEventHandlers) {
+                if (!isSessionLocalEvent(eventName)) {
+                    const handler = this.createEventHandler(eventName, allEventHandlers, eventCounter)
+                    this.addSharedEventListener(eventName, (_, eventData) => {
+                        void handler(eventData)
+                    })
+                }
             }
 
             await this.qrynClient.log('Event handlers initialized', {
-                eventTypes: Object.keys(eventHandlers),
-                totalHandlers: Object.values(eventHandlers).reduce((sum, handlers) => sum + handlers.length, 0)
+                eventTypes: Object.keys(allEventHandlers),
+                sessionEvents: Object.keys(sessionEventHandlers),
+                sharedEvents: Object.keys(allEventHandlers).filter(e => !isSessionLocalEvent(e)),
+                totalHandlers: Object.values(allEventHandlers).reduce((sum, handlers) => sum + handlers.length, 0)
             })
 
-            // Set up event listeners for all events (including custom ones)
-            for (const eventName in eventHandlers) {
-                const handlers = eventHandlers[eventName]
+            await this.start(sessionEventHandlers, eventCounter)
 
-                this.addEventListener(eventName, async (_, eventData) => {
-                    // For custom events, don't check scenario restriction
-                    if (!eventName.startsWith('ready') &&
-                        !eventName.startsWith('register') &&
-                        !eventName.startsWith('dial') &&
-                        !eventName.startsWith('answer') &&
-                        !eventName.startsWith('incoming') &&
-                        !eventName.startsWith('hangup')) {
-                        // This is a custom event, don't restrict to scenario
-                    } else if (!this.shouldReactToEvent(eventData)) {
-                        return
-                    }
-
-                    const isRepeatable = REPEATABLE_EVENTS.has(eventName)
-                    const currentIndex = isRepeatable ? 0 : eventCounter[eventName]
-                    const actions = handlers[currentIndex]
-
-                    if (actions) {
-                        if (!isRepeatable) {
-                            eventCounter[eventName]++
-                        }
-
-                        // Start event span for detailed tracing
-                        const eventSpan = this.telemetryService.startEventSpan(eventName, eventData)
-
-                        try {
-                            // Log event handling
-                            await this.telemetryService.logEvent(`event_${eventName}`, 'success', {
-                                stage: 'triggered',
-                                eventIndex: currentIndex.toString(),
-                                actionsCount: actions.length.toString()
-                            })
-
-                            for (const action of actions) {
-                                await this.executeAction(action)
-                            }
-
-                            await this.telemetryService.logEvent(`event_${eventName}`, 'success', {
-                                stage: 'completed',
-                                eventIndex: currentIndex.toString(),
-                                actionsCount: actions.length.toString()
-                            })
-
-                            // Finish event span with success
-                            this.telemetryService.finishEventSpan(eventSpan, true, undefined, actions.length)
-
-                        } catch (error) {
-                            await this.qrynClient.error('Error handling event', {
-                                eventName,
-                                error: error instanceof Error ? error.message : String(error)
-                            })
-
-                            // Finish event span with error
-                            this.telemetryService.finishEventSpan(eventSpan, false, error, actions.length)
-
-                            throw error
-                        }
-                    }
-                })
-            }
-
-            await this.start()
-
-            // Keep the scenario alive until it's explicitly completed
-            // Don't cleanup immediately
-            await this.qrynClient.log('Scenario setup complete, waiting for events...')
-
+            await this.qrynClient.log('Scenario setup complete, waiting for completion...')
+            await this.completionPromise
         } catch (error) {
             await this.telemetryService.logError('scenario_execution', error)
-            this.scenarioCompleted = true
+            this.markCompleted()
             throw error
         } finally {
-            // Only cleanup if scenario is actually completed
-            if (this.scenarioCompleted) {
-                this.telemetryService.cleanup()
-            }
+            this.markCompleted()
         }
     }
 
-    // Add method to manually complete scenario
     public completeScenario (): void {
+        this.markCompleted()
+    }
+
+    private markCompleted (): void {
+        if (this.scenarioCompleted) {
+            return
+        }
+
         this.scenarioCompleted = true
+
+        const session = this.callSession
+        this.callSession = null
+
+        if (session) {
+            void session.dispose().catch((error) => {
+                void this.qrynClient.warn('CallSession dispose failed during scenario completion', {
+                    error: error instanceof Error ? error.message : String(error),
+                })
+            })
+        }
+
+        this.resolveCompletion()
         this.telemetryService.cleanup()
     }
 }

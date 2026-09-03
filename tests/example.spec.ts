@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '@playwright/test'
 
 // test('has title', async ({ page }) => {
 //   await page.goto('https://playwright.dev/');
@@ -18,19 +18,19 @@ import { test, expect } from '@playwright/test';
 // });
 
 test('Install Voicenter extension', async ({ page }) => {
-  await page.goto('https://www.voicenter.co.il/');
+    await page.goto('https://www.voicenter.co.il/')
 
-  await expect(page).toHaveTitle(/Voicenter/);
+    await expect(page).toHaveTitle(/Voicenter/)
 
-  await page.click('a:has-text("תוסף Chrome")');
+    await page.click('a:has-text("תוסף Chrome")')
 
-  const [ download ] = await Promise.all([
-    page.waitForEvent('download'),
-    page.click('button:has-text("Add to Chrome")'),
-  ]);
+    const [ download ] = await Promise.all([
+        page.waitForEvent('download'),
+        page.click('button:has-text("Add to Chrome")'),
+    ])
 
-  const downloadPath = await download.path();
-  console.log('Downloaded to:', downloadPath);
+    const downloadPath = await download.path()
+    console.log('Downloaded to:', downloadPath)
 
-  // const extension_link = page.getByRole( 'link', { name: 'תוסף Chrome'}).click;
+    // const extension_link = page.getByRole( 'link', { name: 'תוסף Chrome'}).click;
 })

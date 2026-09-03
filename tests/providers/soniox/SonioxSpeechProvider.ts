@@ -2,7 +2,8 @@ import WebSocket from 'ws'
 
 import {
     BaseSpeechProvider,
-    TextToSpeechResult
+    TextToSpeechResult,
+    TtsStream
 } from '../../core/services/speech/BaseSpeechProvider'
 
 /**
@@ -23,7 +24,9 @@ export interface SonioxProviderOptions {
     sttAudioFormat?: string
     realtimeUrl?: string
     ttsUrl?: string
+    ttsWsUrl?: string
     ttsAudioFormat?: string
+    ttsStreamSampleRate?: number
 }
 
 interface SonioxToken {
@@ -39,8 +42,18 @@ interface SonioxRealtimeMessage {
     error_message?: string
 }
 
+interface SonioxTtsStreamMessage {
+    audio?: string
+    audio_end?: boolean
+    terminated?: boolean
+    error_code?: number
+    error_message?: string
+}
+
 const DEFAULT_STT_WS_URL = 'wss://stt-rt.soniox.com/transcribe-websocket'
 const DEFAULT_TTS_URL = 'https://tts-rt.soniox.com/tts'
+const DEFAULT_TTS_WS_URL = 'wss://tts-rt.soniox.com/tts-websocket'
+const DEFAULT_TTS_STREAM_SAMPLE_RATE = 16000
 
 export class SonioxSpeechProvider extends BaseSpeechProvider {
     private readonly options: Required<SonioxProviderOptions>
@@ -65,7 +78,9 @@ export class SonioxSpeechProvider extends BaseSpeechProvider {
             sttAudioFormat: options.sttAudioFormat ?? 'auto',
             realtimeUrl: options.realtimeUrl ?? DEFAULT_STT_WS_URL,
             ttsUrl: options.ttsUrl ?? DEFAULT_TTS_URL,
-            ttsAudioFormat: options.ttsAudioFormat ?? 'mp3'
+            ttsWsUrl: options.ttsWsUrl ?? DEFAULT_TTS_WS_URL,
+            ttsAudioFormat: options.ttsAudioFormat ?? 'mp3',
+            ttsStreamSampleRate: options.ttsStreamSampleRate ?? DEFAULT_TTS_STREAM_SAMPLE_RATE
         }
     }
 
@@ -73,7 +88,7 @@ export class SonioxSpeechProvider extends BaseSpeechProvider {
         const response = await fetch(this.options.ttsUrl, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${this.options.apiKey}`,
+                Authorization: `Bearer ${this.options.apiKey}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -99,6 +114,114 @@ export class SonioxSpeechProvider extends BaseSpeechProvider {
         }
     }
 
+    /**
+     * Streaming TTS over the Soniox real-time WebSocket: raw pcm_s16le chunks
+     * start arriving within a few hundred milliseconds, long before the whole
+     * utterance is synthesized. Breaking out of the iteration closes the socket.
+     */
+    public textToSpeechStream (text: string): TtsStream {
+        return {
+            sampleRate: this.options.ttsStreamSampleRate,
+            chunks: this.streamTtsChunks(text),
+        }
+    }
+
+    private async * streamTtsChunks (text: string): AsyncGenerator<Buffer, void, void> {
+        const socket = new WebSocket(this.options.ttsWsUrl)
+
+        const pendingMessages: SonioxTtsStreamMessage[] = []
+        let socketError: Error | null = null
+        let socketClosed = false
+        let wakeUp: (() => void) | null = null
+
+        const notify = (): void => {
+            const resume = wakeUp
+            wakeUp = null
+            resume?.()
+        }
+
+        socket.on('message', (raw: WebSocket.RawData) => {
+            try {
+                const message: SonioxTtsStreamMessage = JSON.parse(raw.toString())
+                pendingMessages.push(message)
+            } catch {
+                // ignore non-JSON frames
+            }
+            notify()
+        })
+        socket.on('error', (error: Error) => {
+            socketError = error
+            notify()
+        })
+        socket.on('close', () => {
+            socketClosed = true
+            notify()
+        })
+
+        try {
+            await new Promise<void>((resolve, reject) => {
+                socket.once('open', resolve)
+                socket.once('error', reject)
+            })
+
+            const streamId = '1'
+
+            socket.send(JSON.stringify({
+                api_key: this.options.apiKey,
+                stream_id: streamId,
+                model: this.options.ttsModel,
+                language: this.options.ttsLanguage,
+                voice: this.options.ttsVoice,
+                audio_format: 'pcm_s16le',
+                sample_rate: this.options.ttsStreamSampleRate,
+            }))
+            socket.send(JSON.stringify({
+                stream_id: streamId,
+                text,
+            }))
+            socket.send(JSON.stringify({
+                stream_id: streamId,
+                text_end: true,
+            }))
+
+            for (;;) {
+                const message = pendingMessages.shift()
+
+                if (!message) {
+                    if (socketError) {
+                        throw socketError
+                    }
+                    if (socketClosed) {
+                        throw new Error('Soniox TTS stream closed before audio_end')
+                    }
+                    await new Promise<void>((resolve) => {
+                        wakeUp = resolve
+                    })
+                    continue
+                }
+
+                if (message.error_message) {
+                    throw new Error(`Soniox TTS stream error (${message.error_code}): ${message.error_message}`)
+                }
+
+                if (message.audio) {
+                    yield Buffer.from(message.audio, 'base64')
+                }
+
+                if (message.audio_end || message.terminated) {
+                    return
+                }
+            }
+        } finally {
+            if (
+                socket.readyState === WebSocket.OPEN ||
+                socket.readyState === WebSocket.CONNECTING
+            ) {
+                socket.close()
+            }
+        }
+    }
+
     public async startRecording (): Promise<void> {
         if (this.socket) {
             return
@@ -112,7 +235,11 @@ export class SonioxSpeechProvider extends BaseSpeechProvider {
                 socket.send(JSON.stringify({
                     api_key: this.options.apiKey,
                     model: this.options.sttModel,
-                    audio_format: this.options.sttAudioFormat
+                    audio_format: this.options.sttAudioFormat,
+                    // Finalize tokens the moment the speaker stops instead of
+                    // waiting for trailing audio context — final transcripts
+                    // arrive ~0.5s after the utterance ends, not 3-5s.
+                    enable_endpoint_detection: true
                 }))
 
                 this.isConfigured = true
@@ -216,6 +343,12 @@ export class SonioxSpeechProvider extends BaseSpeechProvider {
             return
         }
 
+        // Endpoint detection emits special marker tokens ("<end>", "<fin>") —
+        // they signal segment boundaries and must never reach the transcript.
+        message.tokens = message.tokens.filter(
+            (token) => token.text !== '<end>' && token.text !== '<fin>'
+        )
+
         // Emit every chunk the STT stream yields. Soniox marks committed tokens
         // with `is_final`; we forward finalized and interim text separately with the
         // `isFinal` flag so consumers can decide how to use them. Filtering to only
@@ -231,10 +364,10 @@ export class SonioxSpeechProvider extends BaseSpeechProvider {
 
         if (finalText) {
             console.log('[SonioxSpeechProvider] Transcript chunk (final)', { text: finalText })
-            this.emitTranscript(finalText, true)
+            this.notifyTranscript(finalText, true)
         }
         if (interimText) {
-            this.emitTranscript(interimText, false)
+            this.notifyTranscript(interimText, false)
         }
     }
 }

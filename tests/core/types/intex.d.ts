@@ -1,8 +1,8 @@
-import { EventHandler } from './events'
+import { EventHandler, EventType } from './events'
 
 export interface TestScenario {
     name: string
-    actions: Array<EventHandler>
+    actions: Array<EventHandler<EventType>>
 }
 
 export type TestScenarios = TestScenario[]

@@ -13,8 +13,6 @@ interface ImpairmentGraph {
 
 interface OutgoingImpairment {
     ctx: AudioContext
-    gainNode: GainNode
-    baseGain: number
     noise: AudioBufferSourceNode
     noiseGain: GainNode
     intervalId: number
@@ -27,8 +25,10 @@ declare global {
         __impairmentOut?: OutgoingImpairment | null
         __rawRemoteAudioStream?: MediaStream
         audioContext?: AudioContext
-        gainNode?: GainNode
+        /** Outgoing speech bus — volume and packet loss apply here (1:1 with manifest). */
+        speechInputGain?: GainNode
         mediaStreamDestination?: MediaStreamAudioDestinationNode
+        __monitorOutgoingAudio?: boolean
     }
 }
 
@@ -103,17 +103,15 @@ export function installImpairmentGraph (): void {
     console.log('=== CONNECTION IMPAIRMENT INSTALLED (incoming) ===')
 }
 
-export function installOutgoingImpairmentGraph (): number {
+export function installOutgoingImpairmentGraph (): void {
     if (window.__impairmentOut) {
-        return window.__impairmentOut.baseGain
+        return
     }
-    if (!window.gainNode || !window.mediaStreamDestination || !window.audioContext) {
+    if (!window.speechInputGain || !window.mediaStreamDestination || !window.audioContext) {
         throw new Error('Outgoing audio system not ready (playClip init must run first).')
     }
 
     const ctx = window.audioContext
-    const gainNode = window.gainNode
-    const baseGain = gainNode.gain.value
 
     const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate)
     const noiseData = noiseBuffer.getChannelData(0)
@@ -126,25 +124,30 @@ export function installOutgoingImpairmentGraph (): number {
     const noiseGain = ctx.createGain()
     noiseGain.gain.value = 0
     noise.connect(noiseGain)
+    // Parallel to speech — packet loss on speechInputGain must not mute line noise.
     noiseGain.connect(window.mediaStreamDestination)
+    if (window.__monitorOutgoingAudio && window.audioContext) {
+        noiseGain.connect(window.audioContext.destination)
+    }
     noise.start()
 
-    const state = { volume: 1, lossProb: 0 }
+    const state = {
+        volume: 1,
+        lossProb: 0,
+    }
+    const speechInputGain = window.speechInputGain
     const intervalId = window.setInterval(() => {
-        gainNode.gain.value = (Math.random() < state.lossProb) ? 0 : baseGain * state.volume
+        speechInputGain.gain.value = (Math.random() < state.lossProb) ? 0 : state.volume
     }, 40)
 
     window.__impairmentOut = {
         ctx,
-        gainNode,
-        baseGain,
         noise,
         noiseGain,
         intervalId,
-        state
+        state,
     }
-    console.log('=== CONNECTION IMPAIRMENT INSTALLED (outgoing), baseGain =', baseGain, '===')
-    return baseGain
+    console.log('=== CONNECTION IMPAIRMENT INSTALLED (outgoing) ===')
 }
 
 export function clearImpairmentGraph (): void {
@@ -188,7 +191,9 @@ export function clearOutgoingImpairmentGraph (): void {
 
     try {
         window.clearInterval(graph.intervalId)
-        graph.gainNode.gain.value = graph.baseGain
+        if (window.speechInputGain) {
+            window.speechInputGain.gain.value = 1
+        }
         try {
             graph.noise.stop()
         } catch {
@@ -214,28 +219,40 @@ export class ConnectionImpairment {
         await this.page.evaluate(installImpairmentGraph)
     }
 
-    public async installOutgoing (): Promise<number> {
-        return this.page.evaluate(installOutgoingImpairmentGraph)
+    public async installOutgoing (): Promise<void> {
+        await this.page.evaluate(installOutgoingImpairmentGraph)
     }
 
-    public async readOutgoingState (): Promise<{ installed: boolean, baseGain: number, gain: number, volume: number, lossProb: number }> {
+    public async readOutgoingState (): Promise<{
+        installed: boolean
+        speechGain: number
+        volume: number
+        lossProb: number
+        noiseGain: number
+    }> {
         return this.page.evaluate(() => {
             const out = window.__impairmentOut
             if (!out) {
-                return { installed: false, baseGain: 0, gain: window.gainNode?.gain.value ?? 0, volume: 0, lossProb: 0 }
+                return {
+                    installed: false,
+                    speechGain: window.speechInputGain?.gain.value ?? 0,
+                    volume: 0,
+                    lossProb: 0,
+                    noiseGain: 0,
+                }
             }
             return {
                 installed: true,
-                baseGain: out.baseGain,
-                gain: out.gainNode.gain.value,
+                speechGain: window.speechInputGain?.gain.value ?? 0,
                 volume: out.state.volume,
-                lossProb: out.state.lossProb
+                lossProb: out.state.lossProb,
+                noiseGain: out.noiseGain.gain.value,
             }
         })
     }
 
     public async setVolume (level: number): Promise<void> {
-        const value = Math.max(0, Number(level))
+        const value = Math.max(0, Math.min(1, Number(level)))
         if (!Number.isFinite(value)) {
             return
         }
@@ -245,7 +262,9 @@ export class ConnectionImpairment {
             }
             if (window.__impairmentOut) {
                 window.__impairmentOut.state.volume = v
-                window.__impairmentOut.gainNode.gain.value = window.__impairmentOut.baseGain * v
+                if (window.speechInputGain) {
+                    window.speechInputGain.gain.value = v
+                }
             }
         }, value)
     }
@@ -255,12 +274,14 @@ export class ConnectionImpairment {
         if (!Number.isFinite(value)) {
             return
         }
+        // Manifest value → noiseGain.gain 1:1, no scaling. Source is full-scale white noise.
         await this.page.evaluate((v) => {
             if (window.__impairment) {
                 window.__impairment.noiseGain.gain.value = v
             }
             if (window.__impairmentOut) {
                 window.__impairmentOut.noiseGain.gain.value = v
+                console.log('[impairment] outgoing noiseGain =', v)
             }
         }, value)
     }

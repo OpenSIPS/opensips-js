@@ -1,5 +1,5 @@
 import CallTestScenarios from './definition'
-import QrynClient from "./services/QrynClient";
+import QrynClient from './services/QrynClient'
 
 // Run the test
 async function runTest () {

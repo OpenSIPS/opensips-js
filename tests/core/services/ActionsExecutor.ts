@@ -3,7 +3,7 @@ import fs from 'fs/promises'
 
 import { Browser, Locator, Page } from 'playwright'
 import { Selectors } from '../src/selectors'
-import { WebRTCMetricsCollector } from './WebRTCMetricsCollector'
+import { installWebRTCMetricsAnalyze, collectWebRTCMetricsFromPage } from './WebRTCMetricsCollector'
 import { WebRTCMetricsSender } from './WebRTCMetricsSender'
 import PageWebSocketWorker from './PageWebSocketWorker'
 import WindowMethodsWorker from './WindowMethodsWorker'
@@ -39,7 +39,7 @@ import {
 
 import { expect } from '@playwright/test'
 import QrynClient from './QrynClient'
-import { BaseSpeechProvider } from './speech/BaseSpeechProvider'
+import { SpeechProvider } from './speech/BaseSpeechProvider'
 
 /**
  * TestExecutor - Handles the execution of test actions
@@ -76,7 +76,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         private readonly windowMethodsWorker: WindowMethodsWorker,
         public readonly page: Page,
         public readonly browser: Browser,
-        private readonly speechProvider?: BaseSpeechProvider
+        private readonly speechProvider?: SpeechProvider
     ) {
         this.qrynClient = new QrynClient('ActionsExecutor', scenarioName, scenarioId)
     }
@@ -223,7 +223,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         return false
     }
 
-    public async register (data: GetActionPayload<RegisterAction>): Promise<GetActionResponse<RegisterAction>> {
+    public async register (data: NonNullable<GetActionPayload<RegisterAction>>): Promise<GetActionResponse<RegisterAction>> {
         const instanceId = `${this.scenarioId}-${Date.now()}`
         await this.qrynClient.log('Executing register action', { data })
         const {
@@ -272,7 +272,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
                             }
                         )
 
-                        await this.page.evaluate(WebRTCMetricsCollector.initializeMetricsAnalyze)
+                        await installWebRTCMetricsAnalyze(this.page)
 
                         // Start WebRTC metrics collection from Node.js context
                         this.webrtcMetricsSender = new WebRTCMetricsSender(
@@ -301,7 +301,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         )
     }
 
-    public async dial (data: GetActionPayload<DialAction>): Promise<GetActionResponse<DialAction>> {
+    public async dial (data: NonNullable<GetActionPayload<DialAction>>): Promise<GetActionResponse<DialAction>> {
         await this.qrynClient.log('Executing dial action', { data })
 
         this.yourTargetInput = this.page.locator('#makeCallForm input')
@@ -318,7 +318,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         }
     }
 
-    public async changeRoom (data: GetActionPayload<ChangeRoomAction>): Promise<GetActionResponse<ChangeRoomAction>> {
+    public async changeRoom (data: NonNullable<GetActionPayload<ChangeRoomAction>>): Promise<GetActionResponse<ChangeRoomAction>> {
         await this.qrynClient.log('Executing change room action', { data })
 
         const roomSelector = this.page.locator(`#room-${data.fromRoom} [data-test="room-select"]`)
@@ -364,7 +364,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         }
     }
 
-    public async wait (data: GetActionPayload<WaitAction>): Promise<GetActionResponse<WaitAction>> {
+    public async wait (data: NonNullable<GetActionPayload<WaitAction>>): Promise<GetActionResponse<WaitAction>> {
         await this.qrynClient.log(`Waiting for ${data.time}ms`, { waitTime: data.time })
 
         await this.page.waitForTimeout(data.time)
@@ -411,7 +411,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         }
     }
 
-    public async sendDTMF (data: GetActionPayload<SendDTMFAction>): Promise<GetActionResponse<SendDTMFAction>> {
+    public async sendDTMF (data: NonNullable<GetActionPayload<SendDTMFAction>>): Promise<GetActionResponse<SendDTMFAction>> {
         await this.qrynClient.log('Executing send DTMF action', { dtmf: data.dtmf })
 
         this.DTMFInput = this.page.locator('#dtmfInput')
@@ -426,7 +426,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         }
     }
 
-    public async transfer (data: GetActionPayload<TransferAction>): Promise<GetActionResponse<TransferAction>> {
+    public async transfer (data: NonNullable<GetActionPayload<TransferAction>>): Promise<GetActionResponse<TransferAction>> {
         await this.qrynClient.log('Executing transfer action', { target: data.target })
 
         this.page.on('dialog', async dialog => {
@@ -462,7 +462,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
 
         this.logoutButton = this.page.locator('#logoutButton')
 
-        const metrics = await this.page.evaluate(WebRTCMetricsCollector.collectMetrics)
+        const metrics = await collectWebRTCMetricsFromPage(this.page)
 
         // Send final WebRTC metrics before cleanup
         if (this.webrtcMetricsSender) {
@@ -513,7 +513,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         }
     }
 
-    public async playSound (data: GetActionPayload<PlaySoundAction>): Promise<GetActionResponse<PlaySoundAction>> {
+    public async playSound (data: NonNullable<GetActionPayload<PlaySoundAction>>): Promise<GetActionResponse<PlaySoundAction>> {
         const soundPath = data.sound
         await this.qrynClient.log('Playing sound', { soundPath })
 
@@ -591,7 +591,7 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         }
     }
 
-    public async request (data: GetActionPayload<RequestAction>): Promise<GetActionResponse<RequestAction>> {
+    public async request (data: NonNullable<GetActionPayload<RequestAction>>): Promise<GetActionResponse<RequestAction>> {
         await this.qrynClient.log('Executing request action', { url: data.url })
 
         try {
@@ -620,7 +620,21 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         }
     }
 
-    public async textToSpeech (data: GetActionPayload<TextToSpeechAction>): Promise<GetActionResponse<TextToSpeechAction>> {
+    public async synthesizeToDataUrl (text: string): Promise<string> {
+        if (!this.speechProvider) {
+            throw new Error('No speech provider configured. Pass one to run() to synthesize speech.')
+        }
+
+        const result = await this.speechProvider.textToSpeech(text)
+        const base64Data = Buffer.isBuffer(result.audio)
+            ? result.audio.toString('base64')
+            : result.audio
+        const mimeType = result.mimeType || 'audio/mpeg'
+
+        return `data:${mimeType};base64,${base64Data}`
+    }
+
+    public async textToSpeech (data: NonNullable<GetActionPayload<TextToSpeechAction>>): Promise<GetActionResponse<TextToSpeechAction>> {
         await this.qrynClient.log('Executing textToSpeech action', { text: data.text })
 
         if (!this.speechProvider) {
@@ -631,16 +645,8 @@ export default class ActionsExecutor implements ActionsExecutorImplements {
         }
 
         try {
-            const result = await this.speechProvider.textToSpeech(data.text)
+            const dataUrl = await this.synthesizeToDataUrl(data.text)
 
-            const base64Data = Buffer.isBuffer(result.audio)
-                ? result.audio.toString('base64')
-                : result.audio
-            const mimeType = result.mimeType || 'audio/mpeg'
-            const dataUrl = `data:${mimeType};base64,${base64Data}`
-
-            // Check for an active call right before transmitting (not before
-            // synthesis, which can take seconds during which the call connects).
             const hasActiveCall = await this.page.evaluate(() => Boolean(window.__hasActiveCall))
             if (!hasActiveCall) {
                 await this.qrynClient.warn(

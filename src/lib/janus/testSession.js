@@ -1328,9 +1328,9 @@ export default class RTCSession extends EventEmitter {
                                 this.emit('peerconnection:setremotedescriptionfailed', error)
                             })
                     } else
-                    if (!this._is_confirmed) {
-                        this._confirmed('remote', request)
-                    }
+                        if (!this._is_confirmed) {
+                            this._confirmed('remote', request)
+                        }
 
                     break
                 case JsSIP_C.BYE:
@@ -2844,9 +2844,9 @@ export default class RTCSession extends EventEmitter {
             }
             // No SDP answer.
             else
-            if (eventHandlers.succeeded) {
-                eventHandlers.succeeded(response)
-            }
+                if (eventHandlers.succeeded) {
+                    eventHandlers.succeeded(response)
+                }
         }
 
         function onFailed (response) {

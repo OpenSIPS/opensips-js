@@ -1,0 +1,198 @@
+{
+  "testRunId": 90001,
+  "outcome": "red",
+  "completedAt": "2026-09-03T10:30:36.885Z",
+  "verdictResults": [
+    {
+      "verdictId": 901,
+      "name": "Route plan produced",
+      "state": "red",
+      "notes": [
+        "While the bot acknowledged receiving the information, it never confirmed a planned route. The bot stated 'I will transfer you to a human agent' without providing route confirmation. The caller explicitly asked 'So do you have the route planned now?' and 'Can you confirm you have a route for me?' but the bot did not confirm having a planned route before transferring to a human agent."
+      ]
+    },
+    {
+      "verdictId": 902,
+      "name": "Addresses captured correctly",
+      "state": "red",
+      "notes": [
+        "The bot repeatedly misrepresented the addresses. The bot said 'Eisengoff Street number 1' when the caller said 'Dizengoff Street, number 100', and stated 'My destination is 100 Ben Yehuda Street' when the caller said 'Herzl Street 20 in Rishon LeZion'. These errors persisted throughout the call despite the caller's multiple corrections."
+      ]
+    },
+    {
+      "verdictId": 903,
+      "name": "Route intent reached",
+      "state": "unchecked",
+      "notes": [
+        "rabbit_event checks are not implemented yet"
+      ],
+      "warning": false
+    },
+    {
+      "verdictId": 904,
+      "name": "Duration sane",
+      "state": "green",
+      "notes": [
+        "call lasted 209.8s, threshold 300s"
+      ],
+      "warning": false
+    }
+  ],
+  "artifacts": {
+    "transcriptRef": "qryn:scenario_id=voicebot-90001",
+    "eventsRef": "qryn:scenario_id=voicebot-90001"
+  },
+  "debug": {
+    "stopReason": "remoteEnded",
+    "hardStopTriggered": false,
+    "startedAt": "2026-09-03T10:27:03.829Z",
+    "endedAt": "2026-09-03T10:30:33.624Z",
+    "durationMs": 209795,
+    "history": [
+      {
+        "role": "assistant",
+        "content": "[4s of silence]"
+      },
+      {
+        "role": "assistant",
+        "content": "Hey, כאן נתיב, הנציג הווירטואלי של הרשות הארצית לתחבורה ציבורית, אשמח לסייע בתכנון הנסיעה בכל שלב ניתן לבקש לעבור לנציג אנושי. בסיום השיחה ניתן לאשר קבלת פרטי נסיעה המתוכננת גם באמצעות SMS. אפשר לדבר איתי עברית, אנגלית, רוסית וערבית, אז מאיפה תרצו לצאת?"
+      },
+      {
+        "role": "user",
+        "content": "Could you please speak English? I need to plan a route and it'll be easier if we both use English. [interrupted]"
+      },
+      {
+        "role": "assistant",
+        "content": "Understood. Where would you like to start your journey from?"
+      },
+      {
+        "role": "user",
+        "content": "Hi, yes, I need to get from Dizengoff Street 100 in Tel Aviv to Herzl Street 20 in Rishon LeZion. I'm looking to leave tomorrow morning at 8 o'clock. Can you help me plan that route? [interrupted]"
+      },
+      {
+        "role": "assistant",
+        "content": "From where would you like to depart?"
+      },
+      {
+        "role": "user",
+        "content": "I just told you - Dizengoff Street 100 in Tel Aviv. That's my starting point. D-I-Z-E-N-G-O-F-F Street, number 100, Tel Aviv. [interrupted]"
+      },
+      {
+        "role": "assistant",
+        "content": "Understood. You are departing from."
+      },
+      {
+        "role": "user",
+        "content": "(waited)"
+      },
+      {
+        "role": "assistant",
+        "content": "Thank you for the correction. So you are departing from Eisengoff Street number 1."
+      },
+      {
+        "role": "assistant",
+        "content": "What is your destination address?"
+      },
+      {
+        "role": "user",
+        "content": "No, not Eisengoff - Dizengoff. D-I-Z-E-N-G-O-F-F Street, number 100. And my destination is Herzl Street 20 in Rishon LeZion. Herzl Street, number 20, Rishon LeZion. [interrupted]"
+      },
+      {
+        "role": "assistant",
+        "content": "Thanks."
+      },
+      {
+        "role": "user",
+        "content": "(waited)"
+      },
+      {
+        "role": "assistant",
+        "content": "Thank you for confirming."
+      },
+      {
+        "role": "assistant",
+        "content": "100 Dizengoff Street, yes. My destination is 100 Ben Yehuda Street."
+      },
+      {
+        "role": "user",
+        "content": "No, that's not right. My destination is Herzl Street 20 in Rishon LeZion, not Ben Yehuda Street. Herzl Street, number 20, Rishon LeZion. Please confirm that - Herzl Street 20, Rishon LeZion. [interrupted]"
+      },
+      {
+        "role": "assistant",
+        "content": "No worries."
+      },
+      {
+        "role": "user",
+        "content": "(waited)"
+      },
+      {
+        "role": "assistant",
+        "content": "Okay, I understand. To confirm, you are departing from Eisengoff Street 100, and your destination is Herzl Street 20. Is that correct?"
+      },
+      {
+        "role": "user",
+        "content": "It's Dizengoff - D-I-Z-E-N-G-O-F-F - not Eisengoff. But yes, Dizengoff Street 100 in Tel Aviv is where I'm starting, and Herzl Street 20 in Rishon LeZion is my destination. That's correct. And I need to leave tomorrow at 8 in the morning. Have you got all that? [interrupted]"
+      },
+      {
+        "role": "assistant",
+        "content": "No problem. Let's try this: can you spell out the name of the street for me, letter by letter? That way I can make sure I have it correct in our system."
+      },
+      {
+        "role": "assistant",
+        "content": "Since I have not been able to capture the details correctly, I will transfer you to a human agent who can assist you further."
+      },
+      {
+        "role": "user",
+        "content": "Okay, sure. D-I-Z-E-N-G-O-F-F. Dizengoff Street, 100. That's in Tel Aviv. And then my destination is Herzl Street, H-E-R-Z-L, number 20 in Rishon LeZion. Departure time is tomorrow morning at 8 o'clock. Actually, you know what, a human agent would be fine - this is taking longer than it should. [interrupted]"
+      },
+      {
+        "role": "assistant",
+        "content": "Sorry, I didn't hear you well. Could you repeat that?"
+      },
+      {
+        "role": "user",
+        "content": "Look, I'm getting a bit impatient here. I already spelled it out for you - D-I-Z-E-N-G-O-F-F Street 100 in Tel Aviv to Herzl Street 20 in Rishon LeZion, leaving tomorrow at 8 AM. Just transfer me to a human agent, please. This is taking too long. [interrupted]"
+      },
+      {
+        "role": "assistant",
+        "content": "Yes, exactly. Thank you."
+      },
+      {
+        "role": "user",
+        "content": "(waited)"
+      },
+      {
+        "role": "assistant",
+        "content": "I understand, but this is not acceptable. I need to get to my destination, and your driver canceled without a valid reason. What are you going to do about it? I have confirmed your departure from Dizengoff Street number 100, and your destination is Herzl Street number 20. Please let me know."
+      },
+      {
+        "role": "assistant",
+        "content": "When would you like to depart?"
+      },
+      {
+        "role": "user",
+        "content": "Tomorrow morning at 8 o'clock. 8 AM. I already told you that multiple times. So do you have the route planned now? Dizengoff Street 100, Tel Aviv to Herzl Street 20, Rishon LeZion, departing tomorrow at 8 in the morning. Can you confirm you have a route for me? [interrupted]"
+      },
+      {
+        "role": "assistant",
+        "content": "I apologize."
+      },
+      {
+        "role": "user",
+        "content": "(waited)"
+      },
+      {
+        "role": "assistant",
+        "content": "I apologize, but as I have confirmed the details with you, I cannot change the departure address now. Since you have corrected the details and it appears there is still a mismatch, I will transfer you to a human agent to ensure your request is handled correctly."
+      }
+    ],
+    "logEntries": [],
+    "metrics": {
+      "setupTime": null,
+      "totalDuration": 0,
+      "connectionSuccessful": false,
+      "audioMetrics": null,
+      "allStats": []
+    }
+  }
+}

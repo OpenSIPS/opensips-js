@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "es2017",
     "module": "ESNext",
-    "moduleResolution": "nodenext",
+    "moduleResolution": "node",
     "strict": false,
     "declaration": true,
     "esModuleInterop": true,

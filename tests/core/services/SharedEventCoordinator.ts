@@ -1,30 +1,29 @@
 import { EventListener, EventListenerData, EventType } from '../types/events'
-import QrynClient from "./QrynClient";
+import QrynClient from './QrynClient'
 
-export default class EventBus {
-    private static instance: EventBus
-    private eventListeners: Map<EventType, EventListener<any>[]> = new Map()
-    private qrynClient = new QrynClient('EventBus')
+/**
+ * Cross-scenario event bus for declarative tests (RUNNER-TASKS T1.2 / T1.4).
+ * One instance per ScenarioManager run — replaces the global EventBus singleton
+ * while keeping customSharedEvent / waitUntil behaviour unchanged.
+ */
+export default class SharedEventCoordinator {
+    private readonly eventListeners = new Map<EventType, EventListener<any>[]>()
+    private readonly qrynClient = new QrynClient('SharedEventCoordinator')
 
-    public static getInstance (): EventBus {
-        if (!EventBus.instance) {
-            EventBus.instance = new EventBus()
-        }
-        return EventBus.instance
-    }
-
-    public addEventListener <E extends EventType> (eventName: E, listener: EventListener<E>): void {
+    public addEventListener<E extends EventType> (eventName: E, listener: EventListener<E>): void {
         if (!this.eventListeners.has(eventName)) {
             this.eventListeners.set(eventName, [])
         }
 
-        this.eventListeners.get(eventName).push(listener as unknown as EventListener<any>)
+        this.eventListeners.get(eventName)!.push(listener as unknown as EventListener<any>)
     }
 
-    public removeEventListener <E extends EventType> (eventName: E, listener: EventListener<E>): void {
+    public removeEventListener<E extends EventType> (eventName: E, listener: EventListener<E>): void {
         const listeners = this.eventListeners.get(eventName)
 
-        if (!listeners) return
+        if (!listeners) {
+            return
+        }
 
         const index = listeners.indexOf(listener as unknown as EventListener<any>)
 
@@ -33,14 +32,15 @@ export default class EventBus {
         }
     }
 
-    public async triggerEvent <E extends EventType> (
+    public async triggerEvent<E extends EventType> (
         eventName: E,
         data?: EventListenerData<E>
     ): Promise<void> {
         const listeners = [ ...(this.eventListeners.get(eventName) || []) ]
+
         await this.qrynClient.log(`Event triggered: ${eventName}`, {
             eventName,
-            listenersCount: listeners.length
+            listenersCount: listeners.length,
         })
 
         for (const listener of listeners) {
@@ -48,7 +48,7 @@ export default class EventBus {
         }
     }
 
-    public waitForEvent <E extends EventType> (
+    public waitForEvent<E extends EventType> (
         eventName: E,
         additionalCheck: (eventName: E, data: EventListenerData<E>) => boolean,
         timeout?: number
@@ -70,5 +70,9 @@ export default class EventBus {
                 }, timeout)
             }
         })
+    }
+
+    public clear (): void {
+        this.eventListeners.clear()
     }
 }

@@ -1,65 +1,117 @@
 import { z } from 'zod'
-import type { TestScenarios } from '../types/intex'
 
-// Basic primitive schemas
-const eventNameSchema = z.string()
+import type { TestScenarios } from '../types/intex'
+import type { ActionByActionType, ActionType, GetActionPayload } from '../types/actions'
+import {
+    changeRoomPayloadSchema,
+    dialPayloadSchema,
+    playSoundPayloadSchema,
+    registerPayloadSchema,
+    requestPayloadSchema,
+    sendDtmfPayloadSchema,
+    textToSpeechPayloadSchema,
+    transferPayloadSchema,
+    waitPayloadSchema,
+} from './actionPayloads.schema'
 
 // Action wait until schema
 const waitUntilSchema = z.object({
     event: z.string(),
-    timeout: z.number().optional()
+    timeout: z.number().optional(),
 })
-
-// Generic filter function schema
-const responseToContextEnabledSchema = z.object({
-    setToContext: z.literal(true),
-    contextKeyToSet: z.string()
-}).optional()
-
-const responseToContextDisabledSchema = z.object({
-    setToContext: z.literal(false),
-    contextKeyToSet: z.string().optional()
-}).optional()
 
 const responseToContextSchema = z.union([
-    responseToContextEnabledSchema,
-    responseToContextDisabledSchema
+    z.object({
+        setToContext: z.literal(true),
+        contextKeyToSet: z.string(),
+    }),
+    z.object({
+        setToContext: z.literal(false),
+    }),
 ]).optional()
 
-// Expectation schemas - base with dynamic properties
-const baseExpectationSchema = z.object({
-    type: z.string(),
-    description: z.string().optional()
-}).and(z.record(z.any())) // Allow any additional properties dynamically
+// Expectation schemas — the two kinds the executor actually understands.
+// Loose objects: extra expectation-specific properties are allowed through.
+const websocketExpectationSchema = z.looseObject({
+    type: z.literal('websocket'),
+    method: z.string(),
+    status_code: z.number().optional(),
+    timeout: z.number().optional(),
+    checkSentEvent: z.boolean().optional(),
+    description: z.string().optional(),
+})
+
+const responseExpectationSchema = z.looseObject({
+    type: z.literal('response'),
+    properties: z.record(z.string(), z.unknown()).optional(),
+    description: z.string().optional(),
+})
 
 // Expectations array (OR groups of AND conditions)
-// Each element can be any object that includes a 'type' field
 const expectationsSchema = z.array(
-    z.array(baseExpectationSchema)
+    z.array(z.discriminatedUnion('type', [ websocketExpectationSchema, responseExpectationSchema ]))
 ).optional()
 
-// Simplified action data schema that accepts any type of action
-const actionDataSchema = z.object({
-    type: z.string(),
-    data: z.object({
-        payload: z.record(z.any()).optional(),
-        waitUntil: z.array(waitUntilSchema).optional(),
-        customSharedEvent: z.string().optional(),
-        responseToContext: responseToContextSchema,
-        expect: expectationsSchema
-    }).optional()
-})
+const actionDataBaseShape = {
+    waitUntil: z.array(waitUntilSchema).optional(),
+    customSharedEvent: z.string().optional(),
+    responseToContext: responseToContextSchema,
+    expect: expectationsSchema,
+}
+
+function actionWithPayload<T extends ActionType> (
+    type: T,
+    payload: z.ZodType<NonNullable<GetActionPayload<ActionByActionType<T>>>>
+) {
+    return z.object({
+        type: z.literal(type),
+        data: z.object({
+            ...actionDataBaseShape,
+            payload: payload.optional(),
+        }).optional(),
+    })
+}
+
+function actionWithoutPayload<T extends ActionType> (type: T) {
+    return z.object({
+        type: z.literal(type),
+        data: z.object(actionDataBaseShape).optional(),
+    })
+}
+
+// One schema branch per action type — the discriminated union both rejects
+// unknown action types at load time and types each payload precisely, so the
+// parse output is assignable to TestScenarios without casts.
+const actionDefinitionSchema = z.discriminatedUnion('type', [
+    actionWithPayload('register', registerPayloadSchema),
+    actionWithPayload('dial', dialPayloadSchema),
+    actionWithPayload('wait', waitPayloadSchema),
+    actionWithPayload('playSound', playSoundPayloadSchema),
+    actionWithPayload('sendDTMF', sendDtmfPayloadSchema),
+    actionWithPayload('transfer', transferPayloadSchema),
+    actionWithPayload('changeRoom', changeRoomPayloadSchema),
+    actionWithPayload('request', requestPayloadSchema),
+    actionWithPayload('textToSpeech', textToSpeechPayloadSchema),
+    actionWithoutPayload('answer'),
+    actionWithoutPayload('hold'),
+    actionWithoutPayload('unhold'),
+    actionWithoutPayload('hangup'),
+    actionWithoutPayload('DND'),
+    actionWithoutPayload('unregister'),
+    actionWithoutPayload('startTranscription'),
+    actionWithoutPayload('stopTranscription'),
+])
 
 // Event handler schema
 const eventHandlerSchema = z.object({
-    event: eventNameSchema,
-    actions: z.array(actionDataSchema)
+    event: z.string(),
+    actions: z.array(actionDefinitionSchema),
 })
 
 // Single scenario schema
 const testScenarioSchema = z.object({
     name: z.string(),
-    actions: z.array(eventHandlerSchema)
+    actions: z.array(eventHandlerSchema),
 })
 
 // The complete test scenarios schema (array of scenarios)
@@ -72,14 +124,9 @@ export const testScenariosSchema = z.array(testScenarioSchema)
  * @throws Zod validation error if validation fails
  */
 export function validateTestScenarios (jsonData: string | unknown): TestScenarios {
-    // Parse JSON string if needed
-    const data = typeof jsonData === 'string' ? JSON.parse(jsonData) : jsonData
+    const data: unknown = typeof jsonData === 'string' ? JSON.parse(jsonData) : jsonData
 
-    // Validate against schema
-    const validated = testScenariosSchema.parse(data)
-
-    // Return as TestScenarios type (matches the interface exactly)
-    return validated as TestScenarios
+    return testScenariosSchema.parse(data)
 }
 
 /**
@@ -90,15 +137,14 @@ export function validateTestScenarios (jsonData: string | unknown): TestScenario
 export function validateTestScenariosSafe (jsonData: string | unknown):
     { success: true, data: TestScenarios } | { success: false, error: unknown } {
     try {
-        const data = typeof jsonData === 'string' ? JSON.parse(jsonData) : jsonData
         return {
             success: true,
-            data: testScenariosSchema.parse(data) as TestScenarios
+            data: validateTestScenarios(jsonData),
         }
     } catch (error) {
         return {
             success: false,
-            error
+            error,
         }
     }
 }

@@ -5,7 +5,7 @@ import type { TestScenarios } from './types/intex'
 import env from './env'
 import { validateTestScenarios } from './schema/scenarios.schema'
 import path from 'path'
-import QrynClient from "./services/QrynClient";
+import QrynClient from './services/QrynClient'
 
 export default class CallTestScenarios extends TestScenariosBuilder {
     private qrynClient = new QrynClient('CallTestScenarios')

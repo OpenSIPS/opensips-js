@@ -55,7 +55,7 @@ export default defineConfig(({ command }) => {
                     },
                 },
                 rollupOptions: {
-                    external: ['@ricky0123/vad-web']
+                    external: [ '@ricky0123/vad-web' ]
                 }
             },
             plugins: [

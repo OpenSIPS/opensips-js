@@ -1,7 +1,7 @@
 import { Page, WebSocket } from 'playwright'
 import Parser from '../../../src/lib/janus/Parser'
 import { TelemetryService } from './TelemetryService'
-import QrynClient from "./QrynClient";
+import QrynClient from './QrynClient'
 
 interface WaitForMessageOptions {
     method: string
@@ -17,7 +17,7 @@ export default class PageWebSocketWorker {
     constructor (
         private readonly page: Page,
         private readonly socketEventsToMonitor: Record<string, string> = {},
-        private readonly callback: (eventName: string) => never,
+        private readonly emit: (eventName: string, data?: unknown) => void,
         private readonly telemetryService: TelemetryService
     ) {
         this.qrynClient = new QrynClient(
@@ -78,7 +78,7 @@ export default class PageWebSocketWorker {
                         localEvent,
                         method: parsedMessage.method
                     })
-                    this.callback(localEvent)
+                    this.emit(localEvent)
                 }
             }
         })

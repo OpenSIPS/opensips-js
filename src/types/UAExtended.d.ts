@@ -6,17 +6,17 @@ import { AnswerOptions, RTCSession } from 'jssip/lib/RTCSession'
 import { CallOptionsExtended } from '@/types/rtc'
 
 declare module 'jssip' {
-    export class UA {
-        protected _transport: Transport
-        protected _sessions: any[]
-        protected _msrp_sessions: any[]
-        protected _registrator: any
-        protected _applicants: any[]
-        protected _dynConfiguration: object
-        protected _status: number
-        protected _closeTimer: any
-        protected _configuration: any
-        protected _contact: any
+    export interface UA {
+        _transport: Transport
+        _sessions: any[]
+        _msrp_sessions: any[]
+        _registrator: any
+        _applicants: any[]
+        _dynConfiguration: object
+        _status: number
+        _closeTimer: any
+        _configuration: any
+        _contact: any
 
         _findDialog(call_id: string, from: string, to: string): DialogType
         receiveRequest(request): void

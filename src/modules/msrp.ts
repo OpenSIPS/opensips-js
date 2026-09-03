@@ -186,7 +186,7 @@ export class MSRPModule {
     }
 
     private newMSRPSessionCallback (event: MSRPSessionEvent) {
-        if(!event.session._id) event.session._id = event.request.call_id + event.request.from._parameters.tag;
+        if(!event.session._id) event.session._id = event.request.call_id + event.request.from._parameters.tag
         const session = event.session as MSRPSessionExtended
 
         /*if (this.isDND) {

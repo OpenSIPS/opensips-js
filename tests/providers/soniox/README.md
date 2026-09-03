@@ -1,12 +1,12 @@
 # Soniox Speech Provider
 
 Example TTS/STT provider for the OpenSIPS-JS testing framework, powered by
-[Soniox](https://soniox.com/docs/sdk/web-SDK). It extends the framework's
-`BaseSpeechProvider` so the engine can synthesize speech into a call and
+[Soniox](https://soniox.com/docs/sdk/web-SDK). It implements the framework's
+`SpeechProvider` contract so the engine can synthesize speech into a call and
 transcribe the remote party's audio.
 
 This lives outside `tests/core` on purpose: the core framework stays
-dependency-free and only exposes the `BaseSpeechProvider` contract. Each
+dependency-free and only exposes the `SpeechProvider` contract. Each
 company implements its own provider (with whatever speech library it likes) in a
 package like this one.
 
@@ -29,6 +29,18 @@ export SONIOX_API_KEY=your_key_here
 > Soniox docs for your account/region. The audio the framework captures for STT
 > is `audio/webm;codecs=opus`; set `sttAudioFormat` to match what your model
 > expects (Soniox supports container auto-detection).
+
+## Offline smoke (T2.2)
+
+No SIP or browser required:
+
+```bash
+# from repo root
+SONIOX_API_KEY=... yarn smoke:soniox
+
+# optional custom wav for STT chunk feed
+SONIOX_API_KEY=... yarn smoke:soniox -- --wav tests/core/sounds/audio.wav
+```
 
 ## Use it in a test run
 
@@ -74,7 +86,7 @@ this.on('callEnded', [
 
 ## What you implement (the contract)
 
-`BaseSpeechProvider` (in `tests/core/services/speech/BaseSpeechProvider.ts`):
+`SpeechProvider` (in `tests/core/services/speech/BaseSpeechProvider.ts`):
 
 | Method | Direction | Responsibility |
 |---|---|---|
@@ -82,7 +94,7 @@ this.on('callEnded', [
 | `startRecording()` | in | Open a streaming recognition session. |
 | `writeAudioChunk(chunk)` | in | Forward captured remote audio to your STT lib. |
 | `stopRecording()` | in | Close the session. |
-| `emitTranscript(chunk)` | in | (inherited) Call this whenever text is recognized. |
+| `onTranscript(cb)` | in | Register listener; call `cb(text, isFinal)` for each STT chunk. Returns unsubscribe. |
 
-You never manage a callback: just call the inherited `this.emitTranscript(...)`
-and the framework raises the `textChunk` event and updates the context.
+Extend `BaseSpeechProvider` and call `this.notifyTranscript(...)` from your STT
+handler — the framework wires `onTranscript` listeners to `textChunk` events.

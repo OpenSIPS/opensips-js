@@ -134,23 +134,35 @@ export default class TtsSttJsScenario extends TestScenariosBuilder {
                     // the real hold duration.
                     this.wait({
                         payload: { time: 500 },
-                        waitUntil: [ { event: 'representative_replied', timeout: 20000 } ]
+                        waitUntil: [ {
+                            event: 'representative_replied',
+                            timeout: 20000 
+                        } ]
                     }),
                     this.hold({
                         customSharedEvent: 'hold_started',
-                        responseToContext: { setToContext: true, contextKeyToSet: 'hold_start_marker' }
+                        responseToContext: {
+                            setToContext: true,
+                            contextKeyToSet: 'hold_start_marker' 
+                        }
                     }),
                     this.wait({ payload: { time: this.holdMs } }),
                     this.unhold({
                         customSharedEvent: 'hold_ended',
-                        responseToContext: { setToContext: true, contextKeyToSet: 'hold_end_marker' }
+                        responseToContext: {
+                            setToContext: true,
+                            contextKeyToSet: 'hold_end_marker' 
+                        }
                     }),
                     this.wait({
                         payload: { time: 1000 },
-                        waitUntil: [ { event: 'callEnded', timeout: 30000 } ]
+                        waitUntil: [ {
+                            event: 'callEnded',
+                            timeout: 30000 
+                        } ]
                     }),
                     this.unregister({})
-                ] as never)
+                ])
             ]),
 
             this.createScenario('representative', [
@@ -168,13 +180,19 @@ export default class TtsSttJsScenario extends TestScenariosBuilder {
                     this.wait({
                         payload: { time: 3000 },
                         waitUntil: [
-                            { event: 'textChunk', timeout: 20000 },
-                            { event: 'customer_spoke', timeout: 20000 }
+                            {
+                                event: 'textChunk',
+                                timeout: 20000 
+                            },
+                            {
+                                event: 'customer_spoke',
+                                timeout: 20000 
+                            }
                         ]
                     }),
                     this.stopTranscription({}),
                     this.textToSpeech({
-                        payload: { text: "Participant one said: '{{transcript}}'" },
+                        payload: { text: 'Participant one said: \'{{transcript}}\'' },
                         customSharedEvent: 'representative_replied'
                     }),
                     // Wait until participant 1 has finished the hold cycle. `run()`
@@ -182,7 +200,10 @@ export default class TtsSttJsScenario extends TestScenariosBuilder {
                     // the small buffer wait guarantees it is present before we quote it.
                     this.wait({
                         payload: { time: 1000 },
-                        waitUntil: [ { event: 'hold_ended', timeout: 20000 } ]
+                        waitUntil: [ {
+                            event: 'hold_ended',
+                            timeout: 20000 
+                        } ]
                     }),
                     this.textToSpeech({
                         payload: { text: 'The hold lasted {{hold_duration_text}}' },
@@ -190,7 +211,7 @@ export default class TtsSttJsScenario extends TestScenariosBuilder {
                     }),
                     this.hangup({}),
                     this.unregister({})
-                ] as never)
+                ])
             ])
         ]
     }

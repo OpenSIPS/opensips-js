@@ -22,7 +22,7 @@ export interface EventsMap {
     DND: AllowedActions<'wait' | 'request' | 'dial' | 'unregister' >
     unregister: AllowedActions<'wait' | 'request'>
     ready: AllowedActions<'register' | 'wait' | 'request' | 'dial'>
-    incoming: AllowedActions<'answer' | 'wait' | 'request'>
+    incoming: AllowedActions<'answer' | 'startTranscription' | 'stopTranscription' | 'textToSpeech' | 'wait' | 'hangup' | 'unregister' | 'request'>
     textToSpeech: AllowedActions<'wait' | 'request' | 'hangup' | 'textToSpeech' | 'startTranscription' | 'stopTranscription'>
     startTranscription: AllowedActions<'wait' | 'request' | 'textToSpeech' | 'stopTranscription'>
     stopTranscription: AllowedActions<'wait' | 'request' | 'textToSpeech' | 'hangup' | 'unregister'>
@@ -30,7 +30,7 @@ export interface EventsMap {
     textChunk: AllowedActions<'textToSpeech' | 'sendDTMF' | 'wait' | 'request' | 'hangup' | 'stopTranscription'>
     [customEvent: string]: AllowedActions<ActionType>
 }
-export type EventType = keyof EventsMap
+export type EventType = Extract<keyof EventsMap, string>
 export type EventHandler<E extends EventType> = {
     event: E
     actions: readonly ActionsPerEvent<E>[]

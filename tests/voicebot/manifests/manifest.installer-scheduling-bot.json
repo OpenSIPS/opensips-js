@@ -1,0 +1,81 @@
+{
+    "testRunId": 90002,
+    "target": {
+        "botId": null,
+        "botVersionId": null,
+        "dial": "1285"
+    },
+    "driverContext": {
+        "personaInstruction": "You are David, 52, a small-business owner from Haifa. You speak calmly and a little slowly. You occasionally ask the bot to repeat information, and you like to confirm details out loud before agreeing to anything. You are slightly wary of automated systems but cooperative.",
+        "goalText": "Schedule a technician (installer) visit. Provide your details when asked: your name is David Cohen, your phone number is 050-1234567. The product you need installed: say it is a home water filter; if the bot says it does not handle that product, ask what products it does handle and pick the first reasonable one. Accept the earliest offered time slot. You are done when the appointment is scheduled and the bot has confirmed that an SMS with the appointment details will be sent to you."
+    },
+    "language": { "code": "en", "ttsVoice": null },
+    "antiLoop": { "maxDurationSec": 480, "maxIntentRepetitions": 3 },
+    "outgoingAudioEffects": {
+        "volume": 0.85,
+        "noise": 0.12,
+        "packetLoss": 0.08
+    },
+    "verdicts": [
+        {
+            "verdictId": 911,
+            "name": "Caller info collected",
+            "isFinal": false,
+            "isOptional": false,
+            "parameters": [
+                {
+                    "type": "llm",
+                    "timing": "end",
+                    "config": {
+                        "question": "Did the bot collect the caller's name, phone number and the product to be installed, and acknowledge them correctly?",
+                        "answerType": "boolean",
+                        "expected": true
+                    }
+                }
+            ]
+        },
+        {
+            "verdictId": 912,
+            "name": "Appointment scheduled with SMS confirmation",
+            "isFinal": false,
+            "isOptional": false,
+            "parameters": [
+                {
+                    "type": "llm",
+                    "timing": "end",
+                    "config": {
+                        "question": "Did the bot schedule a concrete visit (date/time slot) and explicitly say that an SMS with the appointment details will be sent?",
+                        "answerType": "boolean",
+                        "expected": true
+                    }
+                }
+            ]
+        },
+        {
+            "verdictId": 913,
+            "name": "SMS tool call fired",
+            "isFinal": false,
+            "isOptional": true,
+            "parameters": [
+                {
+                    "type": "rabbit_event",
+                    "timing": "during",
+                    "config": { "kind": "tool_call", "toolName": null }
+                }
+            ]
+        },
+        {
+            "verdictId": 914,
+            "name": "Duration sane",
+            "isFinal": false,
+            "isOptional": true,
+            "parameters": [
+                {
+                    "type": "deterministic",
+                    "timing": "during",
+                    "config": { "check": "max_call_seconds", "threshold": 360 }
+                }
+            ]
+        }
+    ]
+}

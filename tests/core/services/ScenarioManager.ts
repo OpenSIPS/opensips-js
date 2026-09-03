@@ -5,6 +5,8 @@ import {
 
 import TestExecutor from './TestExecutor'
 import QrynClient from './QrynClient'
+import SharedEventCoordinator from './SharedEventCoordinator'
+import { TelemetryService } from './TelemetryService'
 import { SpeechProviderInput, resolveSpeechProvider } from './speech/BaseSpeechProvider'
 
 /**
@@ -41,6 +43,8 @@ export default class ScenarioManager {
     public async runScenarios (): Promise<void> {
         await this.qrynClient.log('Running test scenarios...', { scenarioCount: this.scenarios.length })
 
+        const sharedEvents = new SharedEventCoordinator()
+
         // Create an executor for each scenario
         for (let i = 0; i < this.scenarios.length; i++) {
             const scenarioId = `scenario-${i + 1}`
@@ -52,6 +56,7 @@ export default class ScenarioManager {
                 scenarioId,
                 this.scenarios[i].name,
                 this,
+                sharedEvents,
                 resolveSpeechProvider(this.speechProvider)
             )
             this.executors.push(executor)
@@ -71,6 +76,8 @@ export default class ScenarioManager {
             })
             throw error
         } finally {
+            sharedEvents.clear()
+
             // Ensure all scenarios are properly cleaned up
             for (const executor of this.executors) {
                 try {
@@ -81,6 +88,10 @@ export default class ScenarioManager {
                     })
                 }
             }
+
+            // Stop the shared OTel SDK so its periodic exporters release the
+            // event loop and the process can exit without Ctrl+C (T1.3).
+            await TelemetryService.shutdownSdk()
         }
 
         // await this.qrynClient.log('All scenarios completed')

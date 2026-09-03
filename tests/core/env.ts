@@ -4,42 +4,37 @@ import { config } from 'dotenv'
 
 config()
 
+/** zod 4 replaced required_error/invalid_type_error with a single error callback. */
+function stringWithMessages (requiredMessage: string, invalidTypeMessage: string) {
+    return z.string({
+        error: (issue) => issue.input === undefined ? requiredMessage : invalidTypeMessage,
+    })
+}
+
 /**
  * Configuration schema for individual Gigapipe service endpoints
  */
 const gigapipeServiceConfig = z.object({
-    url: z.string().url({
+    url: z.url({
         message: 'Service URL must be a valid URL'
     }),
-    username: z.string({
-        required_error: 'username is required',
-        invalid_type_error: 'username must be a string'
-    }),
-    password: z.string({
-        required_error: 'password is required',
-        invalid_type_error: 'password must be a string'
-    }),
+    username: stringWithMessages('username is required', 'username must be a string'),
+    password: stringWithMessages('password is required', 'password must be a string'),
     headers: z.string().transform((str) => {
         try {
             return JSON.parse(str)
         } catch (error) {
             if (error instanceof z.ZodError) {
                 console.error('Environment headers validation failed:')
-                error.errors.forEach(err => {
+                error.issues.forEach(err => {
                     console.error(`- ${err.path.join('.')}: ${err.message}`)
                 })
             }
             throw error
         }
     }),
-    scope: z.string({
-        required_error: 'Service scope is required',
-        invalid_type_error: 'Service scope must be a string'
-    }),
-    OrgID: z.string( {
-        required_error: 'OrgID is required',
-        invalid_type_error: 'OrgID must be an number'
-    }),
+    scope: stringWithMessages('Service scope is required', 'Service scope must be a string'),
+    OrgID: stringWithMessages('OrgID is required', 'OrgID must be an number'),
 })
 
 /**
@@ -66,13 +61,14 @@ const gigapipeSchema = z.object({
  */
 const envSchema = z.object({
     // Application configuration
-    SAMPLETOEXECUTE: z.string({
-        required_error: 'Sample execution path is required',
-        invalid_type_error: 'Sample execution path must be a string'
-    }),
+    SAMPLETOEXECUTE: stringWithMessages(
+        'Sample execution path is required',
+        'Sample execution path must be a string'
+    ),
     PORT: z.coerce.number({
-        required_error: 'Application port is required',
-        invalid_type_error: 'Application port must be a number'
+        error: (issue) => issue.input === undefined
+            ? 'Application port is required'
+            : 'Application port must be a number',
     }).int({
         message: 'Application port must be an integer'
     }).positive({
@@ -83,7 +79,7 @@ const envSchema = z.object({
     GIGAPIPE: gigapipeSchema.optional(),
 
     // SIP parameters configuration
-    PARAMETERS: z.any()
+    PARAMETERS: z.unknown()
 })
 
 /**
@@ -108,7 +104,7 @@ export function parseEnv (env: Record<string, string | undefined>): EnvConfig {
     } catch (error) {
         if (error instanceof z.ZodError) {
             console.error('Environment validation failed:')
-            error.errors.forEach(err => {
+            error.issues.forEach(err => {
                 console.error(`- ${err.path.join('.')}: ${err.message}`)
             })
         }

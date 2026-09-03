@@ -1572,9 +1572,9 @@ export default class RTCSession extends EventEmitter {
                                 this.emit('peerconnection:setremotedescriptionfailed', error)
                             })
                     } else
-                    if (!this._is_confirmed) {
-                        this._confirmed('remote', request)
-                    }
+                        if (!this._is_confirmed) {
+                            this._confirmed('remote', request)
+                        }
 
                     break
                 case JsSIP_C.BYE:

@@ -121,7 +121,7 @@ export interface Action<
 /*******************************/
 
 /* Register */
-interface RegisterActionPayload {
+export interface RegisterActionPayload {
     sip_domain: string
     username: string
     password: string
@@ -137,7 +137,7 @@ export type RegisterAction = Action<
 >
 
 /* Dial */
-interface DialActionPayload {
+export interface DialActionPayload {
     target: string
 }
 interface DialActionSuccessResponse extends BaseActionSuccessResponse {
@@ -152,7 +152,7 @@ export type DialAction = Action<
 >
 
 /* Wait */
-interface WaitActionPayload {
+export interface WaitActionPayload {
     // The time to wait in milliseconds
     time: number
 }
@@ -166,7 +166,7 @@ export type WaitAction = Action<
 >
 
 /* Play Sound */
-interface PlaySoundActionPayload {
+export interface PlaySoundActionPayload {
     // The sound to play, can be a URL or a file path
     sound: string
 }
@@ -224,7 +224,7 @@ export type HangupAction = Action<
 >
 
 /* Send DTMF */
-interface SendDTMFActionPayload {
+export interface SendDTMFActionPayload {
     // The DTMF number to send
     dtmf: string
 }
@@ -240,7 +240,7 @@ export type SendDTMFAction = Action<
 >
 
 /* Transfer */
-interface TransferActionPayload {
+export interface TransferActionPayload {
     // The target to transfer the call to
     target: string
 }
@@ -255,7 +255,7 @@ export type TransferAction = Action<
 >
 
 /* Change Room */
-interface ChangeRoomActionPayload {
+export interface ChangeRoomActionPayload {
     fromRoom: number
     toRoom: number
 }
@@ -293,7 +293,7 @@ export type UnregisterAction = Action<
 >
 
 /* Request */
-interface RequestActionPayload {
+export interface RequestActionPayload {
     url: string
     options: Parameters<APIRequestContext['fetch']>[1]
 }
@@ -308,7 +308,7 @@ export type RequestAction = Action<
 >
 
 /* Text To Speech */
-interface TextToSpeechActionPayload {
+export interface TextToSpeechActionPayload {
     text: string
 }
 interface TextToSpeechActionSuccessResponse extends BaseActionSuccessResponse {
@@ -348,13 +348,14 @@ export type StopTranscriptionAction = Action<
 export type GetActionDefinition<T extends Action<any, any, any>> = T['definition']
 export type GetActionResponse<T extends Action<any, any, any>> = T['response']
 export type GetActionData<T extends Action<any, any, any>> = GetActionDefinition<T>['data']
-export type GetActionPayload<T extends Action<any, any, any>> = GetActionData<T>['payload']
+export type GetActionPayload<T extends Action<any, any, any>> = NonNullable<GetActionData<T>>['payload']
 
-// Type-safe action executor function
+// Type-safe action executor function — payload-bearing actions receive the
+// payload already validated (never undefined) by the declarative layer.
 type ActionExecutorAction<T extends Action<any, any, any>> =
     GetActionPayload<T> extends undefined
         ? () => Promise<GetActionResponse<T>>
-        : (data: GetActionPayload<T>) => Promise<GetActionResponse<T>>
+        : (data: NonNullable<GetActionPayload<T>>) => Promise<GetActionResponse<T>>
 
 export interface ActionsMap {
     register: RegisterAction
@@ -390,6 +391,36 @@ export type ActionsResponseMap = {
 
 export type ActionType = keyof ActionsMap
 export type ActionByActionType<T extends ActionType> = T extends keyof ActionsMap ? ActionsMap[T] : never
+
+/**
+ * Runtime list of every action type. Guarded against ActionsMap in both
+ * directions below — adding or renaming an action without updating this list
+ * fails to compile.
+ */
+export const ACTION_TYPES = [
+    'register',
+    'dial',
+    'wait',
+    'playSound',
+    'answer',
+    'hold',
+    'unhold',
+    'hangup',
+    'sendDTMF',
+    'transfer',
+    'changeRoom',
+    'unregister',
+    'request',
+    'DND',
+    'textToSpeech',
+    'startTranscription',
+    'stopTranscription',
+] as const
+
+/** Compile-time exhaustiveness guard: instantiates only when T is empty. */
+export type AssertNever<T extends never> = T
+export type _ActionTypesMissingFromList = AssertNever<Exclude<ActionType, typeof ACTION_TYPES[number]>>
+export type _ActionTypesNotInMap = AssertNever<Exclude<typeof ACTION_TYPES[number], ActionType>>
 
 // Type guards for runtime type checking
 export function isActionSuccess<T extends BaseActionSuccessResponse> (

@@ -1,0 +1,81 @@
+{
+    "testRunId": 90001,
+    "target": {
+        "botId": null,
+        "botVersionId": null,
+        "dial": "0776049406"
+    },
+    "driverContext": {
+        "personaInstruction": "You are Noa, 29, a project coordinator from Tel Aviv. You speak quickly and confidently, occasionally correcting yourself mid-sentence. You give details willingly when asked, but you get mildly impatient if asked to repeat something you already said. You are calling from your mobile on your way out of the office.",
+        "goalText": "Plan a travel route. Your starting point is Dizengoff Street 100, Tel Aviv. You need to get to Herzl Street 20, Rishon LeZion. You want to leave tomorrow at 8:00 in the morning. You are done when the bot has acknowledged both addresses and the departure time and confirmed a planned route for you."
+    },
+    "language": { "code": "en", "ttsVoice": null },
+    "antiLoop": { "maxDurationSec": 420, "maxIntentRepetitions": 3 },
+    "outgoingAudioEffects": {
+        "volume": 0.60,
+        "noise": 0.01,
+        "packetLoss": 0.15
+    },
+    "verdicts": [
+        {
+            "verdictId": 901,
+            "name": "Route plan produced",
+            "isFinal": false,
+            "isOptional": false,
+            "parameters": [
+                {
+                    "type": "llm",
+                    "timing": "end",
+                    "config": {
+                        "question": "Did the bot acknowledge the origin address, the destination address and the departure time, and confirm a planned route?",
+                        "answerType": "boolean",
+                        "expected": true
+                    }
+                }
+            ]
+        },
+        {
+            "verdictId": 902,
+            "name": "Addresses captured correctly",
+            "isFinal": false,
+            "isOptional": false,
+            "parameters": [
+                {
+                    "type": "llm",
+                    "timing": "end",
+                    "config": {
+                        "question": "When the bot repeated or referenced the addresses, did they match what the caller actually said (no wrong street, city or number)?",
+                        "answerType": "boolean",
+                        "expected": true
+                    }
+                }
+            ]
+        },
+        {
+            "verdictId": 903,
+            "name": "Route intent reached",
+            "isFinal": false,
+            "isOptional": true,
+            "parameters": [
+                {
+                    "type": "rabbit_event",
+                    "timing": "during",
+                    "config": { "kind": "intent_reached", "intentId": null }
+                }
+            ]
+        },
+        {
+            "verdictId": 904,
+            "name": "Duration sane",
+            "isFinal": false,
+            "isOptional": true,
+            "parameters": [
+                {
+                    "type": "deterministic",
+                    "timing": "during",
+                    "config": { "check": "max_call_seconds", "threshold": 300 }
+                }
+            ]
+        }
+    ]
+}

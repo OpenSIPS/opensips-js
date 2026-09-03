@@ -5,16 +5,18 @@
     "rootDir": "..",
     "module": "ESNext",
     "moduleResolution": "node",
+    "skipLibCheck": true,
+    "strictNullChecks": true,
     "types": ["node"]
   },
   "include": [
     "core/**/*.ts",
-    "core/**/*.d.ts"
+    "core/**/*.d.ts",
+    "voicebot/**/*.ts"
   ],
   "exclude": [
     "**/node_modules",
     "ui",
-    "providers",
-    "core/samples/js/advanced"
+    "providers"
   ]
 }

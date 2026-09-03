@@ -1,58 +1,52 @@
-import type { Page } from 'playwright'
-
 export interface TextToSpeechResult {
     audio: Buffer | string
     mimeType?: string
 }
 
-type TranscriptSink = (text: string, isFinal?: boolean) => void
+export type TranscriptListener = (text: string, isFinal?: boolean) => void
+export type TranscriptUnsubscribe = () => void
 
-export interface RunnableAction {
-    type: string
-    data?: {
-        payload?: Record<string, unknown>
-    }
+/**
+ * Streaming TTS: raw PCM (s16le mono) audio chunks arriving while the text is
+ * still being synthesized. Breaking out of the async iteration (for-await
+ * `break`) cancels the stream and releases the underlying connection.
+ */
+export interface TtsStream {
+    sampleRate: number
+    chunks: AsyncGenerator<Buffer, void, void>
 }
 
-type ActionRunner = (action: RunnableAction) => Promise<void>
+/**
+ * Pure STT/TTS contract (RUNNER-TASKS T2.1).
+ * No Playwright page access, no framework action runner — composition only.
+ */
+export interface SpeechProvider {
+    textToSpeech (text: string): Promise<TextToSpeechResult>
+    /** Optional low-latency path: providers that can stream synthesis expose it here. */
+    textToSpeechStream? (text: string): TtsStream
+    startRecording (): Promise<void>
+    writeAudioChunk (chunk: Buffer): Promise<void>
+    stopRecording (): Promise<void>
+    onTranscript (listener: TranscriptListener): TranscriptUnsubscribe
+}
 
-export abstract class BaseSpeechProvider {
-    private _sink?: TranscriptSink
-    private _actionRunner?: ActionRunner
+/**
+ * Base class for provider implementations. Subclasses call {@link notifyTranscript}
+ * when STT yields text.
+ */
+export abstract class BaseSpeechProvider implements SpeechProvider {
+    private readonly transcriptListeners = new Set<TranscriptListener>()
 
-    /**
-     * @internal Bound by the framework: the Playwright page of this scenario.
-     * Lets a provider drive browser-side helpers (e.g. ConnectionImpairment) that
-     * manipulate the in-page WebRTC/Web Audio graph.
-     */
-    protected page?: Page
-
-    /** @internal Bound by the framework to receive transcript text. */
-    public _bindTranscriptSink (sink: TranscriptSink): void {
-        this._sink = sink
-    }
-
-    /** @internal Bound by the framework so a provider can access its page. */
-    public _bindPage (page: Page): void {
-        this.page = page
-    }
-
-    public _bindActionRunner (runner: ActionRunner): void {
-        this._actionRunner = runner
-    }
-
-    protected async runAction (action: RunnableAction): Promise<void> {
-        if (this._actionRunner) {
-            await this._actionRunner(action)
+    public onTranscript (listener: TranscriptListener): TranscriptUnsubscribe {
+        this.transcriptListeners.add(listener)
+        return () => {
+            this.transcriptListeners.delete(listener)
         }
     }
 
-    /**
-     * Call this with the recognized text.
-     */
-    protected emitTranscript (text: string, isFinal?: boolean): void {
-        if (this._sink) {
-            this._sink(text, isFinal)
+    protected notifyTranscript (text: string, isFinal?: boolean): void {
+        for (const listener of this.transcriptListeners) {
+            listener(text, isFinal)
         }
     }
 
@@ -66,11 +60,11 @@ export abstract class BaseSpeechProvider {
 }
 
 /** A ready instance, or a factory that yields a fresh instance per scenario. */
-export type SpeechProviderInput = BaseSpeechProvider | (() => BaseSpeechProvider)
+export type SpeechProviderInput = SpeechProvider | (() => SpeechProvider)
 
 export function resolveSpeechProvider (
     input?: SpeechProviderInput
-): BaseSpeechProvider | undefined {
+): SpeechProvider | undefined {
     if (!input) {
         return undefined
     }
