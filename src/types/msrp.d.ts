@@ -66,6 +66,13 @@ export type MSRPMemberRole = 'in_charge' | 'manager' | 'assigned'
 export type MSRPMembership = 'join' | 'leave' | 'invite' | 'ban'
 export type MSRPMessageStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
 
+export interface MSRPTag {
+    name: string
+    color?: string
+    added_by?: string
+    added_at?: number
+}
+
 export interface MSRPConversationState {
     /**
      * Public, stable numeric conversation identifier assigned by the backend.
@@ -89,6 +96,11 @@ export interface MSRPConversationState {
     created_at: number
     updated_at: number
     status?: string
+    /**
+     * Shared conversation tags from `m.sync` / `m.conversation.tag`.
+     * Compared by normalized (lowercase, trimmed) `name`.
+     */
+    tags?: MSRPTag[]
 }
 
 export interface MSRPUploadResult {

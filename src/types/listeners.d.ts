@@ -4,7 +4,8 @@ import {
     IMessage,
     MSRPSessionExtended,
     MSRPConversationState,
-    MSRPMessageStatus
+    MSRPMessageStatus,
+    MSRPTag
 } from '@/types/msrp'
 import { ICall, RoomChangeEmitType, ICallStatus, RTCSessionExtended } from '@/types/rtc'
 import MSRPMessage from '@/lib/msrp/message'
@@ -122,6 +123,31 @@ export type msrpMessageDeletedListener = (payload: {
     deletedBy: string
     updatedAt: number
 }) => void
+export type msrpMessageHiddenListener = (payload: {
+    conversation_id?: number
+    eventId: string
+    updatedAt: number
+}) => void
+export type msrpConversationTaggedListener = (payload: {
+    conversation_id?: number
+    action: 'add' | 'remove'
+    tag: MSRPTag
+    actorUri: string
+    updatedAt: number
+}) => void
+export type msrpMessageTaggedListener = (payload: {
+    conversation_id?: number
+    eventId: string
+    action: 'add' | 'remove'
+    tag: MSRPTag
+    actorUri: string
+    updatedAt: number
+}) => void
+export type msrpErrorListener = (payload: {
+    conversation_id?: number
+    error: string
+    event: unknown
+}) => void
 export type msrpPresenceListener = (payload: {
     conversation_id?: number
     sender: string
@@ -174,6 +200,10 @@ export interface OpenSIPSEventMap extends UAEventMap {
     msrpTyping: msrpTypingListener
     msrpMessageEdited: msrpMessageEditedListener
     msrpMessageDeleted: msrpMessageDeletedListener
+    msrpMessageHidden: msrpMessageHiddenListener
+    msrpConversationTagged: msrpConversationTaggedListener
+    msrpMessageTagged: msrpMessageTaggedListener
+    msrpError: msrpErrorListener
     msrpPresence: msrpPresenceListener
     // JANUS
     conferenceStart: conferenceStartListener

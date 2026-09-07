@@ -13,6 +13,8 @@ import type {
     MSRPMemberRole,
     MSRPReactionAction,
     MSRPSendMessageOptions,
+    MSRPTag,
+    MSRPTagAction,
     MSRPUploadResult
 } from '../../../src/modules/msrp'
 import { MSRP_EVT } from '../../../src/modules/msrp'
@@ -43,6 +45,54 @@ const presenceBySender = ref<{ [sender: string]: MSRPPresenceState }>({})
 
 const currentConversationId = ref<string | null>(null)
 
+const hideError = ref<string>('')
+
+const HIDE_ECHO_TIMEOUT_MS = 5000
+const pendingHides = new Map<string, {
+    cid: string
+    eventId: string
+    snapshot: any
+    index: number
+    timer: ReturnType<typeof setTimeout>
+}>()
+
+function pendingHideKey (cid: string, eventId: string): string {
+    return `${cid}:${eventId}`
+}
+
+function replaceConversationMessages (cid: string, next: any[]): void {
+    messagesByConversation.value = {
+        ...messagesByConversation.value,
+        [cid]: next
+    }
+}
+
+function clearPendingHide (cid: string, eventId: string): void {
+    const key = pendingHideKey(cid, eventId)
+    const pending = pendingHides.get(key)
+    if (!pending) return
+    clearTimeout(pending.timer)
+    pendingHides.delete(key)
+}
+
+function restoreHiddenMessage (cid: string, eventId: string): void {
+    const key = pendingHideKey(cid, eventId)
+    const pending = pendingHides.get(key)
+    if (!pending) return
+    clearTimeout(pending.timer)
+    pendingHides.delete(key)
+    const list = messagesByConversation.value[cid]
+    if (!list) {
+        replaceConversationMessages(cid, [ pending.snapshot ])
+        return
+    }
+    if (list.some((m: any) => m?.event_id === eventId)) return
+    const insertAt = Math.min(Math.max(pending.index, 0), list.length)
+    const next = [ ...list ]
+    next.splice(insertAt, 0, pending.snapshot)
+    replaceConversationMessages(cid, next)
+}
+
 const hasActiveMsrpSession = computed(() => currentMsrpSession.value !== null)
 
 function onlyRealMessages (list: any[] | undefined) {
@@ -57,22 +107,32 @@ function findLastIndexByEventId (list: any[], eventId: string): number {
     return -1
 }
 
-function mergeMessagesByEventId (existing: any[], incoming: any[]): any[] {
-    const byId = new Map<string, any>()
-    const orphans: any[] = []
-    const consume = (msg: any) => {
-        const id = msg?.event_id
-        if (typeof id === 'string' && id) {
-            byId.set(id, msg)
-        } else {
-            orphans.push(msg)
-        }
-    }
-    for (const msg of existing) consume(msg)
-    for (const msg of incoming) consume(msg)
-    return [ ...byId.values(), ...orphans ].sort(
+function sortMessagesByTimestamp (list: any[]): any[] {
+    return [ ...list ].sort(
         (a, b) => (a?.origin_server_ts || 0) - (b?.origin_server_ts || 0)
     )
+}
+
+function normalizeTagName (name: unknown): string {
+    return typeof name === 'string' ? name.trim().toLowerCase() : ''
+}
+
+function applyTag (
+    tags: MSRPTag[] | undefined,
+    action: MSRPTagAction,
+    tag: MSRPTag
+): MSRPTag[] {
+    const name = normalizeTagName(tag?.name)
+    const list = Array.isArray(tags) ? [ ...tags ] : []
+    if (!name) return list
+    if (action === 'remove') {
+        return list.filter((t) => normalizeTagName(t.name) !== name)
+    }
+    if (list.some((t) => normalizeTagName(t.name) === name)) return list
+    return [ ...list, {
+        ...tag,
+        name
+    } ]
 }
 
 function computeUnreadCount (
@@ -319,7 +379,8 @@ export const vsipAPI: VsipAPI = {
         typingByConversation,
         presenceBySender,
         unreadByConversation,
-        firstUnreadByConversation
+        firstUnreadByConversation,
+        hideError
     },
     actions: {
         init (
@@ -387,9 +448,21 @@ export const vsipAPI: VsipAPI = {
                             const nextMessages = { ...messagesByConversation.value }
                             const incoming = payload.messagesByConversation ?? {}
                             for (const [ cid, historicalList ] of Object.entries(incoming)) {
-                                nextMessages[cid] = mergeMessagesByEventId(
-                                    nextMessages[cid] ?? [],
-                                    historicalList as any[]
+                                const serverList = sortMessagesByTimestamp(historicalList as any[])
+                                const pendingIds = new Set<string>()
+                                for (const [ key, pending ] of pendingHides) {
+                                    if (pending.cid !== cid) continue
+                                    pendingIds.add(pending.eventId)
+                                    const stillOnServer = serverList.some(
+                                        (m: any) => m?.event_id === pending.eventId
+                                    )
+                                    if (!stillOnServer) {
+                                        clearTimeout(pending.timer)
+                                        pendingHides.delete(key)
+                                    }
+                                }
+                                nextMessages[cid] = serverList.filter(
+                                    (m: any) => !pendingIds.has(m?.event_id)
                                 )
                             }
                             messagesByConversation.value = nextMessages
@@ -534,6 +607,54 @@ export const vsipAPI: VsipAPI = {
                             const c = conversations.value[cid]
                             if (c) c.updated_at = payload.updatedAt
                         })
+                        .on('msrpMessageHidden', (payload) => {
+                            const cid = idKey(payload.conversation_id)
+                            if (!cid || !payload.eventId) return
+                            clearPendingHide(cid, payload.eventId)
+                            const messages = messagesByConversation.value[cid]
+                            if (messages) {
+                                replaceConversationMessages(
+                                    cid,
+                                    messages.filter((m: any) => m?.event_id !== payload.eventId)
+                                )
+                            }
+                            const c = conversations.value[cid]
+                            if (c) c.updated_at = payload.updatedAt
+                        })
+                        .on('msrpConversationTagged', (payload) => {
+                            const cid = idKey(payload.conversation_id)
+                            if (!cid) return
+                            const c = conversations.value[cid]
+                            if (!c) return
+                            c.tags = applyTag(c.tags, payload.action, payload.tag)
+                            c.updated_at = payload.updatedAt
+                        })
+                        .on('msrpMessageTagged', (payload) => {
+                            const cid = idKey(payload.conversation_id)
+                            if (!cid) return
+                            const messages = messagesByConversation.value[cid]
+                            if (messages) {
+                                const m = findMessage(messages, payload.eventId)
+                                if (m) {
+                                    if (!m.content) m.content = {}
+                                    m.content.tags = applyTag(m.content.tags, payload.action, payload.tag)
+                                }
+                            }
+                            const c = conversations.value[cid]
+                            if (c) c.updated_at = payload.updatedAt
+                        })
+                        .on('msrpError', (payload) => {
+                            const cid = idKey(payload.conversation_id)
+                            hideError.value = payload.error
+                                ? `MSRP error: ${payload.error}`
+                                : 'MSRP error'
+                            if (!cid) return
+                            for (const pending of [ ...pendingHides.values() ]) {
+                                if (pending.cid === cid) {
+                                    restoreHiddenMessage(pending.cid, pending.eventId)
+                                }
+                            }
+                        })
                         .on('msrpTyping', (payload: { conversation_id?: number, sender: string, isTyping: boolean }) => {
                             const cid = idKey(payload.conversation_id)
                             if (!cid || !payload.sender) return
@@ -613,6 +734,62 @@ export const vsipAPI: VsipAPI = {
         },
         deleteMessage (conversationRef: MSRPConversationRef, targetEventId: string) {
             return openSIPSJS?.msrp.deleteMessage(conversationRef, targetEventId) ?? false
+        },
+        hideMessage (conversationRef: MSRPConversationRef, targetEventId: string) {
+            const cid = idKey(Number(conversationRef))
+            if (!cid || !targetEventId) return false
+            hideError.value = ''
+            const list = messagesByConversation.value[cid]
+            const index = list?.findIndex((m: any) => m?.event_id === targetEventId) ?? -1
+            const snapshot = index >= 0 ? list[index] : null
+            if (index >= 0) {
+                const next = [ ...list ]
+                next.splice(index, 1)
+                replaceConversationMessages(cid, next)
+            }
+            const ok = openSIPSJS?.msrp.hideMessage(conversationRef, targetEventId) ?? false
+            if (!ok) {
+                const current = messagesByConversation.value[cid]
+                if (snapshot && current && !current.some((m: any) => m?.event_id === targetEventId)) {
+                    const restored = [ ...current ]
+                    restored.splice(Math.min(index, restored.length), 0, snapshot)
+                    replaceConversationMessages(cid, restored)
+                }
+                hideError.value = 'Hide failed to send'
+                return false
+            }
+            if (snapshot) {
+                clearPendingHide(cid, targetEventId)
+                const timer = setTimeout(() => {
+                    restoreHiddenMessage(cid, targetEventId)
+                    hideError.value = 'Hide timed out — message restored'
+                }, HIDE_ECHO_TIMEOUT_MS)
+                pendingHides.set(pendingHideKey(cid, targetEventId), {
+                    cid,
+                    eventId: targetEventId,
+                    snapshot,
+                    index,
+                    timer
+                })
+            }
+            return true
+        },
+        tagConversation (conversationRef: MSRPConversationRef, name: string, color?: string) {
+            return openSIPSJS?.msrp.tagConversation(conversationRef, name, color) ?? false
+        },
+        untagConversation (conversationRef: MSRPConversationRef, name: string) {
+            return openSIPSJS?.msrp.untagConversation(conversationRef, name) ?? false
+        },
+        tagMessage (
+            conversationRef: MSRPConversationRef,
+            targetEventId: string,
+            name: string,
+            color?: string
+        ) {
+            return openSIPSJS?.msrp.tagMessage(conversationRef, targetEventId, name, color) ?? false
+        },
+        untagMessage (conversationRef: MSRPConversationRef, targetEventId: string, name: string) {
+            return openSIPSJS?.msrp.untagMessage(conversationRef, targetEventId, name) ?? false
         },
         forwardMessage (
             sourceMessage: any,

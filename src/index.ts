@@ -1569,7 +1569,8 @@ export type {
     MSRPMembership,
     MSRPMessageStatus,
     MSRPConversationState,
-    MSRPUploadResult
+    MSRPUploadResult,
+    MSRPTag
 } from '@/types/msrp'
 
 export { MSRP_EVT } from '@/modules/msrp'
@@ -1577,6 +1578,7 @@ export { MSRP_EVT } from '@/modules/msrp'
 export type {
     MSRPConversationRef,
     MSRPReactionAction,
+    MSRPTagAction,
     MSRPSendMessageOptions
 } from '@/modules/msrp'
 

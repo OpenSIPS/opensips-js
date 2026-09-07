@@ -69,6 +69,11 @@ export interface VsipAPIState {
      * this to place a "— New messages —" divider inside the open chat.
      */
     firstUnreadByConversation: ComputedRef<Record<string, string>>
+    /**
+     * Last hide failure (send failed, echo timeout, or m.error). Empty when
+     * the last hide succeeded or none has been attempted.
+     */
+    hideError: Ref<string>
 }
 
 export interface VsipAPIActions {
@@ -96,6 +101,16 @@ export interface VsipAPIActions {
     ): boolean
     editMessage (conversationRef: MSRPConversationRef, targetEventId: string, newText: string): boolean
     deleteMessage (conversationRef: MSRPConversationRef, targetEventId: string): boolean
+    hideMessage (conversationRef: MSRPConversationRef, targetEventId: string): boolean
+    tagConversation (conversationRef: MSRPConversationRef, name: string, color?: string): boolean
+    untagConversation (conversationRef: MSRPConversationRef, name: string): boolean
+    tagMessage (
+        conversationRef: MSRPConversationRef,
+        targetEventId: string,
+        name: string,
+        color?: string
+    ): boolean
+    untagMessage (conversationRef: MSRPConversationRef, targetEventId: string, name: string): boolean
     forwardMessage (
         sourceMessage: any,
         targetConversationRef: MSRPConversationRef,

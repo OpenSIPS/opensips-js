@@ -9,7 +9,8 @@ import {
     MSRPMembership,
     MSRPMessageStatus,
     MSRPConversationState,
-    MSRPUploadResult
+    MSRPUploadResult,
+    MSRPTag
 } from '@/types/msrp'
 import MSRPMessage from '@/lib/msrp/message'
 import { MSRPSessionEvent } from '@/helpers/UA'
@@ -19,7 +20,8 @@ export type {
     MSRPMembership,
     MSRPMessageStatus,
     MSRPConversationState,
-    MSRPUploadResult
+    MSRPUploadResult,
+    MSRPTag
 }
 
 export const MSRP_EVT = {
@@ -29,6 +31,10 @@ export const MSRP_EVT = {
     CLOSED: 'm.conversation.closed',
     REOPEN: 'm.conversation.reopen',
     DELETE: 'm.conversation.delete',
+    MESSAGE_HIDE: 'm.message.hide',
+    CONVERSATION_TAG: 'm.conversation.tag',
+    MESSAGE_TAG: 'm.message.tag',
+    ERROR: 'm.error',
     SYNC: 'm.sync',
     UPLOAD_REQUEST: 'm.upload.request',
     UPLOAD_RESPONSE: 'm.upload.response',
@@ -58,6 +64,7 @@ export const MSRP_MESSAGE_TYPE = {
 } as const
 
 export type MSRPReactionAction = 'add' | 'remove'
+export type MSRPTagAction = 'add' | 'remove'
 
 /**
  * A conversation is addressed exclusively by its public numeric
@@ -129,6 +136,59 @@ function getMessageTypeFromMime (mimeType?: string): string {
     if (mimeType.startsWith('video/')) return 'video'
     if (mimeType.startsWith('audio/')) return 'audio'
     return 'file'
+}
+
+function normalizeTagName (name: unknown): string {
+    return typeof name === 'string' ? name.trim().toLowerCase() : ''
+}
+
+function normalizeTag (
+    raw: any,
+    fallbacks?: { added_by?: string, added_at?: number }
+): MSRPTag | null {
+    const name = normalizeTagName(raw?.name)
+    if (!name) return null
+    const tag: MSRPTag = { name }
+    if (typeof raw?.color === 'string' && raw.color) tag.color = raw.color
+    const addedBy = raw?.added_by ?? fallbacks?.added_by
+    if (typeof addedBy === 'string' && addedBy) tag.added_by = addedBy
+    const addedAt = raw?.added_at ?? fallbacks?.added_at
+    if (typeof addedAt === 'number') tag.added_at = addedAt
+    return tag
+}
+
+function normalizeTagList (raw: unknown): MSRPTag[] {
+    if (!Array.isArray(raw)) return []
+    const seen = new Set<string>()
+    const out: MSRPTag[] = []
+    for (const item of raw) {
+        const tag = normalizeTag(item)
+        if (!tag || seen.has(tag.name)) continue
+        seen.add(tag.name)
+        out.push(tag)
+    }
+    return out
+}
+
+function applyTagMutation (
+    existing: MSRPTag[] | undefined,
+    action: MSRPTagAction,
+    incoming: any,
+    actorUri?: string,
+    addedAt?: number
+): MSRPTag[] {
+    const list = Array.isArray(existing) ? [ ...existing ] : []
+    const name = normalizeTagName(incoming?.name)
+    if (!name) return list
+    if (action === 'remove') {
+        return list.filter((t) => t.name !== name)
+    }
+    if (list.some((t) => t.name === name)) return list
+    const tag = normalizeTag(incoming, {
+        added_by: actorUri,
+        added_at: addedAt
+    })
+    return tag ? [ ...list, tag ] : list
 }
 
 export class MSRPModule {
@@ -432,6 +492,58 @@ export class MSRPModule {
         }
     }
 
+    private buildHideMessageEvent (conversationId: number, targetEventId: string) {
+        return {
+            type: MSRP_EVT.MESSAGE_HIDE,
+            conversation_id: conversationId,
+            sender: this.getUserUri(),
+            origin_server_ts: Date.now(),
+            content: { target_event_id: targetEventId }
+        }
+    }
+
+    private buildConversationTagEvent (
+        conversationId: number,
+        action: MSRPTagAction,
+        name: string,
+        color?: string
+    ) {
+        const tag: { name: string, color?: string } = { name }
+        if (action === 'add' && color) tag.color = color
+        return {
+            type: MSRP_EVT.CONVERSATION_TAG,
+            conversation_id: conversationId,
+            sender: this.getUserUri(),
+            origin_server_ts: Date.now(),
+            content: {
+                action,
+                tag
+            }
+        }
+    }
+
+    private buildMessageTagEvent (
+        conversationId: number,
+        targetEventId: string,
+        action: MSRPTagAction,
+        name: string,
+        color?: string
+    ) {
+        const tag: { name: string, color?: string } = { name }
+        if (action === 'add' && color) tag.color = color
+        return {
+            type: MSRP_EVT.MESSAGE_TAG,
+            conversation_id: conversationId,
+            sender: this.getUserUri(),
+            origin_server_ts: Date.now(),
+            content: {
+                action,
+                target_event_id: targetEventId,
+                tag
+            }
+        }
+    }
+
     private buildMediaMessageEvent (conversationId: number, uploadResult: MSRPUploadResult, caption = '') {
         const messageType = uploadResult.media_type || getMessageTypeFromMime(uploadResult.mime_type)
         const attachment: Record<string, any> = {
@@ -619,6 +731,68 @@ export class MSRPModule {
         const conversationId = this.toConversationId(conversationRef)
         if (conversationId === null || !targetEventId) return false
         return this.sendEvent(this.buildDeleteMessageEvent(conversationId, targetEventId))
+    }
+
+    /**
+     * Hide a message from the current agent's timeline only. Any joined
+     * SIP/assistant member may hide any `m.conversation.message` (own,
+     * others', or internal_note). There is no undo in V1.
+     */
+    public hideMessage (conversationRef: MSRPConversationRef, targetEventId: string): boolean {
+        const conversationId = this.toConversationId(conversationRef)
+        if (conversationId === null || !targetEventId) return false
+        return this.sendEvent(this.buildHideMessageEvent(conversationId, targetEventId))
+    }
+
+    /**
+     * Add a shared free-text tag to a conversation. Duplicate names on the
+     * same conversation are ignored by the server.
+     */
+    public tagConversation (
+        conversationRef: MSRPConversationRef,
+        name: string,
+        color?: string
+    ): boolean {
+        const conversationId = this.toConversationId(conversationRef)
+        const trimmed = (name ?? '').trim()
+        if (conversationId === null || !trimmed) return false
+        return this.sendEvent(this.buildConversationTagEvent(conversationId, 'add', trimmed, color))
+    }
+
+    /** Remove a conversation tag by name (compared case-insensitively). */
+    public untagConversation (conversationRef: MSRPConversationRef, name: string): boolean {
+        const conversationId = this.toConversationId(conversationRef)
+        const trimmed = (name ?? '').trim()
+        if (conversationId === null || !trimmed) return false
+        return this.sendEvent(this.buildConversationTagEvent(conversationId, 'remove', trimmed))
+    }
+
+    /**
+     * Add a shared free-text tag to a specific message. Duplicate names on
+     * the same message are ignored by the server.
+     */
+    public tagMessage (
+        conversationRef: MSRPConversationRef,
+        targetEventId: string,
+        name: string,
+        color?: string
+    ): boolean {
+        const conversationId = this.toConversationId(conversationRef)
+        const trimmed = (name ?? '').trim()
+        if (conversationId === null || !targetEventId || !trimmed) return false
+        return this.sendEvent(this.buildMessageTagEvent(conversationId, targetEventId, 'add', trimmed, color))
+    }
+
+    /** Remove a message tag by name (compared case-insensitively). */
+    public untagMessage (
+        conversationRef: MSRPConversationRef,
+        targetEventId: string,
+        name: string
+    ): boolean {
+        const conversationId = this.toConversationId(conversationRef)
+        const trimmed = (name ?? '').trim()
+        if (conversationId === null || !targetEventId || !trimmed) return false
+        return this.sendEvent(this.buildMessageTagEvent(conversationId, targetEventId, 'remove', trimmed))
     }
 
     /**
@@ -974,6 +1148,18 @@ export class MSRPModule {
             case MSRP_EVT.DELETE:
                 this.handleIncomingMessageDelete(event)
                 break
+            case MSRP_EVT.MESSAGE_HIDE:
+                this.handleIncomingMessageHide(event)
+                break
+            case MSRP_EVT.CONVERSATION_TAG:
+                this.handleIncomingConversationTag(event)
+                break
+            case MSRP_EVT.MESSAGE_TAG:
+                this.handleIncomingMessageTag(event)
+                break
+            case MSRP_EVT.ERROR:
+                this.handleIncomingError(event)
+                break
             case MSRP_EVT.REACTION:
                 this.handleIncomingReaction(event)
                 break
@@ -1063,7 +1249,8 @@ export class MSRPModule {
                 state_events: stateEvents,
                 created_at: created_at || Date.now(),
                 updated_at: updated_at || Date.now(),
-                status: conv.status
+                status: conv.status,
+                tags: normalizeTagList(conv.tags)
             })
         })
 
@@ -1089,7 +1276,8 @@ export class MSRPModule {
             state_events: { [MSRP_STATE_CREATE]: { '': event } },
             created_at: event.origin_server_ts || Date.now(),
             updated_at: event.origin_server_ts || Date.now(),
-            currentUserStatus: 'join'
+            currentUserStatus: 'join',
+            tags: []
         })
         this.context.emit('msrpConversationCreated', {
             conversation: this.snapshotConversation(this.conversationsMap.get(conversationId)!)
@@ -1143,6 +1331,112 @@ export class MSRPModule {
             eventId: targetEventId,
             deletedBy: event.sender,
             updatedAt
+        })
+    }
+
+    private handleIncomingMessageHide (event: any) {
+        const conversationId = this.conversationIdOf(event)
+        if (!conversationId) return
+        const targetEventId = event.content?.target_event_id
+        if (!targetEventId) return
+
+        const updatedAt = event.origin_server_ts || Date.now()
+        const conversation = this.conversationsMap.get(conversationId)
+        if (conversation) conversation.updated_at = updatedAt
+
+        this.context.emit('msrpMessageHidden', {
+            conversation_id: conversation?.conversation_id ?? Number(conversationId),
+            eventId: targetEventId,
+            updatedAt
+        })
+    }
+
+    private handleIncomingConversationTag (event: any) {
+        const conversationId = this.conversationIdOf(event)
+        if (!conversationId) return
+        const action: MSRPTagAction = event.content?.action === 'remove' ? 'remove' : 'add'
+        const tagRaw = event.content?.tag
+        const normalized = normalizeTag(
+            tagRaw,
+            {
+                added_by: event.content?.actor_uri || event.sender,
+                added_at: event.origin_server_ts
+            }
+        )
+        if (!normalized) return
+
+        const updatedAt = event.origin_server_ts || Date.now()
+        const actorUri = event.content?.actor_uri || event.sender || ''
+        const conversation = this.conversationsMap.get(conversationId)
+        if (conversation) {
+            conversation.tags = applyTagMutation(
+                conversation.tags,
+                action,
+                tagRaw,
+                actorUri,
+                updatedAt
+            )
+            conversation.updated_at = updatedAt
+            this.context.emit('msrpConversationUpdated', {
+                conversation_id: conversation.conversation_id,
+                patch: {
+                    tags: conversation.tags,
+                    updated_at: conversation.updated_at
+                }
+            })
+        }
+
+        this.context.emit('msrpConversationTagged', {
+            conversation_id: conversation?.conversation_id ?? Number(conversationId),
+            action,
+            tag: normalized,
+            actorUri,
+            updatedAt
+        })
+    }
+
+    private handleIncomingMessageTag (event: any) {
+        const conversationId = this.conversationIdOf(event)
+        if (!conversationId) return
+        const targetEventId = event.content?.target_event_id
+        const action: MSRPTagAction = event.content?.action === 'remove' ? 'remove' : 'add'
+        const tagRaw = event.content?.tag
+        const normalized = normalizeTag(
+            tagRaw,
+            {
+                added_by: event.content?.actor_uri || event.sender,
+                added_at: event.origin_server_ts
+            }
+        )
+        if (!targetEventId || !normalized) return
+
+        const updatedAt = event.origin_server_ts || Date.now()
+        const actorUri = event.content?.actor_uri || event.sender || ''
+        const conversation = this.conversationsMap.get(conversationId)
+        if (conversation) conversation.updated_at = updatedAt
+
+        this.context.emit('msrpMessageTagged', {
+            conversation_id: conversation?.conversation_id ?? Number(conversationId),
+            eventId: targetEventId,
+            action,
+            tag: normalized,
+            actorUri,
+            updatedAt
+        })
+    }
+
+    private handleIncomingError (event: any) {
+        const conversationId = this.conversationIdOf(event)
+        const error =
+            event.content?.error ||
+            event.content?.code ||
+            event.content?.reason ||
+            event.error ||
+            'unknown'
+        this.context.emit('msrpError', {
+            conversation_id: conversationId ? Number(conversationId) : event.conversation_id,
+            error: String(error),
+            event
         })
     }
 
@@ -1283,7 +1577,8 @@ export class MSRPModule {
                 state_events: {},
                 created_at: event.origin_server_ts || Date.now(),
                 updated_at: event.origin_server_ts || Date.now(),
-                currentUserStatus: null
+                currentUserStatus: null,
+                tags: []
             }
             this.conversationsMap.set(conversationId, conversation)
         }
@@ -1412,7 +1707,8 @@ export class MSRPModule {
             ...c,
             members: new Set(c.members),
             memberRoles: new Map(c.memberRoles),
-            state_events: { ...c.state_events }
+            state_events: { ...c.state_events },
+            tags: Array.isArray(c.tags) ? c.tags.map((t) => ({ ...t })) : []
         }
     }
 

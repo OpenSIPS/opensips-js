@@ -259,6 +259,58 @@ function handleDelete (msg: any) {
     actions.deleteMessage(key, msg.event_id)
 }
 
+function handleHide (msg: any) {
+    if (!msg?.event_id) return
+    const key = state.currentConversationId.value
+    if (!key) return
+    actions.hideMessage(key, msg.event_id)
+}
+
+const newConvTagName = ref('')
+const newConvTagColor = ref('#6366f1')
+
+function handleAddConversationTag () {
+    const key = state.currentConversationId.value
+    const name = newConvTagName.value.trim()
+    if (!key || !name) return
+    const color = newConvTagColor.value.trim() || undefined
+    if (actions.tagConversation(key, name, color)) {
+        newConvTagName.value = ''
+    }
+}
+
+function handleRemoveConversationTag (name: string) {
+    const key = state.currentConversationId.value
+    if (!key || !name) return
+    actions.untagConversation(key, name)
+}
+
+function handleAddMessageTag (msg: any) {
+    if (!msg?.event_id) return
+    const key = state.currentConversationId.value
+    if (!key) return
+    const name = window.prompt('Tag name')
+    if (!name?.trim()) return
+    const color = window.prompt('Color (optional CSS, e.g. #FFA500)') || undefined
+    actions.tagMessage(key, msg.event_id, name.trim(), color?.trim() || undefined)
+}
+
+function handleRemoveMessageTag (msg: any, name: string) {
+    if (!msg?.event_id || !name) return
+    const key = state.currentConversationId.value
+    if (!key) return
+    actions.untagMessage(key, msg.event_id, name)
+}
+
+function messageTags (msg: any): Array<{ name: string, color?: string, added_by?: string }> {
+    return Array.isArray(msg?.content?.tags) ? msg.content.tags : []
+}
+
+function tagChipStyle (tag: { color?: string }): Record<string, string> | undefined {
+    if (!tag?.color) return undefined
+    return { background: tag.color, color: '#fff', borderColor: tag.color }
+}
+
 const sendError = ref<string>('')
 
 function handleSend () {
@@ -788,12 +840,25 @@ onBeforeUnmount(() => {
                                 class="conversation-btn"
                                 @click="handleSelectConversation(conv.conversation_id)"
                             >
-                                <span class="name">{{ conv.conversation_id }}</span>
+                                <span class="conv-btn-main">
+                                    <span class="name">{{ conv.conversation_id }}</span>
+                                    <span
+                                        v-if="state.unreadByConversation.value[String(conv.conversation_id)]"
+                                        class="unread"
+                                    >
+                                        {{ state.unreadByConversation.value[String(conv.conversation_id)] }}
+                                    </span>
+                                </span>
                                 <span
-                                    v-if="state.unreadByConversation.value[String(conv.conversation_id)]"
-                                    class="unread"
+                                    v-if="conv.tags?.length"
+                                    class="conv-tags"
                                 >
-                                    {{ state.unreadByConversation.value[String(conv.conversation_id)] }}
+                                    <span
+                                        v-for="tag in conv.tags"
+                                        :key="tag.name"
+                                        class="label-chip tiny"
+                                        :style="tagChipStyle(tag)"
+                                    >{{ tag.name }}</span>
                                 </span>
                             </button>
                             <button
@@ -883,6 +948,39 @@ onBeforeUnmount(() => {
                         </div>
                     </header>
 
+                    <div class="tags-bar">
+                        <span
+                            v-for="tag in (state.currentConversation.value.tags ?? [])"
+                            :key="tag.name"
+                            class="label-chip"
+                            :style="tagChipStyle(tag)"
+                            :title="tag.added_by ? `Tagged by ${extractSipUser(tag.added_by)}` : undefined"
+                        >
+                            {{ tag.name }}
+                            <button
+                                class="chip-remove"
+                                title="Remove tag"
+                                @click="handleRemoveConversationTag(tag.name)"
+                            >×</button>
+                        </span>
+                        <form class="tag-add" @submit.prevent="handleAddConversationTag">
+                            <input
+                                v-model="newConvTagName"
+                                class="tag-add-input"
+                                placeholder="Add tag…"
+                            />
+                            <input
+                                v-model="newConvTagColor"
+                                class="tag-add-color"
+                                type="color"
+                                title="Tag color"
+                            />
+                            <button class="ghost small" type="submit" :disabled="!newConvTagName.trim()">
+                                +
+                            </button>
+                        </form>
+                    </div>
+
                     <details v-if="state.currentConversation.value.memberRoles.size > 0" class="members-panel">
                         <summary>👥 Members ({{ state.currentConversation.value.memberRoles.size }})</summary>
                         <div
@@ -958,6 +1056,26 @@ onBeforeUnmount(() => {
                             <div v-else class="message-body">{{ msg.content?.content }}</div>
 
                             <div
+                                v-if="messageTags(msg).length"
+                                class="label-chips"
+                            >
+                                <span
+                                    v-for="tag in messageTags(msg)"
+                                    :key="tag.name"
+                                    class="label-chip"
+                                    :style="tagChipStyle(tag)"
+                                    :title="tag.added_by ? `Tagged by ${extractSipUser(tag.added_by)}` : undefined"
+                                >
+                                    {{ tag.name }}
+                                    <button
+                                        class="chip-remove"
+                                        title="Remove tag"
+                                        @click="handleRemoveMessageTag(msg, tag.name)"
+                                    >×</button>
+                                </span>
+                            </div>
+
+                            <div
                                 v-if="!isDeleted(msg) && msg.content?.attachments?.length"
                                 class="attachments"
                             >
@@ -1030,6 +1148,20 @@ onBeforeUnmount(() => {
                                     @click="handleMarkAsUnreadFromMessage(msg)"
                                 >
                                     ✉
+                                </button>
+                                <button
+                                    class="action-btn"
+                                    title="Tag message"
+                                    @click="handleAddMessageTag(msg)"
+                                >
+                                    🏷
+                                </button>
+                                <button
+                                    class="action-btn"
+                                    title="Hide for me"
+                                    @click="handleHide(msg)"
+                                >
+                                    🙈
                                 </button>
                                 <template v-if="isMyMessage(msg)">
                                     <button
@@ -1134,6 +1266,7 @@ onBeforeUnmount(() => {
                     </footer>
 
                     <p v-if="sendError" class="error small">{{ sendError }}</p>
+                    <p v-if="state.hideError.value" class="error small">{{ state.hideError.value }}</p>
                     <p v-if="uploadError" class="error small">{{ uploadError }}</p>
                     <p v-if="exportError" class="error small">{{ exportError }}</p>
                     <p v-if="isUploading" class="hint small">Uploading…</p>
@@ -1329,8 +1462,20 @@ onBeforeUnmount(() => {
     border-radius: 0.5rem;
     cursor: pointer;
     display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.25rem;
+}
+.conv-btn-main {
+    display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 0.35rem;
+}
+.conv-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem;
 }
 .conversation-btn:hover { background: #f3f4f6; }
 .conversation-list li.active .conversation-btn {
@@ -1398,6 +1543,68 @@ onBeforeUnmount(() => {
 .chat-header h2 { margin: 0; font-size: 1rem; }
 .subtitle { margin: 0; font-size: 0.8rem; color: #6b7280; display: flex; gap: 0.5rem; align-items: center; }
 .header-actions { display: flex; gap: 0.3rem; }
+
+.tags-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.4rem 1rem;
+    border-bottom: 1px solid #e5e7eb;
+}
+.tag-add {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+.tag-add-input {
+    width: 7rem;
+    padding: 0.15rem 0.4rem;
+    font-size: 0.75rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.35rem;
+}
+.tag-add-color {
+    width: 1.4rem;
+    height: 1.4rem;
+    padding: 0;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.25rem;
+    background: transparent;
+    cursor: pointer;
+}
+.label-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.3rem;
+}
+.label-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+    font-size: 0.68rem;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: #e5e7eb;
+    color: #374151;
+    border: 1px solid transparent;
+    text-transform: lowercase;
+    letter-spacing: 0.02em;
+}
+.label-chip.tiny { font-size: 0.6rem; padding: 0 5px; }
+.chip-remove {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    font-size: 0.8rem;
+    line-height: 1;
+    color: inherit;
+    opacity: 0.7;
+}
+.chip-remove:hover { opacity: 1; }
 
 .members-panel {
     border-bottom: 1px solid #e5e7eb;
