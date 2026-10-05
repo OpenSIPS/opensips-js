@@ -34,7 +34,7 @@ export interface ProbeMetricOutType {
     level_out: number
     codec_id_out: string
     codec_out: { mime_type: null | number, clock_rate: null | number, sdp_fmtp_line: null | number }
-    delta_jitter_ms_out: number
+    delta_jitter_ms_out: null | number
     delta_rtt_ms_out: null | number
     total_rtt_ms_out: number
     total_rtt_measure_out: number
@@ -53,12 +53,31 @@ export interface ProbeMetricOutType {
     direction: ProbeDirectionType
 }
 
-export interface Probe {
-    audio: { [key: string]: ProbeMetricInType | ProbeMetricOutType }
+export interface ProbeDataType {
+    total_KBytes_in: number
+    total_KBytes_out: number
+    delta_KBytes_in: number
+    delta_KBytes_out: number
+    delta_kbs_in: number
+    delta_kbs_out: number
+    delta_kbs_bandwidth_in: number
+    delta_kbs_bandwidth_out: number
+    delta_rtt_connectivity_ms: null | number
+    total_rtt_connectivity_ms: number
+    total_rtt_connectivity_measure: number
 }
 
-interface MetricAudioData extends ProbeMetricInType {
-    callId?: string
+export interface Probe {
+    audio: { [key: string]: ProbeMetricInType | ProbeMetricOutType }
+    data: ProbeDataType
 }
+
+export type MetricInKeyType = 'mos_in' | 'codec_in' | 'delta_KBytes_in' | 'delta_kbs_in' | 'delta_jitter_ms_in' | 'delta_packets_lost_in'
+export type MetricOutKeyType = 'delta_rtt_ms_out' | 'mos_out' | 'delta_jitter_ms_out' | 'delta_packets_lost_out'
+
+export type MetricAudioData = Pick<ProbeMetricInType, MetricInKeyType>
+    & Partial<Pick<ProbeMetricOutType, MetricOutKeyType>>
+    & Pick<ProbeDataType, 'delta_rtt_connectivity_ms'>
+    & { callId?: string }
 
 export type MediaDeviceType = 'input' | 'output'

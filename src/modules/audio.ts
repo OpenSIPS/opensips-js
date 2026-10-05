@@ -18,6 +18,7 @@ import {
     MetricAudioData,
     Probe,
     ProbeMetricInType,
+    ProbeMetricOutType,
     WebrtcMetricsConfigType
 } from '@/types/webrtcmetrics'
 import { isMobile, parseRemotePartyIdDisplayName, parseRemotePartyIdUriUser, processAudioVolume, simplifyCallObject, syncStream } from '@/helpers/audio.helper'
@@ -28,7 +29,7 @@ import { SIP_STATUS_CODE } from '@/enum/sip.status.code'
 import { IncomingAckEvent, IncomingEvent, OutgoingAckEvent, OutgoingEvent, ReInviteEvent } from 'jssip/lib/RTCSession'
 import WebRTCMetrics from '@/helpers/webrtcmetrics/metrics'
 import { filterObjectKeys } from '@/helpers/filter.helper'
-import { METRIC_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
+import { METRIC_KEYS_TO_INCLUDE, METRIC_OUT_KEYS_TO_INCLUDE } from '@/enum/metric.keys.to.include'
 import vadDefaultConfig from '@/enum/vad.default.config'
 import VUMeter from '@/helpers/VUMeter'
 import OpenSIPSJS from '@/index'
@@ -2498,24 +2499,50 @@ export class AudioModule {
             cid: call._id
         })
 
-        const inboundKeys: Array<string> = []
+        const seenAudioKeys: Array<string> = []
         let inboundAudio: string
+        let outboundAudio: string
+
+        // RTCP-based values are null between RTCP receiver reports (~every 5s), so keep the last known ones
+        let lastRttOut: number | null = null
+        let lastJitterOut: number | null = null
+
         probe.onreport = (probe: Probe) => {
             Object.entries(probe.audio).forEach(([ key, value ]) => {
-                if (value.direction === 'inbound' && !inboundKeys.includes(key)) {
-                    inboundKeys.push(key)
+                if (seenAudioKeys.includes(key)) {
+                    return
+                }
+
+                seenAudioKeys.push(key)
+
+                if (value.direction === 'inbound') {
                     inboundAudio = key
+                } else if (value.direction === 'outbound') {
+                    outboundAudio = key
                 }
             })
 
-            const inboundAudioMetric = probe.audio[inboundAudio] as ProbeMetricInType
+            const inboundAudioMetric = probe.audio[inboundAudio] as ProbeMetricInType | undefined
+            const outboundAudioMetric = probe.audio[outboundAudio] as ProbeMetricOutType | undefined
+
+            if (outboundAudioMetric) {
+                lastRttOut = outboundAudioMetric.delta_rtt_ms_out ?? lastRttOut
+                lastJitterOut = outboundAudioMetric.delta_jitter_ms_out ?? lastJitterOut
+            }
 
             if (!inboundAudioMetric) {
                 return
             }
 
-            const metric: MetricAudioData = filterObjectKeys(inboundAudioMetric, METRIC_KEYS_TO_INCLUDE)
-            metric.callId = call._id
+            const metric: MetricAudioData = {
+                ...filterObjectKeys(inboundAudioMetric, METRIC_KEYS_TO_INCLUDE),
+                ...(outboundAudioMetric ? filterObjectKeys(outboundAudioMetric, METRIC_OUT_KEYS_TO_INCLUDE) : {}),
+                delta_rtt_ms_out: lastRttOut,
+                delta_jitter_ms_out: lastJitterOut,
+                delta_rtt_connectivity_ms: probe.data.delta_rtt_connectivity_ms,
+                callId: call._id
+            }
+
             this.setCallMetrics(metric)
         }
 

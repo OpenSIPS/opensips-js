@@ -1,15 +1,8 @@
-import { ProbeMetricInType } from '@/types/webrtcmetrics'
-
-export function filterObjectKeys (fullObj: ProbeMetricInType, keys: Array<keyof ProbeMetricInType>) {
-    return Object.keys(fullObj)
-        .filter((key) => keys.includes(key as keyof ProbeMetricInType))
-        .reduce((obj, key) => {
-            const k = key as keyof ProbeMetricInType
-            //const o = obj as ProbeMetricInType
-            //o[k] = fullObj[k] //as ProbeMetricInType[keyof ProbeMetricInType]
-            return {
-                ...obj,
-                [k]: fullObj[k]
-            }
-        }, {} as ProbeMetricInType)
+export function filterObjectKeys<T extends object, K extends keyof T> (fullObj: T, keys: ReadonlyArray<K>): Pick<T, K> {
+    return (Object.keys(fullObj) as Array<keyof T>)
+        .filter((key): key is K => keys.includes(key as K))
+        .reduce((obj, key) => ({
+            ...obj,
+            [key]: fullObj[key]
+        }), {} as Pick<T, K>)
 }
