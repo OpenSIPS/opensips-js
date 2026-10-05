@@ -82,6 +82,9 @@ export interface MSRPSendMessageOptions {
     forwardedFrom?: string
 }
 
+/** Max caption length after trim, matching server-side `m.upload.request` contract. */
+export const MSRP_CAPTION_MAX_LENGTH = 1024
+
 export const MSRP_STATE_MEMBER = 'm.conversation.member'
 export const MSRP_STATE_CREATE = 'm.conversation.create'
 export const MSRP_STATE_CLOSED = 'm.conversation.closed'
@@ -136,6 +139,16 @@ function getMessageTypeFromMime (mimeType?: string): string {
     if (mimeType.startsWith('video/')) return 'video'
     if (mimeType.startsWith('audio/')) return 'audio'
     return 'file'
+}
+
+function normalizeCaption (caption?: string): string {
+    return typeof caption === 'string' ? caption.trim() : ''
+}
+
+function assertCaptionLength (caption: string): void {
+    if (caption.length > MSRP_CAPTION_MAX_LENGTH) {
+        throw new Error(`Caption too long: ${caption.length} chars (max ${MSRP_CAPTION_MAX_LENGTH})`)
+    }
 }
 
 function normalizeTagName (name: unknown): string {
@@ -562,7 +575,7 @@ export class MSRPModule {
             origin_server_ts: Date.now(),
             content: {
                 message_type: messageType,
-                content: caption || uploadResult.filename || '',
+                content: normalizeCaption(caption),
                 attachments: [ attachment ],
                 txn_id: generateUuid()
             }
@@ -825,6 +838,11 @@ export class MSRPModule {
         })
     }
 
+    /**
+     * Emit a client-side media `m.conversation.message`. Prefer
+     * {@link uploadFile} — with server-side media commit the server
+     * creates the timeline event after the file POST.
+     */
     public sendMediaMessage (
         conversationRef: MSRPConversationRef,
         uploadResult: MSRPUploadResult,
@@ -980,12 +998,16 @@ export class MSRPModule {
      * Ask the server for a presigned upload URL. Resolves with the upload
      * metadata once the matching `m.upload.response` arrives, or rejects
      * after `uploadRequestTimeoutMs`.
+     *
+     * Optional `caption` is stored on the upload token (server-side media
+     * commit). Whitespace-only is treated as absent. Max 1024 chars after trim.
      */
     public requestUploadUrl (
         conversationRef: MSRPConversationRef,
         filename: string,
         mimeType: string,
-        fileSize: number
+        fileSize: number,
+        caption?: string
     ): Promise<MSRPUploadResult> {
         return new Promise<MSRPUploadResult>((resolve, reject) => {
             if (!this.hasActiveSession) {
@@ -999,18 +1021,30 @@ export class MSRPModule {
                 return
             }
 
+            let normalizedCaption = ''
+            try {
+                normalizedCaption = normalizeCaption(caption)
+                assertCaptionLength(normalizedCaption)
+            } catch (err) {
+                reject(err instanceof Error ? err : new Error(String(err)))
+                return
+            }
+
             const requestId = generateRequestId('upload')
+            const content: Record<string, unknown> = {
+                request_id: requestId,
+                filename,
+                mime_type: mimeType,
+                file_size: fileSize
+            }
+            if (normalizedCaption) content.caption = normalizedCaption
+
             const uploadRequest = {
                 type: MSRP_EVT.UPLOAD_REQUEST,
                 conversation_id: conversationId,
                 sender: this.getUserUri(),
                 origin_server_ts: Date.now(),
-                content: {
-                    request_id: requestId,
-                    filename,
-                    mime_type: mimeType,
-                    file_size: fileSize
-                }
+                content
             }
 
             this.pendingUploads.set(requestId, { resolve, reject })
@@ -1075,8 +1109,9 @@ export class MSRPModule {
     }
 
     /**
-     * High-level helper: request a presigned URL, POST the file to it, then
-     * send the resulting media message into the conversation in one go.
+     * High-level helper: request a presigned URL and POST the file to it.
+     * The server commits the media (and optional caption) as a single
+     * `m.conversation.message` — do not send a separate text event.
      */
     public async uploadFile (
         conversationRef: MSRPConversationRef,
@@ -1087,11 +1122,15 @@ export class MSRPModule {
         if (conversationId === null) throw new Error('conversation_id is required')
         if (!file) throw new Error('file is required')
 
+        const normalizedCaption = normalizeCaption(caption)
+        assertCaptionLength(normalizedCaption)
+
         const uploadMeta = await this.requestUploadUrl(
             conversationId,
             file.name,
             file.type || 'application/octet-stream',
-            file.size
+            file.size,
+            normalizedCaption
         )
 
         const formData = new FormData()
@@ -1103,9 +1142,7 @@ export class MSRPModule {
             throw new Error(err?.error || `Upload failed: HTTP ${response.status}`)
         }
 
-        const result = (await response.json()) as MSRPUploadResult
-        this.sendMediaMessage(conversationId, result, caption)
-        return result
+        return (await response.json()) as MSRPUploadResult
     }
 
     private processIncomingMSRPMessage (msg: any) {

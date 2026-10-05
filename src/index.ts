@@ -1573,7 +1573,7 @@ export type {
     MSRPTag
 } from '@/types/msrp'
 
-export { MSRP_EVT } from '@/modules/msrp'
+export { MSRP_EVT, MSRP_CAPTION_MAX_LENGTH } from '@/modules/msrp'
 
 export type {
     MSRPConversationRef,

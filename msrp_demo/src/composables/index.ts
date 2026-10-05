@@ -858,9 +858,15 @@ export const vsipAPI: VsipAPI = {
             if (currentConversationId.value === conversationId) return
             currentConversationId.value = conversationId
         },
-        requestUploadUrl (conversationRef: MSRPConversationRef, filename: string, mimeType: string, fileSize: number) {
+        requestUploadUrl (
+            conversationRef: MSRPConversationRef,
+            filename: string,
+            mimeType: string,
+            fileSize: number,
+            caption?: string
+        ) {
             if (!openSIPSJS) return Promise.reject(new Error('OpenSIPSJS not initialized'))
-            return openSIPSJS.msrp.requestUploadUrl(conversationRef, filename, mimeType, fileSize)
+            return openSIPSJS.msrp.requestUploadUrl(conversationRef, filename, mimeType, fileSize, caption)
         },
         requestFileAccess (conversationRef: MSRPConversationRef, eventId: string) {
             if (!openSIPSJS) return Promise.reject(new Error('OpenSIPSJS not initialized'))

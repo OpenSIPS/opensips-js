@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { vsipAPI } from './composables'
 import { MODULES } from '../../src/enum/modules'
-import { MSRP_EVT } from '../../src/modules/msrp'
+import { MSRP_CAPTION_MAX_LENGTH, MSRP_EVT } from '../../src/modules/msrp'
 import { exportConversation, hasApiToken, setApiToken } from './api'
 import EmojiPicker from './components/EmojiPicker.vue'
 
@@ -191,8 +191,26 @@ const canSend = computed<boolean>(() => {
 const draft = ref<string>('')
 const chatMessagesEl = ref<HTMLDivElement | null>(null)
 const draftEl = ref<HTMLTextAreaElement | null>(null)
+const uploadInputRef = ref<HTMLInputElement | null>(null)
+const isUploading = ref<boolean>(false)
+const uploadError = ref<string>('')
+const pendingFile = ref<File | null>(null)
+const editingMessageId = ref<string | null>(null)
+const sendAsInternalNote = ref<boolean>(false)
+const replyingToMessage = ref<any | null>(null)
 
 const DRAFT_MAX_LINES = 3
+
+const captionCharCount = computed(() => draft.value.length)
+const shouldShowCaptionCounter = computed(() => {
+    return !!pendingFile.value && captionCharCount.value >= MSRP_CAPTION_MAX_LENGTH - 120
+})
+const isCaptionOverLimit = computed(() => captionCharCount.value > MSRP_CAPTION_MAX_LENGTH)
+const canSubmitCompose = computed(() => {
+    if (isUploading.value) return false
+    if (pendingFile.value && !editingMessageId.value) return !isCaptionOverLimit.value
+    return !!draft.value.trim()
+})
 
 function autoResizeDraft () {
     const el = draftEl.value
@@ -210,12 +228,6 @@ function autoResizeDraft () {
     el.style.overflowY = el.scrollHeight + borderY > maxHeight ? 'auto' : 'hidden'
 }
 
-const replyingToMessage = ref<any | null>(null)
-
-const editingMessageId = ref<string | null>(null)
-
-const sendAsInternalNote = ref<boolean>(false)
-
 function isMyMessage (msg: any): boolean {
     return !!msg?.sender && extractSipUser(msg.sender) === username.value
 }
@@ -226,6 +238,8 @@ function messageBodyText (msg: any): string {
 
 function beginReply (msg: any) {
     if (!msg?.event_id) return
+    pendingFile.value = null
+    uploadError.value = ''
     editingMessageId.value = null
     replyingToMessage.value = msg
 }
@@ -236,6 +250,8 @@ function cancelReply () {
 
 function beginEdit (msg: any) {
     if (!msg?.event_id || !isMyMessage(msg)) return
+    pendingFile.value = null
+    uploadError.value = ''
     replyingToMessage.value = null
     editingMessageId.value = msg.event_id
     draft.value = messageBodyText(msg)
@@ -315,9 +331,17 @@ const sendError = ref<string>('')
 
 function handleSend () {
     sendError.value = ''
+    uploadError.value = ''
     const key = state.currentConversationId.value
+    if (!key) return
+
+    if (pendingFile.value && !editingMessageId.value) {
+        void sendPendingFile(key)
+        return
+    }
+
     const text = draft.value.trim()
-    if (!key || !text) return
+    if (!text) return
 
     let ok = false
     let mode: 'edit' | 'note' | 'reply' | 'text' = 'text'
@@ -344,6 +368,33 @@ function handleSend () {
         nextTick(() => autoResizeDraft())
     } else {
         sendError.value = `Send failed (mode: ${mode}). SDK returned false — the MSRP session may be down, or the module rejected the payload. Check console.`
+    }
+}
+
+async function sendPendingFile (conversationKey: string) {
+    const file = pendingFile.value
+    if (!file || isUploading.value) return
+
+    const caption = draft.value.trim()
+    if (caption.length > MSRP_CAPTION_MAX_LENGTH) {
+        uploadError.value = `Caption too long: ${caption.length} chars (max ${MSRP_CAPTION_MAX_LENGTH})`
+        return
+    }
+
+    isUploading.value = true
+    uploadError.value = ''
+    try {
+        await actions.uploadFile(conversationKey, file, caption)
+        pendingFile.value = null
+        draft.value = ''
+        replyingToMessage.value = null
+        actions.stopTypingKeepAlive()
+        nextTick(() => autoResizeDraft())
+    } catch (e) {
+        uploadError.value = e instanceof Error ? e.message : String(e)
+    } finally {
+        isUploading.value = false
+        if (uploadInputRef.value) uploadInputRef.value.value = ''
     }
 }
 
@@ -375,11 +426,20 @@ function handleDraftKeydown (e: KeyboardEvent) {
     handleSend()
 }
 
-const uploadInputRef = ref<HTMLInputElement | null>(null)
-const isUploading = ref<boolean>(false)
-const uploadError = ref<string>('')
+function cancelPendingFile () {
+    pendingFile.value = null
+    uploadError.value = ''
+    if (uploadInputRef.value) uploadInputRef.value.value = ''
+    nextTick(() => autoResizeDraft())
+}
 
-async function handleFileSelected (event: Event) {
+function formatPendingFileSize (bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function handleFileSelected (event: Event) {
     const target = event.target as HTMLInputElement
     const file = target.files?.[0]
     if (!file) return
@@ -389,16 +449,15 @@ async function handleFileSelected (event: Event) {
         return
     }
 
-    isUploading.value = true
+    editingMessageId.value = null
+    sendAsInternalNote.value = false
     uploadError.value = ''
-    try {
-        await actions.uploadFile(key, file)
-    } catch (e) {
-        uploadError.value = e instanceof Error ? e.message : String(e)
-    } finally {
-        isUploading.value = false
-        if (uploadInputRef.value) uploadInputRef.value.value = ''
-    }
+    pendingFile.value = file
+    if (uploadInputRef.value) uploadInputRef.value.value = ''
+    nextTick(() => {
+        autoResizeDraft()
+        draftEl.value?.focus()
+    })
 }
 
 function handleAddReaction (eventId: string, emoji: string) {
@@ -713,6 +772,8 @@ watch(() => state.currentConversationId.value, (next, prev) => {
     editingMessageId.value = null
     replyingToMessage.value = null
     sendAsInternalNote.value = false
+    pendingFile.value = null
+    uploadError.value = ''
     nextTick(() => autoResizeDraft())
 })
 
@@ -1053,7 +1114,25 @@ onBeforeUnmount(() => {
                             <div v-if="isDeleted(msg)" class="message-body deleted-body">
                                 🗑 This message was deleted
                             </div>
-                            <div v-else class="message-body">{{ msg.content?.content }}</div>
+                            <template v-else>
+                                <div
+                                    v-if="msg.content?.attachments?.length"
+                                    class="attachments"
+                                >
+                                    <span
+                                        v-for="(att, idx) in msg.content.attachments"
+                                        :key="idx"
+                                        class="attachment"
+                                    >
+                                        📎 {{ att.filename ?? att.kind }}
+                                    </span>
+                                </div>
+                                <div
+                                    v-if="messageBodyText(msg)"
+                                    class="message-body"
+                                    :class="{ caption: messageHasAttachments(msg) }"
+                                >{{ messageBodyText(msg) }}</div>
+                            </template>
 
                             <div
                                 v-if="messageTags(msg).length"
@@ -1072,19 +1151,6 @@ onBeforeUnmount(() => {
                                         title="Remove tag"
                                         @click="handleRemoveMessageTag(msg, tag.name)"
                                     >×</button>
-                                </span>
-                            </div>
-
-                            <div
-                                v-if="!isDeleted(msg) && msg.content?.attachments?.length"
-                                class="attachments"
-                            >
-                                <span
-                                    v-for="(att, idx) in msg.content.attachments"
-                                    :key="idx"
-                                    class="attachment"
-                                >
-                                    📎 {{ att.filename ?? att.kind }}
                                 </span>
                             </div>
 
@@ -1210,8 +1276,15 @@ onBeforeUnmount(() => {
                             </span>
                             <button class="ghost small" @click="cancelReply">Cancel</button>
                         </div>
+                        <div v-else-if="pendingFile" class="compose-banner attach">
+                            <span class="banner-label">
+                                📎 {{ pendingFile.name }}
+                                <span class="banner-preview">{{ formatPendingFileSize(pendingFile.size) }}</span>
+                            </span>
+                            <button class="ghost small" :disabled="isUploading" @click="cancelPendingFile">Cancel</button>
+                        </div>
 
-                        <footer class="compose-bar" :class="{ note: sendAsInternalNote }">
+                        <footer class="compose-bar" :class="{ note: sendAsInternalNote && !pendingFile }">
                             <label class="upload-btn" :class="{ disabled: isUploading || !!editingMessageId }">
                                 📎
                                 <input
@@ -1223,7 +1296,7 @@ onBeforeUnmount(() => {
                                 />
                             </label>
                             <label
-                                v-if="!editingMessageId"
+                                v-if="!editingMessageId && !pendingFile"
                                 class="note-toggle"
                                 :class="{ on: sendAsInternalNote }"
                                 title="Internal note - operators only, never fanned out to external channels"
@@ -1235,23 +1308,35 @@ onBeforeUnmount(() => {
                                 />
                                 📝 Note
                             </label>
-                            <textarea
-                                ref="draftEl"
-                                v-model="draft"
-                                class="draft"
-                                rows="1"
-                                :placeholder="editingMessageId
-                                    ? 'Edit your message…'
-                                    : sendAsInternalNote
-                                        ? 'Internal note (not sent to customer)…'
-                                        : 'Type a message…  (Shift+Enter = new line)'"
-                                @input="handleDraftInput"
-                                @keydown="handleDraftKeydown"
-                                @focus="handleDraftFocus"
-                                @blur="handleDraftBlur"
-                            />
-                            <button class="primary" :disabled="!draft.trim()" @click="handleSend">
-                                {{ editingMessageId ? 'Save' : '➤' }}
+                            <div class="draft-wrap">
+                                <textarea
+                                    ref="draftEl"
+                                    v-model="draft"
+                                    class="draft"
+                                    rows="1"
+                                    :maxlength="pendingFile ? MSRP_CAPTION_MAX_LENGTH : undefined"
+                                    :placeholder="editingMessageId
+                                        ? 'Edit your message…'
+                                        : pendingFile
+                                            ? 'Add a caption…  (Shift+Enter = new line)'
+                                            : sendAsInternalNote
+                                                ? 'Internal note (not sent to customer)…'
+                                                : 'Type a message…  (Shift+Enter = new line)'"
+                                    @input="handleDraftInput"
+                                    @keydown="handleDraftKeydown"
+                                    @focus="handleDraftFocus"
+                                    @blur="handleDraftBlur"
+                                />
+                                <span
+                                    v-if="shouldShowCaptionCounter"
+                                    class="caption-counter"
+                                    :class="{ warn: isCaptionOverLimit }"
+                                >
+                                    {{ captionCharCount }}/{{ MSRP_CAPTION_MAX_LENGTH }}
+                                </span>
+                            </div>
+                            <button class="primary" :disabled="!canSubmitCompose" @click="handleSend">
+                                {{ editingMessageId ? 'Save' : isUploading ? '…' : '➤' }}
                             </button>
                         </footer>
                     </div>
@@ -1737,7 +1822,7 @@ onBeforeUnmount(() => {
 }
 .message-meta .sender { font-weight: 600; color: #374151; }
 .message-body { font-size: 0.95rem; line-height: 1.35; white-space: pre-wrap; word-break: break-word; }
-.attachments { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.25rem; }
+.attachments { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.15rem; }
 .attachment {
     font-size: 0.78rem;
     padding: 2px 6px;
@@ -1745,6 +1830,7 @@ onBeforeUnmount(() => {
     border-radius: 0.3rem;
     border: 1px solid #e5e7eb;
 }
+.message-body.caption { margin-top: 0.25rem; font-size: 0.9rem; }
 .reactions { display: flex; gap: 0.25rem; margin-top: 0.3rem; flex-wrap: wrap; }
 .reaction {
     font-size: 0.8rem;
@@ -1813,6 +1899,7 @@ onBeforeUnmount(() => {
 }
 .compose-banner.reply { background: #eef2ff; color: #4338ca; }
 .compose-banner.edit { background: #fef3c7; color: #92400e; }
+.compose-banner.attach { background: #ecfeff; color: #155e75; }
 .banner-label { display: inline-flex; gap: 0.35rem; align-items: center; flex: 1; overflow: hidden; }
 .banner-preview {
     color: #4b5563;
@@ -1830,10 +1917,16 @@ onBeforeUnmount(() => {
     border-top: 1px solid #e5e7eb;
 }
 .compose-wrap .compose-bar { border-top: none; }
-.compose-bar.disabled { color: #6b7280; align-items: center; }
-.compose-bar.note { background: #fef9c3; }
+.draft-wrap {
+    flex: 1;
+    position: relative;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
 .compose-bar .draft {
     flex: 1;
+    width: 100%;
     padding: 0.5rem 0.7rem;
     border: 1px solid #d1d5db;
     border-radius: 0.5rem;
@@ -1847,6 +1940,15 @@ onBeforeUnmount(() => {
     display: block;
     box-sizing: border-box;
 }
+.caption-counter {
+    align-self: flex-end;
+    font-size: 0.7rem;
+    color: #6b7280;
+    margin-top: 0.15rem;
+}
+.caption-counter.warn { color: #b91c1c; font-weight: 600; }
+.compose-bar.disabled { color: #6b7280; align-items: center; }
+.compose-bar.note { background: #fef9c3; }
 .upload-btn {
     display: inline-flex;
     align-items: center;

@@ -152,7 +152,8 @@ export interface VsipAPIActions {
         conversationRef: MSRPConversationRef,
         filename: string,
         mimeType: string,
-        fileSize: number
+        fileSize: number,
+        caption?: string
     ): Promise<MSRPUploadResult>
     requestFileAccess (conversationRef: MSRPConversationRef, eventId: string): Promise<string>
     uploadFile (conversationRef: MSRPConversationRef, file: File, caption?: string): Promise<MSRPUploadResult>
