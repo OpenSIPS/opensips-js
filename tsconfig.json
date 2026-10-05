@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "es2017",
     "module": "ESNext",
-    "moduleResolution": "nodenext",
+    "moduleResolution": "node",
     "strict": false,
     "declaration": true,
     "esModuleInterop": true,
@@ -25,7 +25,6 @@
     "src/**/**/*.ts",
     "src/**/**/*.d.ts",
     "src/types/*.d.ts",
-    "dist/index.d.ts",
     "docs/tsconfig.json"
   ],
   "exclude": ["node_modules"]
