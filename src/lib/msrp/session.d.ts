@@ -24,6 +24,7 @@ import {
     AnswerOptions
 } from 'jssip/lib/RTCSession'
 import { CallOptionsExtended } from '@/types/rtc'
+import { MSRPSignalingInviteRequest, MSRPSignalingInviteResult } from '@/types/msrp'
 
 type UAType = typeof UA
 type Listener = (event: unknown) => void
@@ -134,6 +135,18 @@ export class MSRPSession extends EventEmitter {
     terminate(options?: any): void
 
     receiveRequest(request: unknown): void
+
+    /** Signaling-only mode: INVITE/ACK for an MSRP socket owned by another instance. */
+    inviteForExternalSession(request: MSRPSignalingInviteRequest): Promise<MSRPSignalingInviteResult>
+
+    /** Signaling-only mode: BYE (or end once the pending INVITE is answered). */
+    terminateExternalSession(): void
+
+    /** Signaling-only mode: forget the dialog locally without BYE. */
+    dropExternalSession(): void
+
+    /** MSRP-only mode: stop the session in any state (BYE if confirmed, close socket, cancel reconnect). */
+    stopExternalSignalingSession(): void
 
     on<T extends keyof MSRPSessionEventMap>(type: T, listener: MSRPSessionEventMap[T]): this;
 }
