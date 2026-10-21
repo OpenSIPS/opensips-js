@@ -134,8 +134,9 @@ class OpenSIPSJS extends UA {
     private isMSRPInitializingValue: boolean | undefined
     private isReconnecting = false
     private activeConnection = false
-    private waitingForSessionHangup = false
-    private waitingForSessionTimeout = null
+    private recoveringSessions = false
+    private sessionsRecoveryTimeout = null
+    private readonly onNetworkOnline = () => this.reconnectTransport()
     private readonly reconnectionAttemptsLimit = Infinity
     private reconnectionAttemptsCounter = 0
 
@@ -182,23 +183,37 @@ class OpenSIPSJS extends UA {
         }
     }
 
-    /*public setWaitingForSessionHangup (value: boolean) {
-        this.waitingForSessionHangup = value
-    }*/
-
-    public isWaitingForSessionHangup () {
-        return this.waitingForSessionHangup
+    public get isRecoveringSessions () {
+        return this.recoveringSessions
     }
 
-    public stopSessionAfterWaiting () {
-        this.setInitialized(false)
-        this.waitingForSessionHangup = false
-        clearTimeout(this.waitingForSessionTimeout)
-        this.waitingForSessionTimeout = null
+    /**
+     * Keeps the answered calls through a SIP socket drop: the UA is not stopped, so JsSIP
+     * transport recovery reconnects the socket, and the calls are re-INVITEd once it is
+     * connected.
+     */
+    private startSessionsRecovery () {
+        this.recoveringSessions = true
 
-        if (this.activeConnection) {
-            this.reconnect()
+        this.sessionsRecoveryTimeout = setTimeout(() => {
+            // The socket did not come back in time, the calls can't be kept any longer
+            this.stopSessionsRecovery()
+            this.terminateAllSessions()
+        }, 1200000)
+    }
+
+    public stopSessionsRecovery () {
+        this.recoveringSessions = false
+        clearTimeout(this.sessionsRecoveryTimeout)
+        this.sessionsRecoveryTimeout = null
+    }
+
+    private get windowTarget (): Window | null {
+        if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') {
+            return null
         }
+
+        return window
     }
 
     private get hasActiveSessions (): boolean {
@@ -371,8 +386,12 @@ class OpenSIPSJS extends UA {
                 this.setConnected(true)
                 this.setReconnecting(false)
                 this.activeConnection = true
-                this.waitingForSessionHangup = false
                 this.reconnectionAttemptsCounter = 0
+
+                if (this.recoveringSessions) {
+                    this.stopSessionsRecovery()
+                    this.audio.refreshCallsAfterReconnect()
+                }
             }
         )
 
@@ -388,33 +407,26 @@ class OpenSIPSJS extends UA {
                 }
 
                 this.logger.log('Disconnected from', this.options.socketInterfaces[0])
+
+                if (this.activeConnection && this.hasActiveSessions) {
+                    this.logger.log('Reconnecting to', this.options.socketInterfaces[0], 'keeping active calls')
+                    this.startSessionsRecovery()
+
+                    return
+                }
+
                 this.logger.log('Reconnecting to', this.options.socketInterfaces[0])
+                this.stop()
+                this.setInitialized(false)
 
-                if (!this.hasActiveSessions) {
-                    this.stop()
-                    this.setInitialized(false)
-
-
-                    if (this.activeConnection) {
-                        this.reconnect()
-                    }
-                } else {
-                    this.waitingForSessionHangup = true
-
-                    // TODO: Handle case when inactive call was disconnected and other side hangs up the call
-                    this.stop(false)
-                    this.waitingForSessionTimeout = setTimeout(() => {
-                        this.terminateAllSessions()
-                        this.setInitialized(false)
-                        this.waitingForSessionHangup = false
-
-                        if (this.activeConnection) {
-                            this.reconnect()
-                        }
-                    },1200000)
+                if (this.activeConnection) {
+                    this.reconnect()
                 }
             }
         )
+
+        // The browser knows when the network is back sooner than the next JsSIP recovery attempt
+        this.windowTarget?.addEventListener('online', this.onNetworkOnline)
 
         this.logger.log('Connecting to', this.options.socketInterfaces[0])
         this.start()
@@ -424,6 +436,8 @@ class OpenSIPSJS extends UA {
 
     disconnect () {
         this.activeConnection = false
+        this.stopSessionsRecovery()
+        this.windowTarget?.removeEventListener('online', this.onNetworkOnline)
 
         if (this.options.msrpSignaling) {
             // MSRP-only mode: also stop sessions that are connecting or waiting for a reconnect.
