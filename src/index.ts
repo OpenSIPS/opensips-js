@@ -56,6 +56,8 @@ import { MODULES } from '@/enum/modules'
 
 import { BaseNewStreamPlugin } from '@/lib/janus/BaseNewStreamPlugin'
 import { BaseProcessStreamPlugin } from '@/lib/janus/BaseProcessStreamPlugin'
+import { MSRPSignalingHost } from '@/lib/msrp/signalingHost'
+import { MSRPConnectionData } from '@/types/msrp'
 
 const CALL_STATUS_UNANSWERED = 0
 
@@ -132,14 +134,17 @@ class OpenSIPSJS extends UA {
     private isMSRPInitializingValue: boolean | undefined
     private isReconnecting = false
     private activeConnection = false
-    private waitingForSessionHangup = false
-    private waitingForSessionTimeout = null
+    private recoveringSessions = false
+    private sessionsRecoveryTimeout = null
+    private readonly onNetworkOnline = () => this.reconnectTransport()
     private readonly reconnectionAttemptsLimit = Infinity
     private reconnectionAttemptsCounter = 0
 
     public audio: AudioModule = null
     public msrp: MSRPModule = null
     public video: VideoModule = null
+
+    private msrpSignalingHostValue: MSRPSignalingHost | null = null
 
     /*private newStreamPlugins: Array<BaseNewStreamPlugin> = []
     private processStreamPlugins: Array<BaseProcessStreamPlugin> = []*/
@@ -178,23 +183,37 @@ class OpenSIPSJS extends UA {
         }
     }
 
-    /*public setWaitingForSessionHangup (value: boolean) {
-        this.waitingForSessionHangup = value
-    }*/
-
-    public isWaitingForSessionHangup () {
-        return this.waitingForSessionHangup
+    public get isRecoveringSessions () {
+        return this.recoveringSessions
     }
 
-    public stopSessionAfterWaiting () {
-        this.setInitialized(false)
-        this.waitingForSessionHangup = false
-        clearTimeout(this.waitingForSessionTimeout)
-        this.waitingForSessionTimeout = null
+    /**
+     * Keeps the answered calls through a SIP socket drop: the UA is not stopped, so JsSIP
+     * transport recovery reconnects the socket, and the calls are re-INVITEd once it is
+     * connected.
+     */
+    private startSessionsRecovery () {
+        this.recoveringSessions = true
 
-        if (this.activeConnection) {
-            this.reconnect()
+        this.sessionsRecoveryTimeout = setTimeout(() => {
+            // The socket did not come back in time, the calls can't be kept any longer
+            this.stopSessionsRecovery()
+            this.terminateAllSessions()
+        }, 1200000)
+    }
+
+    public stopSessionsRecovery () {
+        this.recoveringSessions = false
+        clearTimeout(this.sessionsRecoveryTimeout)
+        this.sessionsRecoveryTimeout = null
+    }
+
+    private get windowTarget (): Window | null {
+        if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') {
+            return null
         }
+
+        return window
     }
 
     private get hasActiveSessions (): boolean {
@@ -217,6 +236,59 @@ class OpenSIPSJS extends UA {
 
     public get sipDomain () {
         return this.options.sipDomain
+    }
+
+    /**
+     * Data another OpenSIPSJS instance needs to open the MSRP socket without a
+     * SIP connection of its own (see the `msrpSignaling` option): the HA1 and
+     * realm cached after a digest challenge, or the plain password while the
+     * server has not challenged the UA yet. Null when neither is available.
+     */
+    public getMSRPConnectionData (): MSRPConnectionData | null {
+        const configuration = (this as unknown as {
+            _configuration: {
+                uri?: { toString (): string }
+                authorization_user?: string
+                realm?: string | null
+                ha1?: string | null
+                password?: string | null
+            }
+        })._configuration
+
+        const hasHa1 = Boolean(configuration?.ha1 && configuration.realm)
+
+        if (!configuration?.uri || (!hasHa1 && !configuration.password)) {
+            return null
+        }
+
+        return {
+            uri: configuration.uri.toString(),
+            authorizationUser: configuration.authorization_user,
+            realm: configuration.realm || null,
+            ha1: hasHa1 ? configuration.ha1 : null,
+            password: configuration.password || null
+        }
+    }
+
+    /**
+     * Performs INVITE/ACK/BYE for an MSRP session whose MSRP socket lives in
+     * another OpenSIPSJS instance (the MSRP-only one). A dialog ended by the
+     * remote side is reported with the `msrpSignalingDialogTerminated` event.
+     */
+    public get msrpSignalingHost (): MSRPSignalingHost {
+        if (!this.msrpSignalingHostValue) {
+            this.msrpSignalingHostValue = new MSRPSignalingHost(
+                this as unknown as ConstructorParameters<typeof MSRPSignalingHost>[0],
+                (callId, cause) => {
+                    this.emit('msrpSignalingDialogTerminated', {
+                        callId,
+                        cause
+                    })
+                }
+            )
+        }
+
+        return this.msrpSignalingHostValue
     }
 
     public use (plugin: BaseNewStreamPlugin | BaseProcessStreamPlugin) {
@@ -282,6 +354,15 @@ class OpenSIPSJS extends UA {
             this.video = new VideoModule(this)
         }
 
+        if (this.options.msrpSignaling) {
+            // MSRP-only mode: no SIP socket here, the MSRP session signals through `msrpSignaling`.
+            this.logger.log('MSRP-only mode: SIP socket is not created')
+            this.activeConnection = true
+            this.setConnected(true)
+
+            return this
+        }
+
         this.on(
             this.registeredEventName,
             () => {
@@ -305,8 +386,12 @@ class OpenSIPSJS extends UA {
                 this.setConnected(true)
                 this.setReconnecting(false)
                 this.activeConnection = true
-                this.waitingForSessionHangup = false
                 this.reconnectionAttemptsCounter = 0
+
+                if (this.recoveringSessions) {
+                    this.stopSessionsRecovery()
+                    this.audio.refreshCallsAfterReconnect()
+                }
             }
         )
 
@@ -322,33 +407,26 @@ class OpenSIPSJS extends UA {
                 }
 
                 this.logger.log('Disconnected from', this.options.socketInterfaces[0])
+
+                if (this.activeConnection && this.hasActiveSessions) {
+                    this.logger.log('Reconnecting to', this.options.socketInterfaces[0], 'keeping active calls')
+                    this.startSessionsRecovery()
+
+                    return
+                }
+
                 this.logger.log('Reconnecting to', this.options.socketInterfaces[0])
+                this.stop()
+                this.setInitialized(false)
 
-                if (!this.hasActiveSessions) {
-                    this.stop()
-                    this.setInitialized(false)
-
-
-                    if (this.activeConnection) {
-                        this.reconnect()
-                    }
-                } else {
-                    this.waitingForSessionHangup = true
-
-                    // TODO: Handle case when inactive call was disconnected and other side hangs up the call
-                    this.stop(false)
-                    this.waitingForSessionTimeout = setTimeout(() => {
-                        this.terminateAllSessions()
-                        this.setInitialized(false)
-                        this.waitingForSessionHangup = false
-
-                        if (this.activeConnection) {
-                            this.reconnect()
-                        }
-                    },1200000)
+                if (this.activeConnection) {
+                    this.reconnect()
                 }
             }
         )
+
+        // The browser knows when the network is back sooner than the next JsSIP recovery attempt
+        this.windowTarget?.addEventListener('online', this.onNetworkOnline)
 
         this.logger.log('Connecting to', this.options.socketInterfaces[0])
         this.start()
@@ -358,6 +436,24 @@ class OpenSIPSJS extends UA {
 
     disconnect () {
         this.activeConnection = false
+        this.stopSessionsRecovery()
+        this.windowTarget?.removeEventListener('online', this.onNetworkOnline)
+
+        if (this.options.msrpSignaling) {
+            // MSRP-only mode: also stop sessions that are connecting or waiting for a reconnect.
+            const sessions = (this as unknown as {
+                _msrpSignalingSessions?: Set<{ stopExternalSignalingSession (): void }>
+            })._msrpSignalingSessions
+
+            Array.from(sessions ?? []).forEach((session) => {
+                try {
+                    session.stopExternalSignalingSession()
+                } catch (error) {
+                    this.logger.error('Failed to stop MSRP session', error)
+                }
+            })
+        }
+
         this.stop()
     }
 
@@ -1570,7 +1666,11 @@ export type {
     MSRPMessageStatus,
     MSRPConversationState,
     MSRPUploadResult,
-    MSRPTag
+    MSRPTag,
+    MSRPConnectionData,
+    MSRPSignaling,
+    MSRPSignalingInviteRequest,
+    MSRPSignalingInviteResult
 } from '@/types/msrp'
 
 export { MSRP_EVT, MSRP_CAPTION_MAX_LENGTH } from '@/modules/msrp'

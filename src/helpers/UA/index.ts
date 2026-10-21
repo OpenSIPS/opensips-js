@@ -115,6 +115,18 @@ export default class UAExtended extends UAConstructor implements UAExtendedInter
         return super.call(target, options)
     }
 
+    /**
+     * Connects the SIP socket right away instead of waiting for the next JsSIP recovery
+     * attempt. Does nothing unless the socket dropped and JsSIP is recovering it.
+     */
+    reconnectTransport () {
+        if (this._status !== C.STATUS_NOT_READY) {
+            return
+        }
+
+        this._transport.connect()
+    }
+
     joinVideoCall (target: string, displayName: string, options: VideoConferenceJoinOptions) {
         logger.debug('call()')
 

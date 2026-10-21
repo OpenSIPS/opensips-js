@@ -10,6 +10,7 @@ import Dialog from 'jssip/lib/Dialog'
 import Exceptions from 'jssip/lib/Exceptions'
 import Transactions from 'jssip/lib/Transactions'
 import RTCSession_Info from 'jssip/lib/RTCSession/Info'
+import sdp_transform from 'sdp-transform'
 
 const C = {
     // RTCSession states.
@@ -47,6 +48,12 @@ export class MSRPSession extends EventEmitter{
             username: ua._configuration.authorization_user,
             ha1: ua._configuration.ha1,
             realm: ua._configuration.realm
+        }
+
+        // MSRP-only mode: the HA1 may not be known (the SIP server did not challenge the
+        // other instance yet), so the digest is computed from the password when given.
+        if (ua.options && ua.options.msrpSignaling && ua._configuration.password) {
+            this.credentials.password = ua._configuration.password
         }
         this._request = null
 
@@ -91,6 +98,37 @@ export class MSRPSession extends EventEmitter{
         this._awaitingKeepAlivePong = false
         this._keepAlivePongTimer = null
         this._keepAlivePongTimeout = (this._ua.options && this._ua.options.msrpKeepAlivePongTimeout) || 8000
+        this._keepAliveInterval = (this._ua.options && this._ua.options.msrpKeepAliveInterval) || 0
+
+        /*
+         * External signaling (MSRP-only mode): the SIP part of the session
+         * (INVITE/ACK/BYE) is performed by another OpenSIPSJS instance, this
+         * session only owns the MSRP socket.
+         */
+        this._signaling = (this._ua.options && this._ua.options.msrpSignaling) || null
+        this._signalingCallId = null
+        this._offSignalingDialogTerminated = null
+
+        if (this._signaling) {
+            this._offSignalingDialogTerminated = this._signaling.onDialogTerminated((callId, cause) => {
+                this._onSignalingDialogTerminated(callId, cause)
+            })
+
+            // Tracked so OpenSIPSJS.disconnect() can stop the session in any state
+            // (connecting, authenticating, waiting for a reconnect).
+            if (!this._ua._msrpSignalingSessions) {
+                this._ua._msrpSignalingSessions = new Set()
+            }
+            this._ua._msrpSignalingSessions.add(this)
+        }
+
+        /*
+         * Signaling-only mode (the counterpart of the external signaling):
+         * the session performs INVITE/ACK/BYE for an MSRP socket that lives
+         * elsewhere, so it never opens a socket, runs MSRP timers or reconnects.
+         */
+        this._signalingOnly = false
+        this._terminateWhenConfirmed = false
     }
 
     /**
@@ -186,7 +224,23 @@ export class MSRPSession extends EventEmitter{
             `a=path: ${msgObj.getHeader('Use-Path')} msrp://${this._ua._configuration.authorization_user}.${this._ua._configuration.realm}:2856/${this.auth_id};ws\n`)
     }
 
+    _buildInviteSdp (msgObj) {
+        return 'v=0\n' +
+            `o=- 4232740119537112802 2 IN IP4 ${this.my_ip}\n` +
+            `c=IN IP4 ${this.my_ip}\n` +
+            't=0 0\n' +
+            'm=message 2856 TCP/TLS/MSRP *\n' +
+            'a=accept-types:text/plain text/html\n' +
+            `a=path:${msgObj.getHeader('Use-Path')} msrp://${this._ua._configuration.authorization_user}.${this._ua._configuration.realm}:2856/${this.auth_id};ws\n`
+    }
+
     inviteParty (msgObj) {
+        if (this._signaling) {
+            this._inviteViaSignaling(this._buildInviteSdp(msgObj))
+
+            return
+        }
+
         const requestParams = {}
         const extraHeaders = []
 
@@ -203,13 +257,7 @@ export class MSRPSession extends EventEmitter{
             this._ua,
             requestParams,
             extraHeaders,
-            'v=0\n' +
-            `o=- 4232740119537112802 2 IN IP4 ${this.my_ip}\n` +
-            `c=IN IP4 ${this.my_ip}\n` +
-            't=0 0\n' +
-            'm=message 2856 TCP/TLS/MSRP *\n' +
-            'a=accept-types:text/plain text/html\n' +
-            `a=path:${msgObj.getHeader('Use-Path')} msrp://${this._ua._configuration.authorization_user}.${this._ua._configuration.realm}:2856/${this.auth_id};ws\n`)
+            this._buildInviteSdp(msgObj))
         this._newMSRPSession('local', this._request)
         if(!this._from_tag) this._from_tag= this._request.from._parameters.tag
         this._id = this._request.call_id + this._from_tag
@@ -234,6 +282,7 @@ export class MSRPSession extends EventEmitter{
                     this.target_addr = response.sdp.media[0].invalid[1].value.replaceAll('path:', '').split(' ').reverse()
                     this.status = 'active'
                     this._onReconnected()
+                    this._startKeepAliveInterval()
                     this.emit('active')
                     this.emit('confirmed')
                 }
@@ -241,6 +290,336 @@ export class MSRPSession extends EventEmitter{
         })
         request_sender.send()
         this._status = C.STATUS_INVITE_SENT
+    }
+
+    /**
+     * MSRP-only mode: the INVITE is sent by the external signaling (another
+     * OpenSIPSJS instance that owns the SIP socket). Call-ID and From tag are
+     * generated here so the session id is known before the INVITE leaves.
+     */
+    _inviteViaSignaling (sdp) {
+        const callId = Utils.createRandomToken(22)
+        const fromTag = Utils.newTag()
+
+        this._signalingCallId = callId
+        this._from_tag = fromTag
+        this._id = callId + fromTag
+
+        this._newMSRPSession('local', {
+            call_id: callId,
+            from_tag: fromTag,
+            from: { _parameters: { tag: fromTag } }
+        })
+
+        this._status = C.STATUS_INVITE_SENT
+
+        const onAnswer = (answer) => {
+            // Session was terminated or restarted, or its socket dropped, while the INVITE was in flight.
+            if (
+                this._signalingCallId !== callId ||
+                this._status !== C.STATUS_INVITE_SENT ||
+                this._reconnectScheduled ||
+                !this._connection ||
+                this._connection.readyState !== WebSocket.OPEN
+            ) {
+                this._signaling.bye(callId).catch(() => undefined)
+
+                return
+            }
+
+            const remoteSdp = sdp_transform.parse(answer.sdp || '')
+
+            this._to_tag = answer.toTag
+            this._status = C.STATUS_CONFIRMED
+            this.target_addr = remoteSdp.media[0].invalid[1].value.replaceAll('path:', '').split(' ').reverse()
+            this.status = 'active'
+
+            this._handleSessionTimersInIncomingResponse({
+                session_expires: answer.sessionExpires,
+                session_expires_refresher: answer.sessionExpiresRefresher
+            })
+            this._accepted('remote', null)
+            this._confirmed('local', null)
+
+            this._onReconnected()
+            this._startKeepAliveInterval()
+            this.emit('active')
+            this.emit('confirmed')
+        }
+
+        const onInviteFailed = (error) => {
+            if (this._signalingCallId !== callId || this._userTerminated) {
+                return
+            }
+
+            console.warn('MSRP INVITE via external signaling failed:', error)
+            this._scheduleReconnect()
+        }
+
+        // Two-argument then: an exception thrown by an 'active' listener must not trigger a reconnect.
+        this._signaling.invite({
+            target: this.target,
+            sdp,
+            callId,
+            fromTag,
+            realm: this._ua._configuration.realm
+        }).then(onAnswer, onInviteFailed)
+    }
+
+    /** The external signaling reports that the dialog was ended by the remote side (e.g. BYE). */
+    _onSignalingDialogTerminated (callId, cause) {
+        if (callId !== this._signalingCallId) {
+            return
+        }
+
+        if (this._status === C.STATUS_CONFIRMED) {
+            this._ended('remote', null, cause || JsSIP_C.causes.BYE)
+        }
+    }
+
+    /**
+     * MSRP-only mode: stops the session for good, whatever its state — BYE when
+     * confirmed, otherwise closes the socket and cancels a pending reconnect.
+     */
+    stopExternalSignalingSession () {
+        this._userTerminated = true
+        this._reconnectScheduled = false
+        clearTimeout(this._reconnectTimer)
+        this._reconnectTimer = null
+
+        if (this._ua._msrpSignalingSessions) {
+            this._ua._msrpSignalingSessions.delete(this)
+        }
+
+        if (this._status === C.STATUS_TERMINATED) {
+            // Already closed (e.g. waiting for a reconnect): nothing else is running.
+            this._stopKeepAliveInterval()
+            if (this._offSignalingDialogTerminated) {
+                this._offSignalingDialogTerminated()
+                this._offSignalingDialogTerminated = null
+            }
+
+            this._forgetFromUA()
+
+            return
+        }
+
+        this.terminate({ userTerminated: true })
+        this._forgetFromUA()
+    }
+
+    /**
+     * After a reconnect the session id changes while UA._msrp_sessions keeps the old
+     * key: drop every entry of this session so UA.stop() does not terminate it again.
+     */
+    _forgetFromUA () {
+        const sessions = this._ua._msrp_sessions
+
+        if (!sessions) {
+            return
+        }
+
+        Object.keys(sessions).forEach((key) => {
+            if (sessions[key] === this) {
+                delete sessions[key]
+            }
+        })
+    }
+
+    _terminateViaSignaling (options) {
+        const cause = options.cause || JsSIP_C.causes.BYE
+
+        if (this._status === C.STATUS_TERMINATED) {
+            throw new Exceptions.InvalidStateError(this._status)
+        }
+
+        this.status = 'terminated'
+
+        const callId = this._signalingCallId
+        const wasConfirmed = this._status === C.STATUS_CONFIRMED
+
+        if (callId && (wasConfirmed || this._status === C.STATUS_INVITE_SENT)) {
+            this._signaling.bye(callId).catch((error) => {
+                console.warn('MSRP BYE via external signaling failed:', error)
+            })
+        }
+
+        if (this._userTerminated) {
+            if (this._offSignalingDialogTerminated) {
+                this._offSignalingDialogTerminated()
+                this._offSignalingDialogTerminated = null
+            }
+            if (this._ua._msrpSignalingSessions) {
+                this._ua._msrpSignalingSessions.delete(this)
+            }
+        }
+
+        if (wasConfirmed) {
+            this._ended('local', null, cause)
+        } else {
+            this._status = C.STATUS_CANCELED
+            this._failed('local', null, JsSIP_C.causes.CANCELED)
+        }
+    }
+
+    _startKeepAliveInterval () {
+        this._stopKeepAliveInterval()
+
+        if (!this._keepAliveInterval || this._signalingOnly) {
+            return
+        }
+
+        this._msrpKeepAliveTimer = setInterval(() => {
+            if (this._userTerminated || this._reconnectScheduled || this.status !== 'active') {
+                return
+            }
+
+            if (!this._connection || this._connection.readyState !== WebSocket.OPEN) {
+                return
+            }
+
+            try {
+                this._sendKeepAlive()
+                this._startKeepAlivePongTimer()
+            } catch (err) {
+                console.error('Failed to send keep-alive:', err)
+                this._onKeepAliveFailure('keep-alive send threw')
+            }
+        }, this._keepAliveInterval)
+    }
+
+    _stopKeepAliveInterval () {
+        clearInterval(this._msrpKeepAliveTimer)
+        this._msrpKeepAliveTimer = null
+    }
+
+    /**
+     * Signaling-only mode: performs the SIP part (INVITE/ACK, later BYE) of an
+     * MSRP session whose socket lives in another OpenSIPSJS instance. No MSRP
+     * socket is opened here. Resolves with the remote SDP answer.
+     */
+    inviteForExternalSession ({ target, sdp, callId, fromTag, realm }) {
+        this._signalingOnly = true
+        this._direction = 'outgoing'
+        this.target = target
+
+        return new Promise((resolve, reject) => {
+            const requestParams = {
+                call_id: callId,
+                from_tag: fromTag
+            }
+            const extraHeaders = []
+            // The realm learned by the MSRP side, else ours (known only after a digest
+            // challenge, which the server may skip for REGISTER), else the SIP domain.
+            const domain = realm || this._ua._configuration.realm || this._ua._configuration.uri.host
+
+            requestParams.to_uri   = new URI('sip', target,                           domain)
+            requestParams.from_uri = new URI('sip', this._ua._configuration.uri.user, this._ua._configuration.uri.host)
+
+            extraHeaders.push(`Contact: ${this._ua.contact.toString({
+                outbound: true
+            })}`)
+            extraHeaders.push('Content-Type: application/sdp')
+
+            this._localSdp = sdp
+            this._request = new SIPMessage.InitialOutgoingInviteRequest(
+                new URI('sip', target, domain).clone(),
+                this._ua,
+                requestParams,
+                extraHeaders,
+                sdp)
+            this._from_tag = this._request.from._parameters.tag
+            this._id = this._request.call_id + this._from_tag
+
+            let settled = false
+            let answer = null
+
+            const fail = (cause) => {
+                if (settled) return
+                settled = true
+                reject(new Error(cause))
+            }
+
+            this.once('failed', (event) => fail((event && event.cause) || 'failed'))
+
+            // Emitted by _receiveInviteResponse() once the ACK for the 2xx was sent.
+            this.once('confirmed', () => {
+                if (settled || !answer) return
+
+                if (this._terminateWhenConfirmed) {
+                    this.terminate()
+                    fail(JsSIP_C.causes.CANCELED)
+
+                    return
+                }
+
+                settled = true
+                this.status = 'active'
+                resolve({
+                    toTag: answer.to_tag,
+                    sdp: answer.body,
+                    sessionExpires: answer.session_expires,
+                    sessionExpiresRefresher: answer.session_expires_refresher
+                })
+            })
+
+            const request_sender = new RequestSender(this._ua, this._request, {
+                onRequestTimeout: () => {
+                    this.onRequestTimeout()
+                    fail(JsSIP_C.causes.REQUEST_TIMEOUT)
+                },
+                onTransportError: () => {
+                    this.onTransportError()
+                    fail(JsSIP_C.causes.CONNECTION_ERROR)
+                },
+                onAuthenticated: (request) => {
+                    this._request = request
+                },
+                onReceiveResponse: (response) => {
+                    if (!answer && response.status_code >= 200 && response.status_code < 300) {
+                        answer = response
+                    }
+
+                    this._receiveInviteResponse(response)
+                }
+            })
+            request_sender.send()
+            this._status = C.STATUS_INVITE_SENT
+        })
+    }
+
+    /** Signaling-only mode: sends BYE for the dialog (or ends it once the pending INVITE is answered). */
+    terminateExternalSession () {
+        if (this._status === C.STATUS_CONFIRMED) {
+            this.terminate()
+        } else if (this._status === C.STATUS_INVITE_SENT || this._status === C.STATUS_1XX_RECEIVED) {
+            this._terminateWhenConfirmed = true
+        }
+    }
+
+    /**
+     * Signaling-only mode: forgets a confirmed dialog locally without sending BYE
+     * (same as an MSRP reconnect does). A dialog still being set up is ended
+     * once its INVITE is answered.
+     */
+    dropExternalSession () {
+        if (this._status !== C.STATUS_CONFIRMED) {
+            this._terminateWhenConfirmed = true
+
+            return
+        }
+
+        if (this._dialog) {
+            try {
+                this._dialog.terminate()
+            } catch (error) {
+                console.log('drop | error terminating dialog:', error)
+            }
+            this._dialog = null
+        }
+
+        this._status = C.STATUS_TERMINATED
+        this.status = 'terminated'
     }
 
     terminate (options = {}) {
@@ -255,6 +634,12 @@ export class MSRPSession extends EventEmitter{
             this._reconnectScheduled = false
             clearTimeout(this._reconnectTimer)
             this._reconnectTimer = null
+        }
+
+        if (this._signaling) {
+            this._terminateViaSignaling(options)
+
+            return
         }
 
         const cause = options.cause || JsSIP_C.causes.BYE
@@ -406,6 +791,7 @@ export class MSRPSession extends EventEmitter{
         const msgObj = new Message(msg.data)
         if (this.status === 'auth' && msgObj.code === 401) {
             const _challenge = this.parseAuth(msgObj.getHeader('WWW-Authenticate'))
+            this._adoptChallengeRealm(_challenge.realm)
             const digestAuthentication = new DigestAuthentication(this.credentials)
             digestAuthentication.authenticate({
                 method: 'AUTH',
@@ -456,7 +842,7 @@ export class MSRPSession extends EventEmitter{
     }
 
     _scheduleReconnect () {
-        if (this._userTerminated || this._reconnectScheduled) {
+        if (this._userTerminated || this._reconnectScheduled || this._signalingOnly) {
             return
         }
 
@@ -507,6 +893,8 @@ export class MSRPSession extends EventEmitter{
         clearTimeout(this._keepAlivePongTimer)
         this._keepAlivePongTimer = null
         this._awaitingKeepAlivePong = false
+        this._stopKeepAliveInterval()
+        this._signalingCallId = null
 
         if (this._dialog) {
             try {
@@ -537,6 +925,21 @@ export class MSRPSession extends EventEmitter{
 
         this.status = 'new'
         this._status = C.STATUS_NULL
+    }
+
+    /**
+     * MSRP-only mode without an HA1: the realm was only a guess (the SIP domain),
+     * so take the real one from the relay challenge. It is the SIP realm too and
+     * ends up in From-Path, the digest URI, the SDP path and the INVITE R-URI —
+     * the same values as when the realm comes from a SIP REGISTER challenge.
+     */
+    _adoptChallengeRealm (realm) {
+        if (!this._signaling || this.credentials.ha1 || !realm || realm === this.credentials.realm) {
+            return
+        }
+
+        this.credentials.realm = realm
+        this._ua._configuration.realm = realm
     }
 
     _onReconnected () {
@@ -574,6 +977,14 @@ export class MSRPSession extends EventEmitter{
     }
 
     onopen () {
+        // No WebRTC in this context (e.g. extension service worker): the local IP
+        // is only informative in the SDP, so authenticate with the default one.
+        if (typeof RTCPeerConnection === 'undefined') {
+            this.authenticate(null)
+
+            return
+        }
+
         const pc = new RTCPeerConnection({ iceServers: [] })
         pc.createDataChannel('')
         pc.createOffer().then(pc.setLocalDescription.bind(pc))
@@ -718,16 +1129,23 @@ export class MSRPSession extends EventEmitter{
                 console.log('emit "sdp"')
                 this.emit('sdp', e)
 
-                new RTCSessionDescription({
-                    type: 'answer',
-                    sdp: e.sdp
-                })
+                /*
+                 * Leftover from JsSIP RTCSession: the result is never used (MSRP has no
+                 * RTCPeerConnection to apply it to) and RTCSessionDescription does not
+                 * exist outside a window (e.g. extension service worker).
+                 */
+                // new RTCSessionDescription({
+                //     type: 'answer',
+                //     sdp: e.sdp
+                // })
 
                 this._connectionPromiseQueue = this._connectionPromiseQueue
                     .then(() => {
                         // Be ready for 200 with SDP after a 180/183 with SDP.
                         // We created a SDP 'answer' for it, so check the current signaling state.
-                        if (this._connection.signalingState === 'stable') {
+                        // `_connection` is the MSRP WebSocket (no signalingState) and is absent
+                        // in signaling-only sessions, which would otherwise break the ACK below.
+                        if (this._connection && this._connection.signalingState === 'stable') {
                             return this._connection.createOffer(this._rtcOfferConstraints)
                                 .then((offer) => this._connection.setLocalDescription(offer))
                                 .catch((error) => {
@@ -992,6 +1410,8 @@ export class MSRPSession extends EventEmitter{
 
         this._status = C.STATUS_TERMINATED
 
+        this._stopKeepAliveInterval()
+
         // Terminate RTC.
         if (this._connection) {
             try {
@@ -1165,6 +1585,11 @@ export class MSRPSession extends EventEmitter{
     }
 
     _runKeepAliveTimer () {
+        // Keep-alive is sent over the MSRP socket, which a signaling-only session does not own.
+        if (this._signalingOnly) {
+            return
+        }
+
         if (!this._sessionTimers || !this._sessionTimers.enabled || this._sessionTimers.running) {
             return
         }
@@ -1322,7 +1747,13 @@ export class MSRPSession extends EventEmitter{
                     }
                     break
                 case JsSIP_C.INVITE:
-                    if (this._status === C.STATUS_CONFIRMED) {
+                    if (this._signalingOnly && this._status === C.STATUS_CONFIRMED) {
+                        // Session refresh: keep the same MSRP path.
+                        request.reply(200, null, [
+                            `Contact: ${this._ua.contact.toString({ outbound: true })}`,
+                            'Content-Type: application/sdp'
+                        ], this._localSdp)
+                    } else if (this._status === C.STATUS_CONFIRMED) {
                         if (request.hasHeader('replaces')) {
                             this._receiveReplaces(request)
                         } else {
@@ -1351,7 +1782,10 @@ export class MSRPSession extends EventEmitter{
                     }
                     break
                 case JsSIP_C.UPDATE:
-                    if (this._status === C.STATUS_CONFIRMED) {
+                    if (this._signalingOnly && this._status === C.STATUS_CONFIRMED) {
+                        // Session refresh without SDP change.
+                        request.reply(200)
+                    } else if (this._status === C.STATUS_CONFIRMED) {
                         this._receiveUpdate(request)
                     } else {
                         request.reply(403, 'Wrong Status')

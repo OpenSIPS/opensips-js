@@ -17,6 +17,7 @@ import { UAConfiguration } from 'jssip/lib/UA'
 import { MODULES } from '@/enum/modules'
 
 import { ExtraContactParams } from 'jssip/lib/Registrator'
+import { MSRPSignaling } from '@/types/msrp'
 
 export type IntervalType = ReturnType<typeof setInterval>
 
@@ -211,6 +212,13 @@ export interface IOpenSIPSJSOptions {
     msrpDomain?: string
     msrpWs?: boolean
     msrpReconnectInterval?: number
+    /**
+     * MSRP-only mode: when set, `begin()` does not open a SIP socket and the
+     * MSRP session sends its INVITE/BYE through this signaling instead.
+     */
+    msrpSignaling?: MSRPSignaling
+    /** Interval (ms) of periodic MSRP keep-alive while the session is active. Disabled by default. */
+    msrpKeepAliveInterval?: number
 }
 
 export interface TriggerListenerOptions {

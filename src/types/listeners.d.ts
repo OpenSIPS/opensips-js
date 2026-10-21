@@ -148,6 +148,10 @@ export type msrpErrorListener = (payload: {
     error: string
     event: unknown
 }) => void
+export type msrpSignalingDialogTerminatedListener = (payload: {
+    callId: string
+    cause: string
+}) => void
 export type msrpPresenceListener = (payload: {
     conversation_id?: number
     sender: string
@@ -205,6 +209,7 @@ export interface OpenSIPSEventMap extends UAEventMap {
     msrpMessageTagged: msrpMessageTaggedListener
     msrpError: msrpErrorListener
     msrpPresence: msrpPresenceListener
+    msrpSignalingDialogTerminated: msrpSignalingDialogTerminatedListener
     // JANUS
     conferenceStart: conferenceStartListener
     conferenceEnd: conferenceEndListener

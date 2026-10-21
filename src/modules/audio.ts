@@ -40,6 +40,8 @@ const STORAGE_KEYS = {
     SELECTED_OUTPUT_DEVICE: 'OpensipsJSOutputDevice'
 }
 const CALL_STATUS_UNANSWERED = 0
+const CALL_REFRESH_ATTEMPTS = 5
+const CALL_REFRESH_RETRY_DELAY = 1000
 
 function connectTrackToStream (stream: MediaStream, additionalTrack: MediaStreamTrack) {
     const ctx = new AudioContext()
@@ -619,6 +621,42 @@ export class AudioModule {
             callId,
             toHold: false,
         })
+    }
+
+    /**
+     * Sends a re-INVITE for every answered call once the SIP socket is recovered: its
+     * Contact makes the server send in-dialog requests over the new socket. A call the
+     * server ended during the outage gets an error response, and JsSIP ends it.
+     */
+    public refreshCallsAfterReconnect () {
+        Object.values(this.extendedCalls).forEach((call) => {
+            if (call.isEstablished()) {
+                this.refreshCall(call)
+            }
+        })
+    }
+
+    private refreshCall (call: ICall, attempt = 1) {
+        if (call.isEnded()) {
+            return
+        }
+
+        const started = call.renegotiate({}, () => {
+            this.context.logger.log('Dialog refreshed for', call._remote_identity?._uri?._user)
+        })
+
+        if (started) {
+            return
+        }
+
+        // Another offer/answer is in progress, try again once it is done
+        if (attempt < CALL_REFRESH_ATTEMPTS) {
+            setTimeout(() => this.refreshCall(call, attempt + 1), CALL_REFRESH_RETRY_DELAY)
+
+            return
+        }
+
+        this.context.logger.warn('Failed to refresh dialog for', call._remote_identity?._uri?._user)
     }
 
     private cancelAllOutgoingUnanswered () {
@@ -2272,8 +2310,8 @@ export class AudioModule {
                 this.initialStreamValue = null
             }
 
-            if (this.context.isWaitingForSessionHangup() && !this.hasActiveAnsweredCalls) {
-                this.context.stopSessionAfterWaiting()
+            if (this.context.isRecoveringSessions && !this.hasActiveAnsweredCalls) {
+                this.context.stopSessionsRecovery()
             }
         })
         session.on('progress', (event: IncomingEvent | OutgoingEvent) => {
@@ -2330,8 +2368,8 @@ export class AudioModule {
                 this.initialStreamValue = null
             }
 
-            if (this.context.isWaitingForSessionHangup() && !this.hasActiveAnsweredCalls) {
-                this.context.stopSessionAfterWaiting()
+            if (this.context.isRecoveringSessions && !this.hasActiveAnsweredCalls) {
+                this.context.stopSessionsRecovery()
             }
         })
         session.on('confirmed', (event: IncomingAckEvent | OutgoingAckEvent) => {
