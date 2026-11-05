@@ -620,11 +620,22 @@ const currentReadPointerIndex = computed<number>(() => {
     return -1
 })
 
+// The "New messages" divider stays where it was when the conversation was opened.
+const unreadAnchor = ref<{ cid: string, eventId: string | null } | null>(null)
+
 const firstUnreadEventIdInCurrent = computed<string | null>(() => {
     const cid = state.currentConversationId.value
     if (!cid) return null
+    if (unreadAnchor.value?.cid === cid) return unreadAnchor.value.eventId
     return state.firstUnreadByConversation.value[cid] ?? null
 })
+
+function captureUnreadAnchor (cid: string) {
+    unreadAnchor.value = {
+        cid,
+        eventId: state.firstUnreadByConversation.value[cid] ?? null
+    }
+}
 
 function canMarkMessageAsUnread (msg: any): boolean {
     if (!msg?.event_id) return false
@@ -660,20 +671,96 @@ function handleMarkConversationAsUnread (
     if (e) e.stopPropagation()
     if (conversationId === undefined || conversationId === null) return
     actions.markConversationAsUnread(conversationId as any)
+    const cid = String(conversationId)
+    if (cid === state.currentConversationId.value) captureUnreadAnchor(cid)
 }
 
 function handleMarkAsUnreadFromMessage (msg: any) {
     const cid = state.currentConversationId.value
     if (!cid || !msg?.event_id) return
     actions.markAsUnreadFromMessage(cid, msg.event_id)
+    captureUnreadAnchor(cid)
 }
 
-watch(sortedMessages, async () => {
-    await nextTick()
-    if (chatMessagesEl.value) {
-        chatMessagesEl.value.scrollTop = chatMessagesEl.value.scrollHeight
+// A message is read once its end has been on screen in a visible page.
+const NEAR_BOTTOM_PX = 40
+const UNREAD_DIVIDER_OFFSET_PX = 12
+const SEEN_TOLERANCE_PX = 2
+
+function isNearBottom (): boolean {
+    const el = chatMessagesEl.value
+    if (!el) return true
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX
+}
+
+function scrollToBottom () {
+    const el = chatMessagesEl.value
+    if (el) el.scrollTop = el.scrollHeight
+}
+
+function scrollToUnreadOrBottom () {
+    const el = chatMessagesEl.value
+    const divider = el?.querySelector<HTMLElement>('.unread-divider')
+    if (!el || !divider) {
+        scrollToBottom()
+        return
     }
-})
+    el.scrollTop += divider.getBoundingClientRect().top - el.getBoundingClientRect().top - UNREAD_DIVIDER_OFFSET_PX
+}
+
+function updateSeen () {
+    const el = chatMessagesEl.value
+    const cid = state.currentConversationId.value
+    // Before the divider is placed, reading would move it.
+    if (!el || !cid || unreadAnchor.value?.cid !== cid) return
+    if (document.visibilityState !== 'visible' || !el.clientHeight) return
+
+    const visibleBottom = el.getBoundingClientRect().bottom + SEEN_TOLERANCE_PX
+    const rows = el.querySelectorAll<HTMLElement>('.message[data-event-id]')
+    for (let i = rows.length - 1; i >= 0; i--) {
+        const eventId = rows[i].dataset.eventId
+        if (eventId && rows[i].getBoundingClientRect().bottom <= visibleBottom) {
+            actions.markSeen(cid, eventId)
+            return
+        }
+    }
+}
+
+let seenFrame = 0
+
+function scheduleSeenUpdate () {
+    cancelAnimationFrame(seenFrame)
+    seenFrame = requestAnimationFrame(updateSeen)
+}
+
+// One watcher, so opening and following new messages don't fight over the scroll.
+watch(
+    () => [ state.currentConversationId.value, sortedMessages.value ] as const,
+    async ([ cid, messages ], previous) => {
+        if (!cid) return
+
+        if (unreadAnchor.value?.cid !== cid) {
+            // Opened: start at the unread divider.
+            if (!sortedRealMessages.value.length) return
+            captureUnreadAnchor(cid)
+            await nextTick()
+            scrollToUnreadOrBottom()
+        } else {
+            // Follow only when at the bottom, or for an own message.
+            const shouldFollow = cid === previous?.[0]
+                && (isNearBottom() || isMyMessage(messages[messages.length - 1]))
+            await nextTick()
+            if (shouldFollow) scrollToBottom()
+        }
+        scheduleSeenUpdate()
+    },
+    {
+        immediate: true,
+        flush: 'pre'
+    }
+)
+
+document.addEventListener('visibilitychange', scheduleSeenUpdate)
 
 function extractSipUser (uri: string | null | undefined): string {
     if (!uri) return 'unknown'
@@ -779,6 +866,8 @@ watch(() => state.currentConversationId.value, (next, prev) => {
 
 onBeforeUnmount(() => {
     actions.stopTypingKeepAlive()
+    document.removeEventListener('visibilitychange', scheduleSeenUpdate)
+    cancelAnimationFrame(seenFrame)
 })
 </script>
 
@@ -1068,7 +1157,7 @@ onBeforeUnmount(() => {
                         </div>
                     </details>
 
-                    <div ref="chatMessagesEl" class="chat-messages">
+                    <div ref="chatMessagesEl" class="chat-messages" @scroll="scheduleSeenUpdate">
                         <template
                             v-for="msg in sortedMessages"
                             :key="msg.event_id ?? `${msg.origin_server_ts}-${msg.sender}`"
@@ -1083,6 +1172,7 @@ onBeforeUnmount(() => {
                             </div>
                         <div
                             class="message"
+                            :data-event-id="msg.event_id"
                             :class="{
                                 mine: isMyMessage(msg),
                                 'internal-note': isInternalNote(msg),

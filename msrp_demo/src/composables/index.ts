@@ -113,6 +113,160 @@ function sortMessagesByTimestamp (list: any[]): any[] {
     )
 }
 
+// Edits are applied to the original message; edit events are not shown.
+const RELATES_TO = 'm.relates_to'
+const NEW_CONTENT = 'm.new_content'
+const RELATIONS = 'm.relations'
+const REPLACE = 'm.replace'
+const MAX_EDIT_CHAIN = 50
+
+const editEvents = new Map<string, { targetId: string, ts: number }>()
+
+function getReplacedEventId (message: any): string | null {
+    const relation = message?.content?.[RELATES_TO]
+    return relation?.rel_type === REPLACE && relation.event_id ? relation.event_id : null
+}
+
+function rememberEditEvent (editId: string | undefined, targetId: string | undefined, ts: number) {
+    if (editId && targetId) {
+        editEvents.set(editId, {
+            targetId,
+            ts
+        })
+    }
+}
+
+function resolveEditRoot (eventId: string): string {
+    let id = eventId
+    for (let depth = 0; depth < MAX_EDIT_CHAIN; depth++) {
+        const edit = editEvents.get(id)
+        if (!edit) break
+        id = edit.targetId
+    }
+    return id
+}
+
+function withEditedText (message: any, text: unknown, editedAt: number): any {
+    if (typeof text !== 'string') return message
+    return {
+        ...message,
+        content: {
+            ...message.content,
+            content: text,
+            edited_at: Math.max(Number(message.content?.edited_at) || 0, editedAt) || Date.now()
+        }
+    }
+}
+
+function applyHistoryEdits (list: any[]): any[] {
+    const edits = list.filter((message) => getReplacedEventId(message))
+    edits.forEach((edit) => rememberEditEvent(edit.event_id, getReplacedEventId(edit) ?? undefined, edit.origin_server_ts || 0))
+
+    const latestByMessage = new Map<string, { text: unknown, ts: number }>()
+    for (const edit of edits) {
+        const messageId = resolveEditRoot(edit.event_id)
+        const ts = edit.origin_server_ts || 0
+        const current = latestByMessage.get(messageId)
+        if (!current || ts >= current.ts) {
+            latestByMessage.set(messageId, {
+                text: (edit.content?.[NEW_CONTENT] ?? edit.content)?.content,
+                ts
+            })
+        }
+    }
+
+    return list
+        .filter((message) => !getReplacedEventId(message))
+        .map((message) => {
+            let latest = latestByMessage.get(message?.event_id)
+            // The edit event itself may be outside of the timeline.
+            const bundled = message?.unsigned?.[RELATIONS]?.[REPLACE]
+            if (bundled?.content && (!latest || (bundled.origin_server_ts || 0) > latest.ts)) {
+                latest = {
+                    text: bundled.content.content,
+                    ts: bundled.origin_server_ts || 0
+                }
+            }
+            return latest ? withEditedText(message, latest.text, latest.ts) : message
+        })
+}
+
+// The read pointer may point at an edit event.
+function findReadIndex (real: any[], pointer: string): number {
+    const index = findLastIndexByEventId(real, pointer)
+    if (index !== -1) return index
+    const edit = editEvents.get(pointer)
+    if (!edit) return -1
+    for (let i = real.length - 1; i >= 0; i--) {
+        if ((real[i]?.origin_server_ts || 0) <= edit.ts) return i
+    }
+    return -1
+}
+
+// Delivery status only moves forward; delivered/read also cover earlier own messages.
+const STATUS_RANK: Record<string, number> = {
+    pending: 0,
+    sent: 1,
+    delivered: 2,
+    read: 3
+}
+const CUMULATIVE_STATUSES = [ 'delivered', 'read' ]
+const MAX_EARLY_RECEIPTS = 200
+
+// Receipts that came before their message.
+const earlyReceipts = new Map<string, string>()
+
+function earlyReceiptKey (cid: string, eventId: string): string {
+    return `${cid}:${eventId}`
+}
+
+function mergeStatus (current: string | undefined, next: string | undefined): string | undefined {
+    if (!next) return current
+    if (!current || current === 'failed') return next
+    if (next === 'failed') {
+        return (STATUS_RANK[current] ?? -1) >= STATUS_RANK.delivered ? current : next
+    }
+    return (STATUS_RANK[next] ?? -1) > (STATUS_RANK[current] ?? -1) ? next : current
+}
+
+function setStatus (message: any, status: string) {
+    if (!message?.content) return
+    const merged = mergeStatus(message.content.status, status)
+    if (merged !== message.content.status) message.content.status = merged
+}
+
+function applyReceipt (messages: any[], index: number, status: string) {
+    const target = messages[index]
+    setStatus(target, status)
+
+    if (!CUMULATIVE_STATUSES.includes(status) || !currentUserUri || target?.sender !== currentUserUri) return
+    for (let i = index - 1; i >= 0; i--) {
+        const message = messages[i]
+        if (message?.type === MSRP_EVT.MESSAGE && message.sender === currentUserUri) {
+            setStatus(message, status)
+        }
+    }
+}
+
+function keepEarlyReceipt (cid: string, eventId: string, status: string) {
+    const key = earlyReceiptKey(cid, eventId)
+    earlyReceipts.set(key, mergeStatus(earlyReceipts.get(key), status) ?? status)
+    if (earlyReceipts.size > MAX_EARLY_RECEIPTS) {
+        const oldest = earlyReceipts.keys().next().value
+        if (oldest !== undefined) earlyReceipts.delete(oldest)
+    }
+}
+
+function applyEarlyReceipt (cid: string, messages: any[], eventId: string | undefined) {
+    if (!eventId) return
+    const key = earlyReceiptKey(cid, eventId)
+    const status = earlyReceipts.get(key)
+    if (!status) return
+    earlyReceipts.delete(key)
+    const index = findLastIndexByEventId(messages, eventId)
+    if (index !== -1) applyReceipt(messages, index, status)
+}
+
 function normalizeTagName (name: unknown): string {
     return typeof name === 'string' ? name.trim().toLowerCase() : ''
 }
@@ -143,7 +297,7 @@ function computeUnreadCount (
     if (!real.length) return 0
     if (lastReadMessageId === null) return real.length
     if (lastReadMessageId === undefined) return 0
-    const idx = findLastIndexByEventId(real, lastReadMessageId)
+    const idx = findReadIndex(real, lastReadMessageId)
     if (idx === -1) return real.length
     return real.length - idx - 1
 }
@@ -156,7 +310,7 @@ function computeFirstUnreadEventId (
     if (!real.length) return null
     if (lastReadMessageId === null) return real[0]?.event_id ?? null
     if (lastReadMessageId === undefined) return null
-    const idx = findLastIndexByEventId(real, lastReadMessageId)
+    const idx = findReadIndex(real, lastReadMessageId)
     if (idx === -1) return real[0]?.event_id ?? null
     return real[idx + 1]?.event_id ?? null
 }
@@ -305,17 +459,9 @@ function clearAllTypingTimers (): void {
     incomingTypingTimers.clear()
 }
 
-function resolveLastEventId (conversationId: string): string | null {
-    const messages = messagesByConversation.value[conversationId]
-    if (!messages?.length) return null
-    const lastMsg = [ ...messages ]
-        .filter((m: any) => m.type === MSRP_EVT.MESSAGE && m.event_id)
-        .sort((a: any, b: any) => (a.origin_server_ts || 0) - (b.origin_server_ts || 0))
-        .pop()
-    return lastMsg?.event_id ?? null
-}
-
 let lastRequestedReadEventIdByConv: Record<string, string> = {}
+
+const seenEventIdByConv = ref<Record<string, string>>({})
 
 const autoReadExclusions = new Set<string>()
 
@@ -330,22 +476,29 @@ watch(
         if (autoReadExclusions.has(cid)) return null
         const conv = conversations.value[cid]
         if (!conv) return null
-        const latestEventId = resolveLastEventId(cid)
-        if (!latestEventId) return null
+        const seenEventId = seenEventIdByConv.value[cid]
+        if (!seenEventId) return null
         return {
             cid,
             pointer: conv.currentUserLastReadMessageId,
-            latestEventId
+            seenEventId
         }
     },
     (payload) => {
         if (!openSIPSJS || !payload) return
-        const { cid, pointer, latestEventId } = payload
-        if (pointer === latestEventId) return
-        if (lastRequestedReadEventIdByConv[cid] === latestEventId) return
-        lastRequestedReadEventIdByConv[cid] = latestEventId
-        const ok = openSIPSJS.msrp.sendReadReceipt(cid, latestEventId)
-        if (ok) applyOptimisticPointer(cid, latestEventId)
+        const { cid, pointer, seenEventId } = payload
+        if (pointer === seenEventId) return
+
+        // Forward only.
+        const real = onlyRealMessages(messagesByConversation.value[cid])
+        const seenIndex = findLastIndexByEventId(real, seenEventId)
+        if (seenIndex === -1) return
+        if (pointer && findReadIndex(real, pointer) >= seenIndex) return
+
+        if (lastRequestedReadEventIdByConv[cid] === seenEventId) return
+        lastRequestedReadEventIdByConv[cid] = seenEventId
+        const ok = openSIPSJS.msrp.sendReadReceipt(cid, seenEventId)
+        if (ok) applyOptimisticPointer(cid, seenEventId)
     },
     { immediate: true }
 )
@@ -448,7 +601,7 @@ export const vsipAPI: VsipAPI = {
                             const nextMessages = { ...messagesByConversation.value }
                             const incoming = payload.messagesByConversation ?? {}
                             for (const [ cid, historicalList ] of Object.entries(incoming)) {
-                                const serverList = sortMessagesByTimestamp(historicalList as any[])
+                                const serverList = sortMessagesByTimestamp(applyHistoryEdits(historicalList as any[]))
                                 const pendingIds = new Set<string>()
                                 for (const [ key, pending ] of pendingHides) {
                                     if (pending.cid !== cid) continue
@@ -466,6 +619,12 @@ export const vsipAPI: VsipAPI = {
                                 )
                             }
                             messagesByConversation.value = nextMessages
+                            for (const key of [ ...earlyReceipts.keys() ]) {
+                                const separator = key.indexOf(':')
+                                const cid = key.slice(0, separator)
+                                const messages = messagesByConversation.value[cid]
+                                if (messages) applyEarlyReceipt(cid, messages, key.slice(separator + 1))
+                            }
                         })
                         .on('msrpConversationCreated', (payload) => {
                             const cid = idKey(payload.conversation.conversation_id)
@@ -528,30 +687,36 @@ export const vsipAPI: VsipAPI = {
                                     (m: any) => m?.event_id === incomingEventId
                                 )
                                 if (existingIdx !== -1) {
+                                    const existing = list[existingIdx]
                                     list.splice(existingIdx, 1, {
-                                        ...list[existingIdx],
+                                        ...existing,
                                         ...payload.message,
                                         content: {
-                                            ...(list[existingIdx]?.content ?? {}),
-                                            ...(payload.message?.content ?? {})
+                                            ...(existing?.content ?? {}),
+                                            ...(payload.message?.content ?? {}),
+                                            status: mergeStatus(existing?.content?.status, payload.message?.content?.status)
                                         }
                                     })
+                                    applyEarlyReceipt(cid, list, incomingEventId)
                                     c.updated_at = payload.message.origin_server_ts || Date.now()
                                     return
                                 }
                             }
                             list.push(payload.message)
+                            applyEarlyReceipt(cid, list, incomingEventId)
                             c.updated_at = payload.message.origin_server_ts || Date.now()
                             const senderUri = payload.message?.sender
                             if (senderUri) clearTypingIndicator(cid, senderUri)
                         })
                         .on('msrpReceiptChanged', (payload) => {
                             const cid = idKey(payload.conversation_id)
-                            if (!cid) return
+                            if (!cid || !payload.eventId || editEvents.has(payload.eventId)) return
                             const messages = messagesByConversation.value[cid]
-                            if (messages) {
-                                const m = findMessage(messages, payload.eventId)
-                                if (m?.content) m.content.status = payload.status
+                            const index = messages ? findLastIndexByEventId(messages, payload.eventId) : -1
+                            if (messages && index !== -1) {
+                                applyReceipt(messages, index, payload.status)
+                            } else {
+                                keepEarlyReceipt(cid, payload.eventId, payload.status)
                             }
                             const c = conversations.value[cid]
                             if (c) c.updated_at = payload.updatedAt
@@ -572,8 +737,10 @@ export const vsipAPI: VsipAPI = {
                             const cid = idKey(payload.conversation_id)
                             if (!cid) return
                             const messages = messagesByConversation.value[cid]
+                            const messageId = resolveEditRoot(payload.eventId)
+                            rememberEditEvent(payload.editEvent?.event_id, payload.eventId, payload.updatedAt || Date.now())
                             if (messages) {
-                                const m = findMessage(messages, payload.eventId)
+                                const m = findMessage(messages, messageId)
                                 if (m?.content) {
                                     const newText = payload.newContent?.content
                                     if (typeof newText === 'string') m.content.content = newText
@@ -857,6 +1024,13 @@ export const vsipAPI: VsipAPI = {
         setActiveConversation (conversationId: string | null) {
             if (currentConversationId.value === conversationId) return
             currentConversationId.value = conversationId
+        },
+        markSeen (conversationId: string, eventId: string) {
+            if (seenEventIdByConv.value[conversationId] === eventId) return
+            seenEventIdByConv.value = {
+                ...seenEventIdByConv.value,
+                [conversationId]: eventId
+            }
         },
         requestUploadUrl (
             conversationRef: MSRPConversationRef,

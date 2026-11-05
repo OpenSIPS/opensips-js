@@ -148,6 +148,8 @@ export interface VsipAPIActions {
     rejectInvite (conversationRef: MSRPConversationRef): boolean
     leaveConversation (conversationRef: MSRPConversationRef): boolean
     setActiveConversation (conversationId: string | null): void
+    /** The read pointer follows the newest seen message. */
+    markSeen (conversationId: string, eventId: string): void
     requestUploadUrl (
         conversationRef: MSRPConversationRef,
         filename: string,

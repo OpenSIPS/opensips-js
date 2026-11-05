@@ -910,7 +910,9 @@ export class MSRPModule {
     public sendReadReceipt (conversationRef: MSRPConversationRef, lastEventId: string): boolean {
         const conversationId = this.toConversationId(conversationRef)
         if (conversationId === null || !lastEventId || !this.hasActiveSession) return false
-        return this.sendEvent(this.buildReadReceiptEvent(conversationId, lastEventId))
+        const sent = this.sendEvent(this.buildReadReceiptEvent(conversationId, lastEventId))
+        if (sent) this.setCurrentUserReadPointer(conversationId, lastEventId)
+        return sent
     }
 
     /**
@@ -925,7 +927,20 @@ export class MSRPModule {
     ): boolean {
         const conversationId = this.toConversationId(conversationRef)
         if (conversationId === null || !this.hasActiveSession) return false
-        return this.sendEvent(this.buildUnreadEvent(conversationId, lastReadEventId ?? null))
+        const sent = this.sendEvent(this.buildUnreadEvent(conversationId, lastReadEventId ?? null))
+        if (sent) this.setCurrentUserReadPointer(conversationId, lastReadEventId ?? null)
+        return sent
+    }
+
+    /** The server returns the own read pointer only on the next sync. */
+    private setCurrentUserReadPointer (conversationId: number, pointer: string | null) {
+        const conversation = this.conversationsMap.get(String(conversationId))
+        if (!conversation || conversation.currentUserLastReadMessageId === pointer) return
+        conversation.currentUserLastReadMessageId = pointer
+        this.context.emit('msrpConversationUpdated', {
+            conversation_id: conversation.conversation_id,
+            patch: { currentUserLastReadMessageId: pointer }
+        })
     }
 
     /**
@@ -1138,8 +1153,18 @@ export class MSRPModule {
 
         const response = await fetch(uploadMeta.upload_url, { method: 'POST', body: formData })
         if (!response.ok) {
-            const err: any = await response.json().catch(() => ({}))
-            throw new Error(err?.error || `Upload failed: HTTP ${response.status}`)
+            // The reason may come as { error }, { message } or plain text.
+            const body = await response.text().catch(() => '')
+            let reason = ''
+            try {
+                const parsed = JSON.parse(body)
+                reason = parsed?.error || parsed?.message || ''
+            } catch {
+                reason = body.trim().slice(0, 200)
+            }
+            throw new Error(reason
+                ? `Upload failed: HTTP ${response.status} — ${reason}`
+                : `Upload failed: HTTP ${response.status}`)
         }
 
         return (await response.json()) as MSRPUploadResult
