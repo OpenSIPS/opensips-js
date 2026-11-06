@@ -561,7 +561,7 @@ export class AudioModule {
         const call = this.extendedCalls[callId]
         if (!call) return
 
-        call._automaticHold = automatic ?? false
+        if (call.isOnHold().local === toHold) return
 
         const holdPromise = new Promise<void>((resolve, reject) => {
             const timeout = setTimeout(() => {
@@ -582,10 +582,19 @@ export class AudioModule {
             try {
                 if (toHold) {
                     this.stopSessionVad()
-                    call.hold({}, handleComplete)
-                } else {
-                    call.unhold({}, handleComplete)
                 }
+
+                const started = toHold
+                    ? call.hold({}, handleComplete)
+                    : call.unhold({}, handleComplete)
+
+                // JsSIP refused the re-INVITE, so done will never be called
+                if (!started) {
+                    handleError(new Error('Hold operation was not started'))
+                    return
+                }
+
+                call._automaticHold = automatic ?? false
             } catch (error) {
                 handleError(error)
             }
@@ -2746,7 +2755,7 @@ export class AudioModule {
             // If holdOtherCalls is true, put all other calls in the room on hold
             if (holdOtherCalls) {
                 const callsToHold = Object.values(this.extendedCalls)
-                    .filter(c => c.roomId === this.currentActiveRoomId && c._id !== call.id)
+                    .filter(c => c.roomId === this.currentActiveRoomId && c._id !== call.id && !c.isOnHold().local)
 
                 for (const otherCall of callsToHold) {
                     this.holdCall(otherCall._id, true)
